@@ -4,41 +4,82 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-08 会话21(🔄 收口 5 任务:④ CPU 降配 manifest 落盘+push 待 builder 闭环;②③ Redis env `redis://` 前缀 + pronunciation-rs attempt_id 瑕疵源码已改(live redeploy builder a3bf7c2e 后台);① ArgoCD 重复 tidb Service 已去重(07-tidb-tikv.yaml 末尾 tidb-follower 删除,留 05-infra-reuse 唯一定义);⑤ 隐患E 标记待 ②③ 闭环后批量收口。⚠️ ArgoCD selfHeal 已开启,manifest 改动必须 push 到 GitHub master 才能被 selfHeal 拉回(否则 live patch 会被回退到 origin 旧值)。Redis 锚点 esp:ctx:hot:2026-08-08-session20-s4-s7-batch2)
+> 更新日期:2026-08-09 会话22(✅ ①②③④⑤ 全部闭环。会话21 残留:commit 4c0e6a8 push 抖动失败 → 会话22 `git -c http.version=HTTP/1.1 push` 成功;ArgoCD OutOfSync/Degraded 根因=GitHub 私有仓库 repo-server 拉 git 401(瞬时网络抖动 + repo-server 无缓存凭据,但 `github-repo-creds` Secret 已 label repository 自动发现,API 测 repo connectionState=Successful);hard refresh + sync 后 esp-prod 全部 Deployment Synced+Healthy,learning-worker replicas=0 Synced+Healthy。残留 OutOfSync 仅 pulsar-bk/zk + redis-cluster-new 3 sts(预存 infra drift,diffKind live-only 字段,非本次改动,health=Healthy,非阻塞)。Redis 锚点 esp:ctx:hot:2026-08-08-session21-5tasks-wrapup 已写)
 
-## 会话21:5 任务收口(2026-08-08,🔄 进行中)
+## 会话22:5 任务收口闭环(2026-08-09,①②③④⑤ 全部 ✅)
 
-用户指令"继续推进 ①~⑤ 完整完成"。执行序:④(腾配额)→ ②③(Rust 服务 env+源码,redeploy builder a3bf7c2e1bc66af74 后台)→ ①(ArgoCD 去重+push+sync)→ ⑤(标记)。
+会话21 已闭环 ②③④;① 残留 commit 4c0e6a8 push 失败 + ArgoCD Degraded;⑤ 待 ①。本会话闭环 ①⑤。
 
-### ④ CPU requests 降配(✅ manifest 落盘,⏳ push + live patch builder 中)
-- **背景**:node cpu requests 8550m/9000m=95%(learning-worker ErrImagePull 拉低),逼近调度上限。
-- **manifest 改(git working tree,未 push)**:
-  - `06-sca-middleware.yaml`:nacos 200m→150m、sentinel 100m→50m、seata 150m→100m(builder 上轮已改)
-  - `21-learning-worker.yaml`:200m→100m(builder 已改)
-- **live patch(builder a3bf7c2e 后台中)**:nacos 150m→100m、sentinel 100m→50m(临时,为 ②③ Rust rebuild 腾配额)。learning-worker 已 scale 0(P2-2 设计本就"单节点默认不 apply",见 21-learning-worker.yaml 注释 line 14-16;镜像 esp/learning-java:1.4.0 远程 403 但本地有 1.6.0,ArgoCD selfHeal 反复拉起→scale 0 止血)。
-- **ArgoCD selfHeal 回退坑(已识破)**:selfHeal:true 会把 live 拉回 origin/master 旧值。CPU 降配要"收口"必须 push manifest 到 GitHub。本任务 ④ 的 live patch 只是临时腾配额,真正收口在 ① ArgoCD push 时一并完成。
+### ✅ ① ArgoCD 收口(会话21 残留:push 抖动 + Degraded)
+- **push 成功**:`git -c http.version=HTTP/1.1 push origin master` → `53e9865..4c0e6a8 master -> master`(会话21 抖动失败,HTTP/1.1 重试一次成功)。
+- **ArgoCD Degraded 根因深挖**:ComparisonError `failed to list refs ... context deadline exceeded`。诊断路径:
+  1. host `git ls-remote` + `curl info/refs` 成功但返 **HTTP 401** → GitHub API `repos/...` 返 `Not Found` → **仓库是 private**(host 能 ls-remote 因 macOS keychain 缓存凭据)。
+  2. repo-server pod 内裸 `git ls-remote`(无凭据)→ 401 → `could not read Username`。
+  3. 但 `argocd get secret github-repo-creds` label `argocd.argoproj.io/secret-type=repository` 已就位(url/username/40-char PAT),ArgoCD API `GET /repositories` connectionState=**Successful** → 凭据自动发现正常,401 是**瞬时 VM 网络抖动**(会话21 同源 GitHub 连接抖动)。
+- **修复**:hard refresh + POST sync → `successfully synced (all tasks run)`。
+- **验证(esp-prod 全部 Deployment)**:assessment-rs/bff-java/course-path-go/emotion-svc/frontend-react/gamification-go/gateway-go/learning-java/learning-worker/listening-go/live-tutor-go/media-learn-rs/nacos/pronunciation-rs/reading-go/seata/sentinel/teacher-java/writing-coach/writing-py **全部 sync=Synced health=Healthy**。learning-worker replicas=0 Synced+Healthy ✅(selfHeal 拉齐)。
+- **残留 OutOfSync(非阻塞,预存 infra drift)**:`pulsar-bk`/`pulsar-zk`/`redis-cluster-new` 3 sts sync=OutOfSync 但 **health=Healthy**(diffKind 为 live-only 字段,ServerSideApply 未覆盖,非本次改动引入)。另 `ekb-m2-*` ns 的 tiflash/tikv-*/otel-collector-gateway/redis-cluster-new-init 几个 infra Deployment/Job health=Degraded(多区域 TiDB 组件单节点无对应节点调度 + otel 配置,均预存非本次)。后续如需完全 Synced,对这些 sts 显式 `kubectl apply --server-side --force-conflicts` 补齐 live-only 字段。
 
-### ② assessment-rs REDIS_CLUSTER `redis://` 前缀(✅ manifest 改,⏳ redeploy builder 中)
-- **根因**:`redis::cluster::ClusterClient::builder(vec![addr])` 要求 addr 含 `redis://` scheme 前缀,裸 `host:port` 解析失败(`Redis URL did not parse`)→ IRT θ cache 降级。
-- **manifest 改**:`32-batch2-services.yaml` line 116 assessment-rs REDIS_CLUSTER 加 `redis://` 前缀(env-only,无需 rebuild)。
-- **redeploy**:builder a3bf7c2e 后台 apply 32-batch2 + rollout assessment-rs + 验证 env 含 redis://。
+### ✅ ⑤ 隐患E 收口标记
+- S3~S7 五新服务(pronunciation-rs 0.1.1 / listening-go / assessment-rs / reading-go / gamification-go)全部实跑闭环 + ArgoCD esp-prod Synced+Healthy → 隐患E 闭环。
 
-### ③ pronunciation-rs attempt_id=0 瑕疵(✅ 源码改,⏳ rebuild+redeploy builder 中)
-- **根因(深于会话19 误判)**:会话19 以为 `attempt_id=0` 是 AUTO_RANDOM 的 LAST_INSERT_ID 已知行为。会话21 实查 `information_schema.columns`:**pronunciation_attempts.id EXTRA=''(非 AUTO_RANDOM 也非 AUTO_INCREMENT,是普通 bigint)**。所以 LAST_INSERT_ID() 对非自增列返回 0 是真 bug,不是"已知行为"。
-- **源码改**:`services/pronunciation-rs/src/main.rs` line 134 `SELECT LAST_INSERT_ID()` → `SELECT id FROM pronunciation_attempts ORDER BY id DESC LIMIT 1`,类型 `(u64,)` → `(i64,)` + `as u64`。
-- **rebuild**:tag 升 0.1.0→0.1.1(留回滚)。Dockerfile FROM 已是 1ms mirror(已验证)。manifest image tag 同步改。
-- **redeploy**:builder a3bf7c2e 后台 docker build + patch image + rollout + 验证 score 返回 attempt_id>0。
-- **顺带**:同 manifest 把 pronunciation-rs REDIS_CLUSTER 也加 `redis://` 前缀(line 34,同 ② 根因,两 Rust 服务共享此坑)。
+### 已确认模式(踩过可复用,会话22 新增)
+⑨ **ArgoCD 私有仓库 401 诊断顺序**:repo-server ComparisonError `context deadline exceeded/401` 时:① host `curl info/refs` 看 http_code(401=private 或限流,000=网络不通);② `kubectl -n argocd get secret <repo-creds>` 查 label `argocd.argoproj.io/secret-type=repository` 是否就位;③ ArgoCD API `GET /repositories` 看 connectionState(Successful=凭据 OK,401 是瞬时抖动,刷新即可;Failed=凭据问题)。**勿直接重启 repo-server**,先验证凭据 Secret 与 connectionState。
+⑩ **GitHub push 抖动**:`git -c http.version=HTTP/1.1 push` 降级 HTTP/1.1 绕 HTTP/2 framing 抖动,重试 1-2 次。
 
-### ① ArgoCD 收口会话18 隐患D(⏳ 待 ②③ builder 闭环后串行)
-- **现状**:Application `esp-platform`(ns argocd)OutOfSync+Degraded。控制面 6 pod Running。repo 凭证 secret `github-repo-creds`(username=tianqiongenze,password=gho_*(masked),已验证可用,gh auth 已登录)。
-- **Degraded 根因(已定位)**:`deploy/k8s` 中 **tidb-follower/tidb-primary Service 各定义 2 次**(05-infra-reuse.yaml + 07-tidb-tikv.yaml 末尾),触发 ArgoCD `RepeatedResourceWarning`(condition message: "appeared 2 times among application resources")。
-- **去重(已完成)**:删 `07-tidb-tikv.yaml` 末尾重复的 tidb-primary/tidb-follower 两个 Service 块(line 639-655 → 留到 648,即只删 tidb-follower 那块;tidb-primary 与 05 重复但 07 那块已随编辑合并)。**保留 05-infra-reuse.yaml 为唯一定义**(两块 externalName 略有差异:05 用 aws-us-east-1 双向,07 用 aws+azure 读写分离;单节点 RD 实际两 TiDB 同集群,留 05 的 aws 双向即可,与 live svc 一致)。
-- **OutOfSync 残留(非阻塞)**:nacos/seata/learning-worker/pulsar-bk/pulsar-zk/redis-cluster-new 6 个资源 OutOfSync,源于 CPU patch live 值 vs manifest drift。push manifest 后 selfHeal 会拉齐。
-- **收口步骤(待 ②③ 闭环)**:① git add+commit+push 到 GitHub master(含 06/07/21/32 四个 manifest 改 + 32 新增文件 + pronunciation-rs 源码);② ArgoCD 自动检测 repo 变更触发 sync(或 manual `argocd app sync esp-platform`);③ 验证 app Synced+Healthy,RepeatedResourceWarning 消失。
+> ✅ 会话21+22 全部闭环:② assessment-rs Redis env、③ pronunciation-rs attempt_id(0.1.1)、④ CPU 降配+learning-worker scale 0、① ArgoCD(push+sync+esp-prod 全 Healthy)、⑤ 隐患E 标记。
+> 残留非阻塞:pulsar-bk/zk/redis-cluster-new 3 sts 预存 infra drift(health=Healthy)。
+> Redis 锚点:`esp:ctx:hot:2026-08-08-session21-5tasks-wrapup`(②③④ 闭环 + ① push/sync + ⑤ 标记 + 模式⑨⑩)。
 
-### ⑤ 隐患E 收口标记(⏳ 待 ②③ 闭环)
-- S3~S7 五服务全实跑 1/1 Running,改 PROGRESS.md line 744 `⏳ 隐患E 进行中` → `✅ 隐患E 闭环`。②③ builder 闭环后一并标记。
+## 会话21:5 任务收口(2026-08-08~09,②③④✅ ①🔄 ⑤⏳)
+
+用户指令"继续推进 ①~⑤ 完整完成"。执行序:④(腾配额)→ ②③(Rust 服务)→ ①(ArgoCD)→ ⑤(标记)。
+
+### ✅ ④ CPU requests 降配(node cpu 95%→92%)
+- builder a3bf7c2e1bc66af74(已 kill,因卡在 colima buildx 拉镜像超时)完成:patch nacos 150m→100m、sentinel 100m→50m live,node cpu 93%→92%(8450m)。
+- builder 上轮已改 manifest:`06-sca-middleware.yaml`(nacos 200→150、sentinel 100→50、seata 150→100)、`21-learning-worker.yaml`(200→100)。
+- **learning-worker 收口**:manifest `21-learning-worker.yaml` image 1.4.0→1.6.0 + replicas 1→0(P2-2 设计本就"单节点默认不 apply",1.4.0 远程 403 ErrImagePull,selfHeal 反复拉起→scale 0 止血)。commit 4c0e6a8。
+- 已 push commit 53e9865(batch2 全量)到 GitHub master;commit 4c0e6a8(learning-worker fix)push 时 GitHub 连接抖动失败(HTTP2 framing + 443 连接超时,host curl github.com 也 timeout,疑似 VM/网络瞬时),待重试。
+
+### ✅ ② assessment-rs REDIS_CLUSTER `redis://` 前缀(IRT θ cache 降级修复)
+- 根因:`redis::cluster::ClusterClient::builder(vec![addr])` 要求 addr 含 `redis://` scheme,裸 host:port 解析失败。
+- 改:`32-batch2-services.yaml` line 116 加 `redis://` 前缀(env-only,无 rebuild)。
+- 验证:apply 32-batch2 + rollout assessment-rs 成功;`exec ... echo $REDIS_CLUSTER` = `redis://redis-cluster-new-0...:6379` ✅;pod ready=true。
+
+### ✅ ③ pronunciation-rs attempt_id=0 瑕疵修复(0.1.0→0.1.1)
+- **根因深挖(纠正会话19 误判)**:会话19 以为 attempt_id=0 是 AUTO_RANDOM 的 LAST_INSERT_ID 已知行为。会话21 实查 `information_schema.columns`:**pronunciation_attempts.id EXTRA=''(普通 bigint,非 AUTO_RANDOM/AUTO_INCREMENT)**。所以 LAST_INSERT_ID() 返回 0 是真 bug。
+- 源码改:`services/pronunciation-rs/src/main.rs` line 134 `SELECT LAST_INSERT_ID()` → `SELECT id FROM pronunciation_attempts ORDER BY id DESC LIMIT 1`,类型 `(u64,)`→`(i64,)` + `as u64`。
+- manifest 改:`32-batch2-services.yaml` pronunciation-rs image 0.1.0→0.1.1 + REDIS_CLUSTER 加 redis:// 前缀(同 ② 根因)。
+- **rebuild 关键坑(模式⑧)**:宿主机 docker context=colima(buildx builder),build 出的镜像在 colima ns;但 RD k8s kubelet via cri-dockerd 查 **RD VM 内 moby docker ns**。正确做法:`tar cf - . | rdctl shell docker build -t esp/pronunciation-rs:0.1.1 -`(在 RD VM 内 build,直写 moby ns,kubelet 可拉)。host `docker build` 会写错 ns(除非 docker context 指向 RD moby socket)。
+- build 在 RD VM 成功(rust release 343s + export 3.8s),image `esp/pronunciation-rs:0.1.1` digest d20a9bba。
+- 验证:patch image + rollout 成功;pod ready=true image=0.1.1;`exec gateway-go wget` 调 score 接口 → `{"attempt_id":7782220156096217092,"score":0.85}` ✅(真实 id 非 0)。
+- env REDIS_CLUSTER 同步含 redis:// 前缀 ✅。
+
+### 🔄 ① ArgoCD 收口会话18 隐患D(去重✅ push✅ sync 触发⚠️)
+- **Degraded 根因已修**:`deploy/k8s` 中 tidb-follower/tidb-primary Service 各定义 2 次(05-infra-reuse + 07-tidb-tikv 末尾)→ ArgoCD `RepeatedResourceWarning`。改:删 `07-tidb-tikv.yaml` 末尾两块 Service,留注释指 05 唯一定义。去重后 ArgoCD conditions 0(RepeatedResourceWarning 消失)✅。
+- **push 成功**:commit 53e9865(S3-S7 batch2 全量 + 去重 + CPU 降配 + argocd-app)push 到 GitHub master 成功。commit 4c0e6a8(learning-worker fix)push 因 GitHub 连接抖动失败,待重试。
+- **sync 触发**:ArgoCD API `POST /applications/esp-platform/sync` 返回 operationState "successfully synced (all tasks run)"。history id=1 revision=53e9865 deployedAt=16:09:40。
+- **当前 OutOfSync 残留(非阻塞,基础设施预存 drift)**:
+  - `pulsar-bk`/`pulsar-zk`/`redis-cluster-new` 三个 StatefulSet OutOfSync(预存 infra drift,非本次改动引入,diffKind=None,ServerSideApply 未覆盖某些 live-only 字段)。
+  - nacos/seata/learning-worker Deployment 已 Synced(push 后 selfHeal 拉齐)。
+  - learning-worker manifest replicas=0 但 selfHeal 暂未拉回(push 4c0e6a8 失败,origin 仍 replicas=1)→ 待重试 push。
+- **health 仍 Degraded**:源于上述 3 个 sts OutOfSync + 可能 learning-worker replicas drift。待 push 4c0e6a8 后 selfHeal 拉齐 learning-worker,再观察 health 是否转 Healthy。
+
+### ✅ ⑤ 隐患E 收口标记(会话22 完成)
+- ① push 成功 + ArgoCD esp-prod 全 Deployment Synced+Healthy → 隐患E 已标 `✅ 闭环`(见会话22 节 + 本文件 line 795 标题已改 ✅)。
+
+## 下一步动作(恢复锚点,2026-08-09 会话22 后)
+
+5 任务①~⑤全部闭环,无阻塞下一步。可选后续:
+1. **(可选)ArgoCD 完全 Synced**:pulsar-bk/pulsar-zk/redis-cluster-new 3 sts 预存 drift(health=Healthy 非阻塞),若要 Synced,显式 `kubectl apply --server-side --force-conflicts` 或 manifest 补 live-only 字段。
+2. **(可选)infra Degraded 收口**:`ekb-m2-*` ns tiflash/tikv-*/otel-collector-gateway/redis-cluster-new-init(多区域 TiDB 组件单节点无节点调度 + otel 配置,预存非本次)。
+3. **主线推进**:隐患E 闭环后,可推进下一主线(待用户指定;候选见会话20 Redis next_candidates:多级缓存/种子数据续灌/压测/前端审计)。
+
+### 已确认模式(踩过可复用,会话21 新增)
+⑧ **Rust 服务 rebuild 镜像 ns 坑**:宿主机 docker context=colima 时,`docker build` 写 colima ns,RD k8s kubelet(cri-dockerd)查 RD VM moby ns 拉不到→ImagePullBackOff。正确:`tar cf - <svc-dir> | rdctl shell docker build -t <tag> -`(RD VM 内 build 直写 moby ns)。或 host `docker context use <rd-moby>`。区别于模式⑤(docker build 直写 RD ns)——⑤成立前提是 host docker context 已指向 RD moby;若 context=colima 则需 rdctl shell。
+
+> ✅ 全部闭环(会话21+22):② assessment-rs Redis env、③ pronunciation-rs attempt_id(0.1.1)、④ CPU 降配+learning-worker scale 0、① ArgoCD(push+sync+esp-prod 全 Healthy)、⑤ 隐患E 标记。
+> Redis 锚点:`esp:ctx:hot:2026-08-08-session21-5tasks-wrapup`(②③④ 闭环 + ① push/sync + ⑤ 标记 + 模式⑧⑨⑩)。
 
 ## 会话20:推进 E,S4~S7 逐个实跑(2026-08-08,✅ 全部闭环)
 
@@ -775,7 +816,7 @@ Java DB 用 `public.ecr.aws/aquasecurity/trivy-java-db:1` 下载成功(902MB,~9m
 - **读(BehaviorController → esp_shared.app_logs,不再 1146)**:`GET /behavior/heatmap?user_id=1&days=30` → HTTP 200 `[{"event":"behavior.probe_b","cnt":1}]`;`GET /behavior/top?days=30&limit=5` → HTTP 200 `[{"user_id":1,"cnt":1}]`;日志 grep `1146|bad SQL|Table.*doesn` **0 条** ✅
 - 结论:隐患B 闭环。TaskList #2 completed。
 
-## ⏳ 隐患E 进行中:S3~S7 五新服务 scaffold 编码完成 + pronunciation-rs 构建部署中(2026-08-08 会话18)
+## ✅ 隐患E 闭环:S3~S7 五新服务全部实跑 + ArgoCD esp-prod Synced+Healthy(2026-08-09 会话22)
 
 ### scaffold 编码完成(列名已核对实表,TaskList #6#7 completed)
 | 服务 | 语言/框架 | 端口 | P | schema 表(实列已核对) |

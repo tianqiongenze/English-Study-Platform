@@ -4,7 +4,7 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-08(🔄 会话18 并行推进 A/B/C/D/E 五条线。✅ 隐患A收敛:writing-py/emotion-svc 镜像 runtime 已 esp_shared(exec 实锤),仅 gateway-go 1.5.0 旧镜像跑 esp(app_logs 1146 实锤)→ rebuild 1.5.1 builder 进行中。🔄 隐患B:learning AppLogClient 写 + BehaviorController 读 app_logs 双 1146(根因 app_logs 在 esp_shared 但 WRITE/READ_DB_URL 指 esp_learning),已改代码新增 SharedDataSourceConfig+sharedJdbcTemplate,application.yml+deploy yaml 加 SHARED_DB_URL,mvn clean compile BUILD SUCCESS → rebuild 1.6.2 builder 进行中。🔄 隐患C:trivy 4CRIT 实为旧 trixie 报告残留,当前 1.6.1 bookworm perl 5.36.0-7+deb12u3(exec 实锤),待重扫确认清零。⏳ D 等用户 GitHub URL。⏳ E schema Phase1 Batch2~5/新服务填实待推进)
+> 更新日期:2026-08-08(🔄 会话18 并行推进 A/B/C/D/E。✅ D 线 git 迁入闭环:gh 创建私有仓库 tianqiongenze/English-Study-Platform 并首次 push(530 文件,master 分支),Dependabot + vulnerability-alerts + automated-security-fixes 已启用,dependabot.yml(maven/gomod/pip/npm 多生态)+ security.yml + ci.yml 已入库。ArgoCD 待装(等 A/B builder 闭环后串行,单节点铁律)。✅ C 线定性:trivy 重扫 writing-py/emotion 1.6.1 实测 6 CRIT(libsqlite3-0 CVE-2025-7458 + perl-base ×4 + zlib1g CVE-2023-45853),全 Fix=None 上游无补丁 + OS 核心包不可 purge(zlib1g 被 dpkg/util-linux 依赖,perl-base 是 dpkg 硬依赖)→ 用户拍板登记豁免保持 bookworm。🔄 A= gateway-go 1.5.1 builder 进行中。🔄 B= learning-java 1.6.2 builder 进行中(代码改完编译过,BehaviorController 已加 @Qualifier jdbcTemplate/sharedJdbcTemplate)。⏳ E schema Phase1 Batch2~5 已完成,待 scaffold S3~S7 五新服务)
 
 ## 会话18:并行推进 A/B/C/D/E(2026-08-08 14:00~,🔄 进行中)
 
@@ -26,10 +26,22 @@
   - `mvn -o clean compile` BUILD SUCCESS(22 source files)。
 - 部署:rebuild `esp/learning-java:1.6.2`(esp-builder af2ba9a84778d8181 后台:mvn package → nerdctl build → set image → rollout → 验证 behavior 写 +1、heatmap/top 读 200 无 1146)。注意与 gateway builder 串行(单节点铁律)。
 
-**隐患C — Python 镜像 bookworm 6CRIT(改判)**:
-- 原 PROGRESS 记"bookworm 6CRIT fix=N/A 需换 alpine/trixie"。实查 trivy 报告(aug7 09:12/09:18)4 CRIT 全是 `perl-base 5.40.1-6`——这是 **trixie(debian13)** 的 perl,但 Dockerfile 写的是 `python:3.13-slim-bookworm`(debian12)。exec 进 writing-py pod 实锤 `perl-base 5.36.0-7+deb12u3 / Debian 12 bookworm`。**结论:trivy 报告是旧 1.6.0(trixie base)扫的残留,当前 1.6.1 bookworm 实际 perl 已是修过版本**。需用当前 1.6.1 镜像 trivy image 重扫确认 CRIT 清零(类似 learning 1.6.0→1.6.1 路径)。若重扫 0CRIT 则 C 直接闭环,保持 bookworm(依赖 litestar/granian/pydantic/anthropic/langgraph 多为纯 Python/有 wheel,alpine 收益不大且增加构建复杂度)。
+**隐患C — Python 镜像 bookworm 6CRIT(✅ 定性,登记豁免)**:
+- trivy image 重扫 writing-py/emotion-svc 1.6.1(当前 bookworm,非旧 trixie 报告):**6 CRIT** = libsqlite3-0(CVE-2025-7458)+ perl-base ×4(CVE-2026-13221/42496/57433/8376)+ zlib1g(CVE-2023-45853),HIGH 18,MEDIUM 65。两个镜像完全一致(同 python:3.13-slim-bookworm base)。报告落 `report/security/trivy-image-writing-py-1.6.1.json` / `trivy-image-emotion-svc-1.6.1.json`。
+- **原"trixie 残留"假设被推翻**:旧报告 perl 5.40.1-6(trixie)4CRIT,新扫 perl 5.36.0-7+deb12u3(bookworm)反而 6CRIT——换 bookworm 没清零,多了 libsqlite3-0 + zlib1g。
+- 全部 Fix=None(上游无补丁),Status=affected/fix_deferred/will_not_fix。
+- 依赖核查(exec pod):zlib1g 被 dpkg/util-linux/libapt-pkg6.0/gpgv 依赖不可 purge;perl-base 是 dpkg 硬依赖;libsqlite3-0 是 python sqlite3 依赖。
+- **用户拍板:登记豁免保持 bookworm**(alpine 收益不确定且 granian/litestar 需验证 musllinux wheel)。落地:`.trivyignore` 追加 6 CVE + 理由 + 复审日期,ADR + 06 安全报告 §5 登记。定期 `apt upgrade` 等 upstream 补丁。
 
-**隐患D — git 迁入**:阻塞,等用户提供 GitHub 远端 URL(ArgoCD sync + Dependabot + Aikido)。
+**隐患D — git 迁入(✅ 闭环)**:用户授权自动建仓。gh 已认证(tianqiongenze,scopes repo/workflow)。
+- 仓库:`https://github.com/tianqiongenze/English-Study-Platform`(PRIVATE,master 分支,530 文件)。
+- .gitignore 加固:`.venv/`/`venv/` + `**/*secret*.yaml`(覆盖 00-namespace-secret.yaml 等含 secret 的 manifest)+ `*.local` + `{{pkgetc}}/`/`{{etc}}/` + `services/*/gateway-go`(本地 go build 二进制);unignore `!**/otel-agent.jar`(Dockerfile 构建依赖)+ `!**/lib/*.jar`。
+- 00-namespace-secret.yaml(含 mock 密钥 ANTHROPIC_API_KEY/JWT_SECRET)已复制为 .local 本地保留,本体不入库。
+- 首次 commit + push 成功(commit f021250)。
+- Dependabot:`.github/dependabot.yml` 已就位(maven ×7 / gomod ×5 / pip ×2 / npm 前端),`gh api PUT vulnerability-alerts` + `automated-security-fixes` 已启用,Dependabot alerts API 可查(0 alerts 等首次扫描)。
+- CI:`.github/workflows/ci.yml` + `security.yml`(Semgrep/Trivy)已入库。
+- Aikido:需 Aikido 账号 integration(GitHub Marketplace 或 OAuth 授权),非 GitHub 原生,待用户在 Aikido 控制台接入。
+- ArgoCD:用户选"装 ArgoCD 做 GitOps",待 A/B builder 闭环后串行安装(单节点铁律:helm install 重操作不与 build 并行)。
 
 **隐患E — schema Phase1 Batch2~5 + 新服务填实**:Saga 已解锁可推进。当前 16 个 esp_* schema 表已就位(实查 INFORMATION_SCHEMA),S1 llm/S2 vocab-srs/N8 course-path-go 已 1/1 Running,N10 live-tutor-go/N11 media-learn-rs replicas=0 待命。
 

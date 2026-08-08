@@ -15,3 +15,19 @@
 # 以下不豁免任何 CVE(留空),所有 CRITICAL/HIGH 待 P1 升级修复。
 # 若有"已评估不可利用"需豁免,按格式追加并登记 06 报告 §5:
 # CVE-XXXX-XXXX  # 理由:...;复审:YYYY-MM-DD
+
+# ===== Python 镜像 bookworm OS 级 CRIT 豁免(2026-08-08 会话18)=====
+# 关联:report/security/trivy-image-writing-py-1.6.1.json / trivy-image-emotion-svc-1.6.1.json
+# 背景:writing-py/emotion-svc 1.6.1(python:3.13-slim-bookworm)trivy 重扫 6 CRIT,
+#       全部 Fix=None(上游无补丁),且均为 OS 核心包不可 purge:
+#         - zlib1g 被 dpkg/util-linux/libapt-pkg6.0/gpgv 依赖
+#         - perl-base 是 dpkg 硬依赖
+#         - libsqlite3-0 是 python sqlite3 模块依赖
+# 处置:登记豁免保持 bookworm(alpine 收益不确定),定期 apt upgrade 等 upstream 补丁。
+#       复审:2026-09-08(或上游发补丁后即时清除对应 CVE)。
+CVE-2025-7458   # libsqlite3-0 3.40.1-2+deb12u2;理由:上游无补丁 Fix=None,OS核心包不可purge;复审:2026-09-08
+CVE-2026-13221  # perl-base 5.36.0-7+deb12u3;理由:上游无补丁,dpkg硬依赖不可purge;复审:2026-09-08
+CVE-2026-42496  # perl-base 5.36.0-7+deb12u3;理由:上游无补丁fix_deferred,dpkg硬依赖;复审:2026-09-08
+CVE-2026-57433  # perl-base 5.36.0-7+deb12u3;理由:上游无补丁,dpkg硬依赖不可purge;复审:2026-09-08
+CVE-2026-8376   # perl-base 5.36.0-7+deb12u3;理由:上游无补丁,dpkg硬依赖不可purge;复审:2026-09-08
+CVE-2023-45853  # zlib1g 1:1.2.13.dfsg-1;理由:上游will_not_fix,被dpkg/util-linux依赖不可purge;复审:2026-09-08

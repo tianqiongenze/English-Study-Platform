@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: emotion-svc
+Version: 1.0.0
+Requires-Python: >=3.11
+Requires-Dist: litestar>=2.10.0
+Requires-Dist: granian>=1.6.0
+Requires-Dist: pydantic>=2.7
+Requires-Dist: opentelemetry-api==1.28.0
+Requires-Dist: opentelemetry-sdk==1.28.0
+Requires-Dist: opentelemetry-exporter-otlp==1.28.0
+Requires-Dist: opentelemetry-instrumentation-litestar==0.49b0
+Provides-Extra: test
+Requires-Dist: pytest>=8.0; extra == "test"
+Requires-Dist: httpx>=0.27; extra == "test"

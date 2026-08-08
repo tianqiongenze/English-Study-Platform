@@ -1,0 +1,8 @@
+pyproject.toml
+src/emotion_svc.egg-info/PKG-INFO
+src/emotion_svc.egg-info/SOURCES.txt
+src/emotion_svc.egg-info/dependency_links.txt
+src/emotion_svc.egg-info/requires.txt
+src/emotion_svc.egg-info/top_level.txt
+tests/test_api.py
+tests/test_service.py

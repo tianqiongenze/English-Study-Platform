@@ -1,0 +1,57 @@
+# gateway-go: 实时口语陪练网关,无状态,HPA 按 CCU/CPU 扩缩
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-go
+  namespace: esp-prod
+  labels: {app: gateway-go}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: gateway-go}}
+  template:
+    metadata: {labels: {app: gateway-go}}
+    spec:
+      containers:
+      - name: gateway-go
+        image: esp/gateway-go:1.5.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8080}]
+        env:
+        - {name: REDIS_ADDR, value: "redis-cluster:6379"}
+        - {name: LLM_MODE, value: "mock"}
+        - {name: JWT_SECRET, valueFrom: {secretKeyRef: {name: esp-secrets, key: JWT_SECRET}}}
+        # 读写分离 TiDB:会话归档写主库 / 场景加载读从库(db package)
+        - {name: DB_ENABLED, value: "true"}
+        - {name: WRITE_DB_HOST, value: "tidb-primary"}
+        - {name: READ_DB_HOST, value: "tidb-follower"}
+        - {name: WRITE_DB_USER, value: "root"}
+        - {name: READ_DB_USER, value: "root"}
+        # OTel 注入(ADR-observability-rebuild):gateway-go 已内置 otel sdk(tracing.go),仅需 env
+        - {name: OTEL_SERVICE_NAME, value: "gateway"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
+        envFrom:
+        - secretRef: {name: esp-rsa-jwt}
+        readinessProbe: {httpGet: {path: /healthz, port: 8080}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 3}
+        # 探针放宽:原 timeout=1s 在 1000+ CCU 下网关来不及应答 /healthz 被误杀(r=9/10),
+        # 导致连接中断+冷启动+HPA 抓不到持续高 CPU 不扩容。liveness 宽容(只杀真死),readiness 适度。
+        livenessProbe: {httpGet: {path: /healthz, port: 8080}, initialDelaySeconds: 10, periodSeconds: 15, timeoutSeconds: 3, failureThreshold: 5}
+        resources:
+          requests: {cpu: "100m", memory: "128Mi"}
+          limits: {cpu: "1", memory: "512Mi"}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: gateway-go, namespace: esp-prod}
+spec:
+  selector: {app: gateway-go}
+  ports: [{port: 80, targetPort: 8080}]
+---
+# 同时暴露 NodePort 供本地 Locust 压测直连(绕过 Ingress,降低压测自身瓶颈)
+apiVersion: v1
+kind: Service
+metadata: {name: gateway-go-np, namespace: esp-prod}
+spec:
+  type: NodePort
+  selector: {app: gateway-go}
+  ports: [{port: 80, targetPort: 8080, nodePort: 30080}]

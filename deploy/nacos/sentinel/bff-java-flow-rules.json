@@ -1,0 +1,29 @@
+[
+  {
+    "resource": "api-learning-event",
+    "limitApp": "default",
+    "grade": 1,
+    "count": 2000,
+    "strategy": 0,
+    "controlBehavior": 0,
+    "clusterMode": false
+  },
+  {
+    "resource": "api-writing-grade",
+    "limitApp": "default",
+    "grade": 1,
+    "count": 200,
+    "strategy": 0,
+    "controlBehavior": 0,
+    "clusterMode": false
+  },
+  {
+    "resource": "api-default",
+    "limitApp": "default",
+    "grade": 1,
+    "count": 5000,
+    "strategy": 0,
+    "controlBehavior": 0,
+    "clusterMode": false
+  }
+]

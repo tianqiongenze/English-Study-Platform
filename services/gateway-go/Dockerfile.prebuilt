@@ -1,0 +1,9 @@
+# gateway-go: 主机交叉编译的静态二进制 + arm64 alpine 基镜像
+# (镜像源仅 amd64 alpine,故复用本地 arm64 的 redis:8.0-alpine 作基镜像)
+FROM redis:8.0-alpine
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+COPY gateway-go /app/gateway-go
+EXPOSE 8080
+ENV PORT=8080
+ENTRYPOINT ["/app/gateway-go"]

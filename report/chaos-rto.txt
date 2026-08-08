@@ -1,0 +1,4 @@
+RTO pod_kill gateway-go: 1s
+RTO redis_down (recovery window): ~42s
+RTO redis_down(clean rerun): 44s (含20s注入+rollout恢复)
+RTO tidb_down: 注入20s + 滚动恢复~100s(新pod Nacos/Dubbo注册慢)

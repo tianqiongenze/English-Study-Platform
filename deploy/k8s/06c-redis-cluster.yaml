@@ -1,0 +1,152 @@
+# Redis Cluster (3 shard x 1 replica = 6 节点轻量版)
+#
+# 单节点 RD 阶段可落地版(内存敏感:每节点 limit 256Mi,共 ~1.5G)。
+# 3 主 3 从:redis-cluster-0/1/2 为主(slot 各 ~5461),3/4/5 为对应从。
+# 跨区分布靠 Pod 反亲和(单节点下同 node,多节点移植时按区 label 分布)。
+#
+# 部署步骤:
+#   1. kubectl apply -f deploy/k8s/06c-redis-cluster.yaml
+#   2. 等 6 Pod Ready
+#   3. 跑 init-cluster Job 建簇:3 主 + 每主 1 从
+#   4. 校验: CLUSTER INFO -> cluster_state:ok, cluster_slots_assigned:16384
+#   5. 应用侧切到 spring.data.redis.cluster.nodes(见 docs/design/redis-cluster-migration-plan.md)
+#
+# 注意:此 Cluster 与现有 redis-cluster(主从)同名,部署前需先 scale 现有主从为 0 或改名。
+#       本文件用独立名 redis-cluster-new 避免冲突,切流后再 rename。
+#
+# IP 漂移根治(2026-08-06):原 --cluster-announce-ip $(POD_IP) 把动态 Pod IP 写进 nodes.conf,
+# VM 重启后 Pod 重建拿新 IP,但 nodes.conf 存旧 IP → gossip 失联 → cluster_state:fail。
+# 改用 --cluster-announce-hostname $(POD_NAME).redis-cluster-new(StatefulSet headless 稳定 DNS,
+# 跨重启不变)+ --cluster-preferred-endpoint-type hostname(让 CLUSTER NODES 返回 hostname 而非 IP),
+# 彻底消除 Pod IP 漂移导致的 cluster fail。客户端(Spring Data Redis / go-redis / redis-py cluster)
+# 均支持节点返回 hostname 时直连。
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster-new
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  clusterIP: None  # Headless,供 Pod DNS: redis-cluster-new-0.redis-cluster-new
+  selector:
+    app: redis-cluster-new
+  ports:
+  - port: 6379
+    name: redis
+  - port: 16379
+    name: bus  # Cluster bus port = port + 10000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster-new
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  serviceName: redis-cluster-new
+  replicas: 6  # 3 主 + 3 从
+  selector:
+    matchLabels:
+      app: redis-cluster-new
+  template:
+    metadata:
+      labels:
+        app: redis-cluster-new
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.2-alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 6379
+          name: redis
+        - containerPort: 16379
+          name: bus
+        command: ["redis-server"]
+        args:
+        - --appendonly
+        - "yes"
+        - --cluster-enabled
+        - "yes"
+        - --cluster-config-file
+        - nodes.conf
+        - --cluster-node-timeout
+        - "5000"
+        - --cluster-announce-hostname
+        - "$(POD_NAME).redis-cluster-new"
+        - --cluster-preferred-endpoint-type
+        - hostname
+        - --maxmemory
+        - 200mb
+        - --maxmemory-policy
+        - allkeys-lru
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        readinessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 5
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 1Gi
+---
+# 一次性初始化 Job:建簇(3 主 + 每主 1 从)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redis-cluster-new-init
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: redis-cli
+        image: redis:7.2-alpine
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+          # 等 6 Pod DNS 解析
+          for i in 0 1 2 3 4 5; do
+            echo "waiting redis-cluster-new-$i ..."
+            until redis-cli -h redis-cluster-new-$i.redis-cluster-new ping; do sleep 2; done
+          done
+          # 建簇: 6 节点,每主 1 副本(--cluster-replicas 1)
+          echo "=== creating cluster ==="
+          redis-cli --cluster create \
+            redis-cluster-new-0.redis-cluster-new:6379 \
+            redis-cluster-new-1.redis-cluster-new:6379 \
+            redis-cluster-new-2.redis-cluster-new:6379 \
+            redis-cluster-new-3.redis-cluster-new:6379 \
+            redis-cluster-new-4.redis-cluster-new:6379 \
+            redis-cluster-new-5.redis-cluster-new:6379 \
+            --cluster-replicas 1 --cluster-yes
+          # 校验
+          echo "=== cluster info ==="
+          redis-cli -h redis-cluster-new-0.redis-cluster-new -c CLUSTER INFO | grep -E 'cluster_state|cluster_slots_assigned|cluster_known_nodes'
+          echo "=== cluster nodes ==="
+          redis-cli -h redis-cluster-new-0.redis-cluster-new -c CLUSTER NODES

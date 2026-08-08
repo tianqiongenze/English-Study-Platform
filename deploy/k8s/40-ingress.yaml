@@ -1,0 +1,43 @@
+# Ingress (Traefik): 统一入口,WS/会话路由到 gateway-go,REST 按前缀路由到各服务。
+# Traefik 自动支持 WebSocket 长连接(无需额外注解)。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: esp-ingress
+  namespace: esp-prod
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: ""
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: esp.example.com
+    http:
+      paths:
+      - path: /api/auth
+        pathType: Prefix
+        backend: {service: {name: bff-java, port: {number: 8090}}}
+      - path: /ws/
+        pathType: Prefix
+        backend: {service: {name: gateway-go, port: {number: 80}}}
+      - path: /api/scenarios
+        pathType: Prefix
+        backend: {service: {name: gateway-go, port: {number: 80}}}
+      - path: /api/sessions
+        pathType: Prefix
+        backend: {service: {name: gateway-go, port: {number: 80}}}
+      - path: /api/learning
+        pathType: Prefix
+        backend: {service: {name: learning-java, port: {number: 80}}}
+      - path: /api/writing-coach
+        pathType: Prefix
+        backend: {service: {name: writing-coach, port: {number: 80}}}
+      - path: /api/writing
+        pathType: Prefix
+        backend: {service: {name: writing-py, port: {number: 80}}}
+      - path: /api/teacher
+        pathType: Prefix
+        backend: {service: {name: teacher-java, port: {number: 80}}}
+      - path: /api/emotion
+        pathType: Prefix
+        backend: {service: {name: emotion-svc, port: {number: 80}}}

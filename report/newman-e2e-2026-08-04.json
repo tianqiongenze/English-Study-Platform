@@ -1,0 +1,163 @@
+{
+  "run_ts": "2026-08-04T11:01:14",
+  "entry": "cluster-internal ClusterIP",
+  "total": 19,
+  "passed": 19,
+  "failed": 0,
+  "results": [
+    {
+      "name": "HC gateway 200",
+      "group": "健康检查",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 49
+    },
+    {
+      "name": "HC writing 200",
+      "group": "健康检查",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 2
+    },
+    {
+      "name": "AUTH-1 wx-login 200",
+      "group": "鉴权链路",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 830
+    },
+    {
+      "name": "AUTH-1 返回 token",
+      "group": "鉴权链路",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 830
+    },
+    {
+      "name": "AUTH-1 role=learner",
+      "group": "鉴权链路",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 830
+    },
+    {
+      "name": "AUTH-2 无 token → 401/403",
+      "group": "鉴权链路",
+      "status": "PASS",
+      "http_code": 401,
+      "detail": "",
+      "duration_ms": 58
+    },
+    {
+      "name": "AUTH-3 伪造头(无 token)→ 401/403",
+      "group": "鉴权链路",
+      "status": "PASS",
+      "http_code": 401,
+      "detail": "",
+      "duration_ms": 1
+    },
+    {
+      "name": "SPK-1 场景列表 200",
+      "group": "口语场景",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 30
+    },
+    {
+      "name": "SPK-1 返回非空数组",
+      "group": "口语场景",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 30
+    },
+    {
+      "name": "SPK-1 场景含 code",
+      "group": "口语场景",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 30
+    },
+    {
+      "name": "SPK-2 创建会话 200",
+      "group": "口语场景",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 22
+    },
+    {
+      "name": "SPK-2 返回 session_id",
+      "group": "口语场景",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 22
+    },
+    {
+      "name": "SPK-2 含 scenario",
+      "group": "口语场景",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 22
+    },
+    {
+      "name": "SPK-3 越权 WS → 403/401",
+      "group": "口语场景",
+      "status": "PASS",
+      "http_code": 403,
+      "detail": "",
+      "duration_ms": 3
+    },
+    {
+      "name": "LRN-1 学情上报 非5xx",
+      "group": "下游业务",
+      "status": "PASS",
+      "http_code": 202,
+      "detail": "",
+      "duration_ms": 68
+    },
+    {
+      "name": "LRN-2 复习推荐 非5xx",
+      "group": "下游业务",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 279
+    },
+    {
+      "name": "WRT-1 写作批改 服务可达",
+      "group": "下游业务",
+      "status": "PASS",
+      "http_code": 400,
+      "detail": "",
+      "duration_ms": 52
+    },
+    {
+      "name": "EMO-1 情绪感知 非5xx",
+      "group": "下游业务",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 39
+    },
+    {
+      "name": "TCH-1 知识点统计 非5xx",
+      "group": "下游业务",
+      "status": "PASS",
+      "http_code": 200,
+      "detail": "",
+      "duration_ms": 250
+    }
+  ],
+  "run_env": "cluster-internal (writing-py pod → ClusterIP)",
+  "run_date": "2026-08-04"
+}

@@ -1,0 +1,139 @@
+# BFF 重构后配置:Netty 边缘接入 + Disruptor 入口 + Dubbo Triple + SCA 全套(无 Spring Cloud Gateway)
+server:
+  port: 8090   # Spring MVC 端口(/api/auth、/actuator、本地控制器)
+
+edge:
+  port: 9090   # Netty 边缘接入端口(对外 HTTP 接入,替代 SCG)
+
+spring:
+  application:
+    name: bff-java
+  threads:
+    virtual:
+      enabled: true   # SB4 全局虚拟线程(I/O 密集收益,2026-08-06 #6 开启)
+  main:
+    web-application-type: servlet   # 强制 Web MVC,避免 WebFlux 双 server
+    allow-bean-definition-overriding: true   # SCA seata starter 传递 spring-boot-webclient:4.0.0,其 CodecsAutoConfiguration 与 SB3.5.16 defaultCodecCustomizer bean 重名,允许覆盖消解
+  cloud:
+    nacos:
+      # Nacos 服务注册 + 配置中心(ADR-08)。已部署 nacos:8848(见 deploy/k8s/06-sca-middleware.yaml)。
+      discovery:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+        namespace: ${NACOS_NS:public}
+      config:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+        file-extension: yaml
+        # 动态路由/限流规则热更新(ADR-08)
+        import-check:
+          enabled: false
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASH:sentinel:8858}
+      # Sentinel 规则从 Nacos 拉取(规则热更新,ADR-08)。
+      # Web MVC 适配器使用 flow(普通流控 FlowRule)/ degrade(熔断 DegradeRule),
+      # 非网关流控 gw-flow(后者配套 Spring Cloud Gateway,已移除,Web MVC 适配器加载不到)。
+      datasource:
+        flow:   # 限流规则(FlowRule)
+          nacos:
+            server-addr: ${NACOS_ADDR:nacos:8848}
+            namespace: ${NACOS_NS:public}   # 必须显式指定 public(规则发布在 public);缺省时 SCA 用空 namespace 拉空 → source empty
+            dataId: ${spring.application.name}-flow-rules
+            groupId: SENTINEL_GROUP
+            rule-type: flow
+        degrade:   # 熔断规则(DegradeRule)
+          nacos:
+            server-addr: ${NACOS_ADDR:nacos:8848}
+            namespace: ${NACOS_NS:public}   # 同上,显式 public
+            dataId: ${spring.application.name}-degrade-rules
+            groupId: SENTINEL_GROUP
+            rule-type: degrade
+    # Spring Cloud Gateway 已彻底移除,无 gateway 配置块
+  datasource:
+    # 读写分离(esp-rw-java 自动配置):写走 tidb-primary,读走 tidb-follower
+    # bff 鉴权场景:注册/登录写主库;登录查用户走主库(forced primary,写后强一致读)
+    write:
+      jdbc-url: ${WRITE_DB_URL:jdbc:mysql://tidb-primary:4000/esp?useSSL=false&allowPublicKeyRetrieval=true}
+      username: ${DB_USER:root}
+      password: ${DB_PASS:}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      hikari: {maximum-pool-size: 20, minimum-idle: 5}
+    read:
+      jdbc-url: ${READ_DB_URL:jdbc:mysql://tidb-follower:4000/esp?useSSL=false&allowPublicKeyRetrieval=true}
+      username: ${DB_USER:root}
+      password: ${DB_PASS:}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      hikari: {maximum-pool-size: 20, minimum-idle: 5}
+  data:
+    redis:
+      # Redis Cluster 模式(经 ExternalName redis-cluster → redis-cluster-new,3主3从)
+      cluster:
+        nodes: redis-cluster:6379
+        max-redirects: 3
+
+# Dubbo Triple(服务间 RPC,注册到 Nacos)
+dubbo:
+  application:
+    name: ${spring.application.name}
+  registry:
+    address: nacos://${NACOS_ADDR:nacos:8848}
+  protocol:
+    name: tri
+    port: 50090
+
+# Seata 分布式事务(TC 已部署 seata:8091,见 06-sca-middleware.yaml)
+seata:
+  enabled: ${SEATA_ENABLED:true}
+  tx-service-group: esp_tx_group
+  service:
+    vgroup-mapping:
+      esp_tx_group: default
+    grouplist:
+      default: ${SEATA_ADDR:seata:8091}   # 显式 TC 地址兜底:registry nacos 发现失败时仍可直连
+  registry:
+    type: file   # registry 用 file:直接从本地 service.vgroup-mapping + service.grouplist 读 TC 地址,绕开 nacos lookup 对 vgroupMapping 的强制 getConfig(nacos 路径在 SB4 下 SeataProperties 绑定时序不稳)
+  config:
+    type: file   # config 用 file 读本地 vgroup-mapping(SCA starter 桥接 Spring Environment);nacos config client gRPC 在 SB4 下不稳
+  data-source-proxy-mode: AT
+
+jwt:
+  # RS256 非对称密钥(ADR-12):BFF 持私钥签发,下游公钥校验
+  # 生产从 K8s Secret esp-rsa-jwt 注入;本地开发可用 scripts/gen-rsa-keypair.sh 生成后设环境变量
+  rsa:
+    private-key-pem: ${JWT_RSA_PRIVATE_KEY_PEM:}
+    public-key-pem: ${JWT_RSA_PUBLIC_KEY_PEM:}
+
+# 多级缓存(esp-cache:L1 Caffeine + L2 Redis + Pulsar 跨实例失效广播)
+# bff 边缘缓存:登录用户信息、下游只读聚合结果。feature flag=false 可整体关闭。
+esp:
+  cache:
+    enabled: ${ESP_CACHE_ENABLED:true}
+    l2-ttl-seconds: ${ESP_CACHE_L2_TTL:300}
+    empty-ttl-seconds: 30
+    double-delete-delay-ms: 100
+  pulsar:
+    service-url: ${PULSAR_URL:pulsar://pulsar-broker:6650}
+
+wx:
+  login:
+    enabled: ${WX_LOGIN_ENABLED:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  health:
+    sentinel:
+      enabled: false   # sentinel dashboard 健康检查不稳,关闭其 health indicator(避免拖垮整体 health=DOWN)
+    nacos-config:
+      enabled: false   # nacos config gRPC 健康检查连 127.0.0.1:9848 噪声(config 模块默认 localhost),discovery 已 UP,关闭避免拖垮整体 health=DOWN
+
+logging:
+  level:
+    com.esp.bff: INFO
+    org.apache.dubbo: WARN

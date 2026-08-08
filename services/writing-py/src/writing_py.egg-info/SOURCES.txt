@@ -1,0 +1,9 @@
+pyproject.toml
+src/writing_py.egg-info/PKG-INFO
+src/writing_py.egg-info/SOURCES.txt
+src/writing_py.egg-info/dependency_links.txt
+src/writing_py.egg-info/requires.txt
+src/writing_py.egg-info/top_level.txt
+tests/test_agent.py
+tests/test_api.py
+tests/test_service.py

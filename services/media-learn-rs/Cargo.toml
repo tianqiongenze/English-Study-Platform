@@ -1,0 +1,20 @@
+[package]
+name = "media-learn-rs"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "media-learn-rs"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+opt-level = 3

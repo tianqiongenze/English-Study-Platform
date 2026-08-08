@@ -1,0 +1,17 @@
+# ESP Trivy 漏洞豁免清单(.trivyignore)
+# 关联:docs/design/adr-security-scanning.md §4、docs/test/06-安全测试报告.md §5
+# 原则:每条豁免必须登记理由 + 复审日期。CRITICAL/HIGH 默认阻断,豁免例外。
+#
+# 当前实测(2026-08-07 Trivy SCA):38 vulns(HIGH 33 / CRITICAL 5),19 unique CVE。
+# 涉及包:io.netty 4.2.15.Final→4.2.16.Final / jackson 2.19.4→2.21.4 /
+#         bouncycastle 1.78.1→1.84(CRITICAL CVE-2025-14813)/ swiper 11.1.15→12.1.2(CRITICAL)/
+#         react-router 7.18.2→8.3.0
+#
+# 处置策略:这些是真实依赖漏洞,不豁免(豁免只用于"已评估不可利用/无修复版本")。
+# 修复路径(列入 P1 依赖升级,Dependabot 迁 git 后自动 PR 辅助):
+#   1. Java:netty 4.2.15→4.2.16、jackson 2.19.4→2.21.4、bouncycastle 1.78.1→1.84(CRITICAL 优先)
+#   2. 前端:swiper 11.1.15→12.1.2(CRITICAL CVE-2026-27212)、react-router 7.18.2→8.3.0
+#
+# 以下不豁免任何 CVE(留空),所有 CRITICAL/HIGH 待 P1 升级修复。
+# 若有"已评估不可利用"需豁免,按格式追加并登记 06 报告 §5:
+# CVE-XXXX-XXXX  # 理由:...;复审:YYYY-MM-DD

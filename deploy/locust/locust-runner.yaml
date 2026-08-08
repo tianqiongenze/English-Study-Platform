@@ -1,0 +1,48 @@
+# Locust 压测 runner(单进程,集群内运行,绕过 Mac→pypi 不可达)。
+# Mac 与集群均无法连 pypi.org,故用预装 locust 的官方镜像 locustio/locust。
+# 入口走集群内 Traefik service(traefik.kube-system:80)+ Host 头,不经外部 NodePort。
+# JWT:RS256 私钥从 esp-rsa-jwt 注入(与 gateway-go/bff 共享密钥对),locustfile mint_jwt 用 RS256 签。
+#   兼容:若 RS256 私钥缺失,退回 ESP_JWT_SECRET 走 HS256(仅排查用)。
+#   注:locustio/locust:2.31.5 预装 cryptography,RS256 可用。
+#
+# 前置(ConfigMap 挂脚本,由文件生成,非手写):
+#   kubectl -n esp-prod create configmap locust-scripts \
+#     --from-file=locustfile.py=deploy/locust/locustfile.py \
+#     --from-file=ccu5000_ws.py=deploy/locust/ccu5000_ws.py
+# 运行:apply 本文件后 exec 进 pod 跑 `locust -f /locust/locustfile.py ...`(见 README)。
+apiVersion: v1
+kind: Pod
+metadata:
+  name: locust-runner
+  namespace: esp-prod
+  labels: {app: locust-runner}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: locust
+      image: locustio/locust:2.31.5
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "7200"]      # 保持运行,exec 进去手动跑 locust(可观察+可控终止)
+      env:
+        - name: JWT_RSA_PRIVATE_KEY_PEM
+          valueFrom:
+            secretKeyRef: {name: esp-rsa-jwt, key: JWT_RSA_PRIVATE_KEY_PEM}
+        - name: ESP_JWT_SECRET
+          valueFrom:
+            secretKeyRef: {name: esp-secrets, key: JWT_SECRET}
+        - name: LOCUST_HOST
+          value: "http://traefik.kube-system.svc.cluster.local:80"
+      volumeMounts:
+        - name: scripts
+          mountPath: /locust
+          readOnly: true
+        - name: report
+          mountPath: /report
+      resources:
+        requests: {cpu: "1", memory: 1Gi}
+        limits: {cpu: "2", memory: 2Gi}
+  volumes:
+    - name: scripts
+      configMap: {name: locust-scripts}
+    - name: report
+      emptyDir: {}

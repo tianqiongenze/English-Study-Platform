@@ -1,0 +1,5 @@
+// 小程序各页通用样式(rpx 单位)
+.page { padding: 24rpx; display: flex; flex-direction: column; gap: 16rpx; }
+.hint { color: #94a3b8; font-size: 24rpx; }
+.picker { padding: 16rpx; border: 1px solid #334155; border-radius: 8rpx; }
+.log { font-size: 26rpx; background: #0f172a; color: #e2e8f0; padding: 16rpx; border-radius: 8rpx; min-height: 200rpx; }

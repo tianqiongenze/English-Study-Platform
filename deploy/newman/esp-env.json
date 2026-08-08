@@ -1,0 +1,12 @@
+{
+  "name": "esp-e2e-env",
+  "values": [
+    {"key": "gatewayUrl", "value": "http://gateway-go", "enabled": true},
+    {"key": "bffUrl", "value": "http://bff-java:8090", "enabled": true},
+    {"key": "learningUrl", "value": "http://learning-java", "enabled": true},
+    {"key": "writingUrl", "value": "http://writing-py", "enabled": true},
+    {"key": "emotionUrl", "value": "http://emotion-svc", "enabled": true},
+    {"key": "teacherUrl", "value": "http://teacher-java", "enabled": true}
+  ],
+  "_postman_variable_scope": "environment"
+}

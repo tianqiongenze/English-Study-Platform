@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ESP 统一 logback 配置(P1-5 断点4 修复)。
+  OTel javaagent 自动写 MDC: trace_id / span_id / trace_flags。
+  pattern 含 %X{trace_id} %X{span_id},确保 stdout 日志可关联分布式 trace。
+
+  适用服务:bff-java / learning-java / teacher-java(三个服务共用此模板)。
+-->
+<configuration>
+    <springProfile name="default | dev | test">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [traceId=%X{trace_id} spanId=%X{span_id}] - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="prod | staging">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <!-- 生产环境:JSON 结构化输出,便于 Filebeat/Fluentd 采集 -->
+                <pattern>{"ts":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}","level":"%-5level","logger":"%logger{36}","thread":"%thread","traceId":"%X{trace_id}","spanId":"%X{span_id}","msg":"%msg"}%n</pattern>
+            </encoder>
+        </appender>
+        <root level="WARN">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <!-- 业务日志 DEBUG 级别,方便排查 -->
+        <logger name="com.esp" level="INFO"/>
+    </springProfile>
+</configuration>

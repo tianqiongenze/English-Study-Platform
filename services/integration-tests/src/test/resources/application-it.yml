@@ -1,0 +1,87 @@
+# ============================================================
+# ESP 跨服务集成测试配置(@ActiveProfiles("it"))
+# 真实集群基础设施:TiDB / Redis / Pulsar。禁用 H2。
+# 集群内 Pod 可解析 ExternalName 短名:tidb-primary / tidb-follower / redis-cluster / pulsar-broker。
+# ============================================================
+
+spring:
+  # 读写分离:主库 tidb-primary(写)/ 从库 tidb-follower(读),真实 TiDB,非 H2
+  datasource:
+    write:
+      jdbc-url: jdbc:mysql://tidb-primary:4000/esp?useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+      username: root
+      password:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      hikari:
+        maximum-pool-size: 5
+        minimum-idle: 1
+        connection-timeout: 10000
+    read:
+      jdbc-url: jdbc:mysql://tidb-follower:4000/esp?useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+      username: root
+      password:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      hikari:
+        maximum-pool-size: 5
+        minimum-idle: 1
+        connection-timeout: 10000
+  # Redis 主从模式(单 host 连接,非 cluster 模式)
+  data:
+    redis:
+      host: redis-cluster
+      port: 6379
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 4
+          min-idle: 1
+  # JPA(真实 TiDB,生产表结构,禁 ddl-auto)
+  jpa:
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.TiDBDialect
+    open-in-view: false
+
+# ===== 读写分离 feature flag(默认 true,显式开)=====
+esp:
+  rw:
+    enabled: true
+  # ===== 多级缓存 feature flag =====
+  cache:
+    enabled: true
+    l1-spec: maximumSize=1000,expireAfterWrite=60s
+    l2-ttl-seconds: 60
+    empty-ttl-seconds: 10
+    double-delete-delay-ms: 100
+  # ===== Pulsar:consumer 关闭(避免阻塞/无 broker 依赖),producer 延迟创建失败降级 =====
+  pulsar:
+    service-url: pulsar://pulsar-broker:6650
+    topic: esp-cache-invalidate
+    consumer-enabled: false
+
+# ===== Dubbo Triple consumer 直连 provider,绕开 Nacos =====
+# 覆盖 application-test.properties 里的 dubbo.application.enable=false:集成测试要真启 Dubbo
+dubbo:
+  application:
+    name: integration-tests
+    enable: true
+    serialize-check-status: WARN
+  protocol:
+    name: tri
+    port: -1
+  registry:
+    address: N/A
+  consumer:
+    check: false
+    timeout: 8000
+  scan:
+    base-packages: com.esp.it
+
+logging:
+  level:
+    com.esp: INFO
+    org.apache.dubbo: WARN
+    com.zaxxer.hikari: WARN

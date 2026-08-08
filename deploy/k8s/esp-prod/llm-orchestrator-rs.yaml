@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-orchestrator-rs
+  namespace: esp-prod
+  labels:
+    app: llm-orchestrator-rs
+spec:
+  selector:
+    app: llm-orchestrator-rs
+  ports:
+    - name: http
+      port: 8086
+      targetPort: 8086
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-orchestrator-rs
+  namespace: esp-prod
+  labels:
+    app: llm-orchestrator-rs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-orchestrator-rs
+  template:
+    metadata:
+      labels:
+        app: llm-orchestrator-rs
+    spec:
+      containers:
+        - name: llm-orchestrator-rs
+          image: esp/llm-orchestrator-rs:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8086
+          env:
+            - name: PORT
+              value: "8086"
+            - name: REDIS_ADDR
+              value: "redis://redis-cluster:6379"
+            - name: TIDB_DSN
+              value: "mysql://root@tidb-primary:4000/esp_llm"
+            - name: LLM_DEFAULT_MODEL
+              value: "gpt-4o-mini"
+            # provider 配置按需注入(从 secret 挂载),此处仅占位
+            - name: LLM_PROVIDER_OPENAI_BASE
+              valueFrom: { secretKeyRef: { name: llm-providers, key: openai-base, optional: true } }
+            - name: LLM_PROVIDER_OPENAI_KEY
+              valueFrom: { secretKeyRef: { name: llm-providers, key: openai-key, optional: true } }
+            - name: RUST_LOG
+              value: "info,llm_orchestrator_rs=debug"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8086
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8086
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: llm-orchestrator-rs
+  namespace: esp-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: llm-orchestrator-rs
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

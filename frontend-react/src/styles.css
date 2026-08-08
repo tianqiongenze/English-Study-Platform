@@ -1,0 +1,30 @@
+body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+.app { max-width: 960px; margin: 0 auto; padding: 24px; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.2rem; margin-top: 0; }
+header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+header nav.tabs { margin: 0; }
+.user { font-size: 0.85rem; display: flex; align-items: center; gap: 8px; }
+.tabs { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+.tab { padding: 8px 16px; background: #1e293b; border: none; color: #94a3b8; cursor: pointer; border-radius: 6px; text-decoration: none; font-size: 0.9rem; }
+.tab.active { background: #3b82f6; color: #fff; }
+.panel { background: #1e293b; border-radius: 8px; padding: 16px; min-height: 200px; }
+button { padding: 8px 16px; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; cursor: pointer; }
+button.primary { background: #3b82f6; color: #fff; border: none; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+input, textarea, select { width: 100%; box-sizing: border-box; padding: 8px; margin: 6px 0; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; }
+label { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; }
+.log { font-family: monospace; font-size: 0.85rem; background: #0f172a; padding: 8px; border-radius: 6px; max-height: 320px; overflow: auto; white-space: pre-wrap; }
+pre { font-family: monospace; font-size: 0.85rem; background: #0f172a; padding: 8px; border-radius: 6px; overflow: auto; }
+.hint { color: #94a3b8; font-size: 0.85rem; }
+.err { color: #f87171; }
+.auth { max-width: 420px; margin: 60px auto; }
+table.analytics { width: 100%; border-collapse: collapse; margin-top: 12px; }
+table.analytics th, table.analytics td { border: 1px solid #334155; padding: 6px 10px; text-align: left; }
+table.analytics th { background: #0f172a; }
+
+/* 数字人 Avatar(原型 6.6 / FR-6.1) */
+@keyframes avatar-talk { from { transform: scaleY(1); } to { transform: scaleY(1.6); } }
+.avatar { display: inline-block; text-align: center; }
+.avatar--active svg { filter: drop-shadow(0 0 6px #3b82f6); }
+.avatar__bubble { margin-top: 6px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; font-size: 0.85rem; max-width: 240px; }

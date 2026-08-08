@@ -1,0 +1,4 @@
+[chaos] simulating TiDB follower unavailability for 20s at 23:24:03
+deployment.apps/learning-java env updated
+[chaos] restoring read db at 23:24:23
+deployment.apps/learning-java env updated

@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2017", "module": "commonjs", "moduleResolution": "node",
+    "jsx": "react-jsx", "strict": true, "esModuleInterop": true, "experimentalDecorators": true,
+    "noImplicitAny": false, "allowSyntheticDefaultImports": true, "skipLibCheck": true,
+    "outDir": "lib", "sourceMap": true, "rootDir": ".", "noEmitOnError": false
+  },
+  "exclude": ["node_modules", "dist"]
+}

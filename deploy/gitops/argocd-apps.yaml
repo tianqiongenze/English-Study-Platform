@@ -1,0 +1,131 @@
+# ArgoCD Application: ESP App-of-Apps
+# -----------------------------------------------------------------------------
+# 模式:App-of-Apps —— 用一个 root Application 聚合 3 个子 Application。
+#   esp-apps         → deploy/k8s/ 下应用栈(esp-prod ns)
+#   esp-monitoring   → deploy/k8s/monitoring/(esp-observability ns)
+#   esp-infra        → deploy/k8s/05-infra-reuse.yaml + 06*/07* 基础设施 manifest(ekb-m2-aws-us-east-1 ns)
+#
+# 落地命令(用户 git 迁入后):
+#   kubectl apply -f deploy/gitops/argocd-project.yaml
+#   kubectl apply -f deploy/gitops/argocd-apps.yaml
+#
+# 重要占位项(使用前必须替换):
+#   - <ORG>               → GitHub org/user
+#   - repoURL             → https://github.com/<ORG>/esp.git
+#   - targetRevision      → main(按实际默认分支填)
+# =============================================================================
+
+---
+# Root App-of-Apps:聚合下面 3 个子 Application
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: esp-root
+  namespace: argocd
+spec:
+  project: esp
+  source:
+    repoURL: https://github.com/<ORG>/esp.git
+    targetRevision: main
+    path: deploy/gitops
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+
+---
+# ① 应用栈:esp-prod 命名空间,纳管 deploy/k8s/ 下应用 manifest
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: esp-apps
+  namespace: argocd
+spec:
+  project: esp
+  source:
+    repoURL: https://github.com/<ORG>/esp.git
+    targetRevision: main
+    path: deploy/k8s
+    # 排除监控与基础设施子目录,避免重复 sync
+    directory:
+      recurse: true
+      exclude: |
+        monitoring/**
+        esp-prod/**
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: esp-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+
+---
+# ② 监控栈:esp-observability 命名空间,纳管 deploy/k8s/monitoring/
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: esp-monitoring
+  namespace: argocd
+spec:
+  project: esp
+  source:
+    repoURL: https://github.com/<ORG>/esp.git
+    targetRevision: main
+    path: deploy/k8s/monitoring
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: esp-observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+
+---
+# ③ 基础设施:ekb-m2-aws-us-east-1 命名空间
+# 说明:仓库内已有基础设施复用 manifest(05-infra-reuse.yaml / 06*/07* 等),
+#       这些 manifest 声明 ExternalName Service 指向真实 TiDB/Redis/Pulsar,
+#       属于"集群内引用"层,纳入 GitOps 管理以保持漂移可检测。
+# 注意:真实 TiDB/Redis Cluster/Pulsar 集群本身的 manifest 不在本仓库,
+#       不归 ArgoCD 管(外部独立运维),此处仅管引用层 manifest。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: esp-infra
+  namespace: argocd
+spec:
+  project: esp
+  source:
+    repoURL: https://github.com/<ORG>/esp.git
+    targetRevision: main
+    path: deploy/k8s
+    directory:
+      recurse: true
+      include: |
+        05-infra-reuse.yaml
+        06*.yaml
+        07*.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ekb-m2-aws-us-east-1
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true

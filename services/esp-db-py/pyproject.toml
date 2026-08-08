@@ -1,0 +1,16 @@
+[project]
+name = "esp-db-py"
+version = "1.0.0"
+description = "ESP 读写分离数据访问公共包(Python 侧):主写(tidb-primary)+ 从读(tidb-follower),与 Java 侧 rw/ 语义对齐"
+requires-python = ">=3.10"
+dependencies = [
+    "aiomysql>=0.2.0",
+    "pydantic>=2.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["esp_db"]

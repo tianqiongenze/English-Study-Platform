@@ -1,0 +1,56 @@
+# learning-worker: P2-2 从 learning-java 拆出的 Disruptor 消费独立 Deployment
+#
+# 设计(ADR-09 演进):
+#   - learning-java(HTTP 入口 + Dubbo Triple)专注请求响应,不再进程内 Disruptor 消费,
+#     避免批量落库阻塞影响 HTTP P95。入口侧 esp.disruptor.enabled=false,reportEvent 走 Pulsar。
+#   - learning-worker 订阅 Pulsar topic LEARNING_EVENT_REPORT(learning.event.report),
+#     收到事件后进进程内 Disruptor → BatchEventHandler → DbLearningEventConsumer 落 learning_events 表。
+#   - 复用 learning-java 同一镜像(同 main class),仅通过 env ESP_DISRUPTOR_ENABLED + ESP_ROLE 区分:
+#       ESP_ROLE=worker  → 只启 Pulsar 订阅 + Disruptor 消费,关闭 HTTP/Dubbo(端口不暴露)
+#       ESP_ROLE=api     → learning-java 原 behavior(单进程一体化,Disruptor enabled)
+#   - worker 不需要 8081 HTTP / 50091 Dubbo 端口;健康探针用 actuator(独立 management 端口或子路径)。
+#   - worker 侧 SEATA 可关闭(DbLearningEventConsumer 走 repo.saveAll 未经 @GlobalTransactional)。
+#
+# 单节点 RD:replicas=1(资源紧张);多节点生产按学情事件吞吐水平扩(Disruptor 消费是 CPU 密集)。
+# 注意:本 Deployment 在单节点 RD 上为"就绪+可部署"状态,默认不 apply(避免与 learning-java
+# 单进程模式同时跑导致重复消费)。启用步骤见 docs/design/p2-2-learning-worker-split.md。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: learning-worker
+  namespace: esp-prod
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: learning-worker}}
+  template:
+    metadata: {labels: {app: learning-worker}}
+    spec:
+      containers:
+      - name: learning-worker
+        image: esp/learning-java:1.4.0
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: ESP_ROLE, value: "worker"}
+        - {name: ESP_DISRUPTOR_ENABLED, value: "true"}      # worker 启 Disruptor 消费
+        - {name: PULSAR_CONSUMER_ENABLED, value: "true"}     # 订阅 LEARNING_EVENT_REPORT
+        - {name: WRITE_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"}
+        - {name: READ_DB_URL, value: "jdbc:mysql://tidb-follower:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"}
+        - {name: DB_USER, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_USER}}}
+        - {name: DB_PASS, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_PASS}}}
+        - {name: REDIS_HOST, value: "redis-cluster"}
+        - {name: NACOS_HOST, value: "nacos"}
+        - {name: DUBBO_GROUP, value: "esp"}
+        - {name: SEATA_ENABLED, value: "false"}              # worker 不参与全局事务,关 Seata 减负
+        - {name: OTEL_SERVICE_NAME, value: "learning-worker"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
+        - {name: OTEL_METRICS_EXPORTER, value: "none"}
+        envFrom:
+        - secretRef: {name: esp-rsa-jwt}
+        # worker 无 HTTP 业务端口,actuator 健康探针仍走 8081(Spring management 默认同端口)
+        startupProbe:   {httpGet: {path: /actuator/health, port: 8081}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 3}
+        readinessProbe: {httpGet: {path: /actuator/health, port: 8081}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
+        livenessProbe:  {httpGet: {path: /actuator/health, port: 8081}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
+        resources:
+          requests: {cpu: "200m", memory: 512Mi}
+          limits: {cpu: "1", memory: 1536Mi}

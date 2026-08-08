@@ -1,0 +1,35 @@
+{
+  "consumer" : "teacher-java",
+  "provider" : "learning-java-LearningRpcService",
+  "interactions" : [ {
+    "description" : "userStats returns list of KpStat for given userId",
+    "providerState" : "user 42 has mastery data",
+    "request" : {
+      "method" : "DUBBO",
+      "path" : "LearningRpcService.userStats",
+      "body" : {
+        "userId" : 42
+      }
+    },
+    "response" : {
+      "status" : 200,
+      "body" : {
+        "stats" : [ {
+          "kpId" : 10,
+          "masteryScore" : 3.5,
+          "reviewCount" : 2,
+          "nextReviewAt" : "2026-08-01T00:00:00Z"
+        }, {
+          "kpId" : 20,
+          "masteryScore" : 0.0,
+          "reviewCount" : 0,
+          "nextReviewAt" : null
+        } ]
+      }
+    }
+  } ],
+  "metadata" : {
+    "pactSpecification" : "2.0.0",
+    "pactJvm" : "4.6.16"
+  }
+}

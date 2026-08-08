@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: esp-seed-3b
+  namespace: esp-prod
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  parallelism: 1
+  completions: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: seed
+        image: python:3.12-slim
+        command: ["bash","-lc"]
+        args:
+        - |
+          pip install -i https://pypi.tuna.tsinghua.edu.cn/simple pymysql redis >/tmp/pi.log 2>&1
+          python3 /scripts/seed_3b.py
+        env:
+        - name: TIDB_HOST
+          value: tidb-primary
+        - name: REDIS_HOST
+          value: redis-cluster
+        resources:
+          requests: {cpu: "500m", memory: "512Mi"}
+          limits: {cpu: "2", memory: "2Gi"}
+        volumeMounts:
+        - name: script
+          mountPath: /scripts
+        - name: report
+          mountPath: /tmp
+      volumes:
+      - name: script
+        configMap:
+          name: seed-3b-script
+      - name: report
+        emptyDir: {}

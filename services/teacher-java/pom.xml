@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.7</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.esp</groupId>
+    <artifactId>teacher-java</artifactId>
+    <version>1.0.0</version>
+    <name>teacher-java</name>
+    <properties>
+        <java.version>21</java.version>
+        <dubbo.version>3.3.6</dubbo.version>
+        <mockito.version>5.18.0</mockito.version>
+        <byte-buddy.version>1.17.5</byte-buddy.version>
+        <spring-cloud.version>2025.1.2</spring-cloud.version>
+        <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
+        <jjwt.version>0.13.0</jjwt.version>
+        <!-- 安全对齐:强制 jackson-2 BOM 到 2.21.4(SB 4.0.7 BOM 默认值,防传递依赖降级到 2.18.1;修复 HIGH CVE-2026-54512 / GHSA-r7wm-3cxj-wff9) -->
+        <jackson-2-bom.version>2.21.4</jackson-2-bom.version>
+        <!-- 安全升级:Netty 4.2.15.Final → 4.2.16.Final,覆盖 SB 4.0.7 BOM 默认值(修复 HIGH CVE-2026-44891/55831/55833 等) -->
+        <netty.version>4.2.16.Final</netty.version>
+    </properties>
+
+    <dependencies>
+        <!-- 安全升级:BouncyCastle 1.78.1/1.81 → 1.84(由传递依赖带入,显式声明锁定;修复 CRIT CVE-2025-14813) -->
+        <dependency><groupId>org.bouncycastle</groupId><artifactId>bcprov-jdk18on</artifactId><version>1.84</version></dependency>
+        <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>1.84</version></dependency>
+        <!-- Web MVC + Undertow(替代默认 Tomcat,吞吐高 15-30%、内存更低,与 bff-java 同构) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-tomcat</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- SB 4.0 已移除 Undertow,按用户要求用 Jetty 替代 Tomcat -->
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jetty</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-actuator</artifactId></dependency>
+        <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-registry-prometheus</artifactId></dependency>
+        <dependency><groupId>com.mysql</groupId><artifactId>mysql-connector-j</artifactId><version>9.7.0</version><scope>runtime</scope></dependency>
+        <!-- ADR-08 Dubbo Triple RPC:共享 API 契约(consumer) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-api</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-spring-boot-starter</artifactId>
+            <version>${dubbo.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-registry-nacos</artifactId>
+            <version>${dubbo.version}</version>
+        </dependency>
+
+        <!-- Seata:分布式事务(@GlobalTransactional 跨服务一致性,ADR-08)。
+             注意:spring-cloud-starter-alibaba-seata:2025.1.0.0 传递 spring-boot-webclient:4.0.0,
+             其 spring-boot-http-codec CodecsAutoConfiguration 与 SB3.5.16 defaultCodecCustomizer bean 重名。
+             teacher 侧通过 application.yml allow-bean-definition-overriding=true 消解(保留 webclient,
+             避免 NoClassDefFoundError AbstractHealthIndicator)。 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-seata</artifactId>
+        </dependency>
+
+        <!-- 多级缓存(esp-cache:L1 Caffeine + L2 Redis + Pulsar 跨实例失效广播) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-cache</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <!-- 读写分离:公共包 esp-rw-java(RoutingDataSource + @DataSource AOP,主写从读) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-rw-java</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+        <!-- esp-cache 的 L2 依赖 Redis -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- esp-cache 的跨实例失效依赖 Pulsar;
+             排除 bouncy-castle-bc:pkg(内含 bcprov 1.78.1,CRIT CVE-2025-14813),
+             由下方显式声明的 bcprov-jdk18on 1.84 替代 -->
+        <dependency>
+            <groupId>org.apache.pulsar</groupId>
+            <artifactId>pulsar-client</artifactId>
+            <version>3.3.9</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.pulsar</groupId>
+                    <artifactId>bouncy-castle-bc</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
+        <!-- Spring Boot 4.0 新增:WebMvc 测试支持(@WebMvcTest 迁移到此 starter) -->
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webmvc-test</artifactId><scope>test</scope></dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy</artifactId>
+            <version>${byte-buddy.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <version>${byte-buddy.version}</version>
+        </dependency>
+        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
+        <!-- Pact consumer-driven contract test(Dubbo esp-api 契约验证) -->
+        <dependency>
+            <groupId>au.com.dius.pact.consumer</groupId>
+            <artifactId>junit5</artifactId>
+            <version>4.6.16</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>${spring-cloud-alibaba.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
+        </plugins>
+    </build>
+</project>

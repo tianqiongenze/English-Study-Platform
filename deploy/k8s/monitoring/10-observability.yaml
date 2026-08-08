@@ -1,0 +1,867 @@
+# ESP 可观测性栈:Fluent Bit(采集)+ Loki(日志存储/查询)+ Grafana(面板)
+# + OpenTelemetry Collector(链路采集)+ Tempo(分布式追踪存储)
+#
+# 设计:
+# - Fluent Bit DaemonSet:每个节点一个,采集所有容器 stdout/stderr,打标签(service/pod/namespace)后发往 Loki。
+# - Loki:仅索引标签(不索引正文),存储成本低,LogQL 查询,与现有 Prometheus 同 Grafana 面板。
+# - OTel Collector:接收各服务 OTLP trace(BFF 注入 traceId 贯穿三端→BFF→下游),转发 Tempo。
+# - Tempo:分布式追踪存储(本地文件后端,单节点开发可接受),与 Loki/Prometheus 在 Grafana 关联 trace↔log↔metric。
+# - Grafana:统一面板,预置 Loki + Prometheus + Tempo 数据源。
+#
+# 单节点 Rancher Desktop,各组件单副本 + 资源限制,与项目 K8s 单节点定位一致。
+---
+# ============ 命名空间 ============
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: esp-observability
+  labels:
+    app.kubernetes.io/part-of: esp-observability
+---
+# ============ ConfigMap:Fluent Bit 配置 ============
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: esp-observability
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         5
+        Log_Level     info
+        Daemon        off
+        Parsers_File  /fluent-bit/etc/parsers.conf
+
+    [INPUT]
+        Name              tail
+        Path              /var/log/containers/*.log
+        Tag               kube.*
+        Refresh_Interval  5
+        Mem_Buf_Limit     50MB
+        Skip_Long_Lines   on
+
+    [FILTER]
+        Name           kubernetes
+        Match          kube.*
+        Kube_URL       https://kubernetes.default.svc:443
+        Merge_Log      on
+        K8S-Logging.Parser  on
+        K8S-Logging.Exclude on
+        # 从 pod 标签提取 app 名作为 Loki 标签
+        Kube_Tag_Prefix  kube.var.log.containers.
+
+    [FILTER]
+        Name           modify
+        Match          kube.*
+        Rename         kubernetes.labels.app  esp_app
+        Rename         kubernetes.namespace_name esp_ns
+
+    [OUTPUT]
+        Name           loki
+        Match          kube.*
+        Host           loki.esp-observability.svc.cluster.local
+        Port           3100
+        # 静态标签只放 job;esp_app/esp_ns 是每条日志动态的,由下方 Label_Keys 从记录取
+        # (fluent-bit 3.x 会把 ${esp_ns} 当环境变量展开为空 → "invalid key value pair" crash)
+        Labels         job=fluent-bit
+        Line_Format    json
+        # 动态标签:从记录字段取 esp_app/esp_ns 作为 Loki 标签(仅索引标签,不索引日志体)
+        Label_Keys     $esp_app,$esp_ns
+  parsers.conf: |
+    [PARSER]
+        Name        docker
+        Format      json
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+---
+# ============ Fluent Bit DaemonSet ============
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: esp-observability
+  labels:
+    app: fluent-bit
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+    spec:
+      containers:
+        - name: fluent-bit
+          image: fluent/fluent-bit:3.1.7
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc/
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: positions
+              mountPath: /fluent-bit/pos
+      volumes:
+        - name: config
+          configMap:
+            name: fluent-bit-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: positions
+          emptyDir: {}
+---
+# ============ Loki(单节点,文件系统后端)============
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: esp-observability
+spec:
+  selector:
+    app: loki
+  ports:
+    - name: http
+      port: 3100
+      targetPort: 3100
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: esp-observability
+  labels:
+    app: loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:3.4.0
+          args: ["-config.file=/etc/loki/loki.yaml"]
+          ports:
+            - containerPort: 3100
+              name: http
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: storage
+              mountPath: /loki
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: esp-observability
+data:
+  loki.yaml: |
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    limits_config:
+      retention_period: 168h        # 7 天
+      reject_old_samples: false
+      allow_structured_metadata: true
+    compactor:
+      working_directory: /loki/compactor
+      retention_enabled: true
+      delete_request_store: filesystem   # retention 需配套 delete-request-store(Loki 3.x 强制)
+---
+# ============ OTel Collector(接收 OTLP trace,转发 Tempo)============
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: esp-observability
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+    - name: metrics   # prometheus exporter 暴露端口,供 Prometheus scrape
+      port: 8889
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: esp-observability
+  labels:
+    app: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.128.0
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+            - containerPort: 8889   # prometheus exporter metrics 暴露端口
+              name: metrics
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: esp-observability
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      # tail-sampling(降量):单/多节点下避免全量 trace 撑爆 Tempo。
+      # 保留:ERROR 100% + 慢 span>1s 100% + DB 写 100% + 常规 10%。
+      # P2-4 单节点补测验证:降量后 collector→Tempo DeadlineExceeded 消失,导出可靠。
+      tail_sampling:
+        decision_wait: 30s
+        num_traces: 50000
+        expected_new_traces_per_sec: 1000
+        policies:
+          - name: error-traces
+            type: status_code
+            status_code:
+              status_codes: [ERROR]
+          - name: slow-spans
+            type: latency
+            latency:
+              threshold_ms: 1000
+          - name: db-write
+            type: string_attribute
+            string_attribute:
+              key: db.operation
+              values: [insert, update, delete]
+          - name: baseline-10pct
+            type: probabilistic
+            probabilistic:
+              sampling_percentage: 10
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+      resource:
+        attributes:
+          - key: deployment.environment
+            value: esp-prod
+            action: upsert
+    exporters:
+      otlp/tempo:
+        endpoint: tempo.esp-observability.svc.cluster.local:4317
+        tls:
+          insecure: true
+        # 调参:后端慢时排队重试,而非直接超时丢 trace
+        timeout: 10s
+        sending_queue:
+          queue_size: 5000
+          num_consumers: 5
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+          max_elapsed_time: 300s
+      loki:
+        endpoint: http://loki.esp-observability.svc.cluster.local:3100/loki/api/v1/push
+        timeout: 10s
+        default_labels_enabled:
+          exporter: false
+          job: true
+        sending_queue:
+          queue_size: 5000
+          num_consumers: 3
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+          max_elapsed_time: 300s
+      # metrics 通路:prometheus exporter 暴露 :8889 供 Prometheus scrape
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        send_timestamps: true
+        metric_expiration: 5m
+        resource_to_telemetry_conversion:
+          enabled: true   # 把 resource attr(service.name 等)转成 metric label,Grafana 可按服务筛选
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [resource, tail_sampling, batch]
+          exporters: [otlp/tempo]
+        logs:
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [loki]
+        metrics:   # 新增:各服务发 OTLP metrics → prometheus exporter :8889 → Prometheus scrape
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [prometheus]
+---
+# ============ Tempo(分布式追踪,本地存储后端)============
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: esp-observability
+spec:
+  selector:
+    app: tempo
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: http
+      port: 3200
+      targetPort: 3200
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: esp-observability
+  labels:
+    app: tempo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+  template:
+    metadata:
+      labels:
+        app: tempo
+    spec:
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.7.0
+          args: ["-config.file=/etc/tempo/tempo.yaml"]
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 3200
+              name: http
+          resources:
+            requests:
+              cpu: 150m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi   # 2026-08-03:512Mi→1Gi,修 vParquet 压缩 OOMKilled(11次重启→丢trace)
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+            - name: storage
+              mountPath: /var/tempo
+      volumes:
+        - name: config
+          configMap:
+            name: tempo-config
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: esp-observability
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3200
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/blocks
+        wal:
+          path: /var/tempo/wal
+    ingester:
+      max_block_duration: 5m
+---
+# ============ Grafana(统一面板)============
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: esp-observability
+spec:
+  type: NodePort
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30300
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: esp-observability
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.6.0
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "admin"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Viewer"
+          ports:
+            - containerPort: 3000
+              name: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: esp-observability
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki.esp-observability.svc.cluster.local:3100
+        isDefault: true
+        jsonData:
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: "traceId=(\\w+)"
+              name: TraceID
+              url: "$${__value.raw}"
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.esp-observability.svc.cluster.local:9090
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo.esp-observability.svc.cluster.local:3200
+        jsonData:
+          tracesToLogs:
+            datasourceUid: loki
+            filterByTraceID: true
+            tags: ["esp_app"]
+
+---
+# ============ Prometheus(指标采集 + 告警评估,补齐缺口)============
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: esp-observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: esp-prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions","networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: esp-prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: esp-prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: esp-observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: esp-observability
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    rule_files:
+      - /etc/prometheus/rules.yml
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ["alertmanager.esp-observability.svc.cluster.local:9093"]
+    scrape_configs:
+      # 集中式 metrics:各 Java 服务通过 OTel agent 发 OTLP metrics → otel-collector
+      # → prometheus exporter :8889 暴露。Prometheus 只需 scrape 这一个集中出口,
+      # 无需给每个业务 pod 打 prometheus.io/scrape annotation(集中式优于 per-pod)
+      - job_name: otel-collector
+        static_configs:
+          - targets: ["otel-collector.esp-observability.svc.cluster.local:8889"]
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            regex: esp-prod
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            regex: "true"
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            regex: (.+)
+            target_label: __metrics_path__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port, __meta_kubernetes_pod_ip]
+            regex: (.+);(.+)
+            target_label: __address__
+            replacement: $2:$1
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: esp_app
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: esp_ns
+      - job_name: kubernetes-nodes
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+  rules.yml: |
+    groups:
+      - name: esp-service
+        rules:
+          - alert: ServiceDown
+            expr: up{esp_ns="esp-prod"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.esp_app }} down"
+          - alert: HighErrorRate
+            expr: rate(http_server_requests_seconds_count{status=~"5.."}[5m]) / rate(http_server_requests_seconds_count[5m]) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.esp_app }} 5xx > 10%"
+          - alert: PodRestart
+            expr: increase(kube_pod_container_status_restarts_total{namespace="esp-prod"}[1h]) > 3
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "pod {{ $labels.pod }} restarted >3 times in 1h"
+          - alert: HighLatencyP99
+            expr: histogram_quantile(0.99, sum by (esp_app, le)(rate(http_server_requests_seconds_bucket{esp_ns="esp-prod"}[5m]))) > 2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.esp_app }} P99 latency > 2s"
+              description: "P99 latency exceeds 2s over the last 5m (histogram_quantile on http_server_requests_seconds_bucket)."
+          - alert: HighLatencyP95Gateway
+            expr: histogram_quantile(0.95, sum by (le)(rate(http_server_requests_seconds_bucket{esp_app="gateway-go"}[5m]))) > 1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "gateway-go P95 latency > 1s"
+              description: "Gateway entry P95 latency exceeds 1s over the last 5m."
+          - alert: ErrorBudgetBurn
+            expr: sum by (esp_app)(rate(http_server_requests_seconds_count{esp_ns="esp-prod",status=~"5.."}[5m])) / sum by (esp_app)(rate(http_server_requests_seconds_count{esp_ns="esp-prod"}[5m])) > 0.05
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.esp_app }} error budget burn > 5% (10m)"
+              description: "5xx ratio > 5% sustained 10m; SLO 99.9% budget burn rate elevated (5% ratio ≈ 1.5d/30d budget)."
+          - alert: HighCPUSaturation
+            expr: (rate(container_cpu_usage_seconds_total{namespace="esp-prod",container!=""}[5m]) / sum by (pod)(container_spec_cpu_quota{namespace="esp-prod"} != -1) * sum by (pod)(container_spec_cpu_period{namespace="esp-prod"})) > 0.8 or on(esp_app) sum by(esp_app)(rate(container_cpu_usage_seconds_total{namespace="esp-prod"}[5m])) > 2
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.pod }} CPU saturation > 80% limit (or > 2 cores raw)"
+              description: "CPU usage > 80% of limit (when set); fallback: raw CPU > 2 cores for pods without cpu limit."
+          - alert: HighMemorySaturation
+            expr: container_memory_working_set_bytes{namespace="esp-prod"} / container_spec_memory_limit_bytes{namespace="esp-prod"} > 0.85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "{{ $labels.pod }} memory > 85% limit"
+              description: "Container memory working set exceeds 85% of memory limit over 5m."
+          - alert: PodCrashLoop
+            expr: increase(kube_pod_container_status_restarts_total{namespace="esp-prod"}[15m]) > 5
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "pod {{ $labels.pod }} crashloop (>5 restarts in 15m)"
+              description: "Aggressive crashloop signal: >5 restarts within 15m (distinct from PodRestart which is 1h>3 warning)."
+          - alert: TiDBConnectionPoolSaturation
+            expr: tidb_server_connections / tidb_server_max_connections > 0.8
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "TiDB connection pool saturation > 80%"
+              description: "TiDB server connections exceed 80% of max_connections. Requires TiDB exporter; evaluates empty (no alert) if metric absent."
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: esp-observability
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.55.0
+          args: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=7d"]
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: storage
+              mountPath: /prometheus
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: esp-observability
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+---
+# ============ Alertmanager(告警路由,补齐缺口)============
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: esp-observability
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["alertname", "esp_app"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: default
+    receivers:
+      - name: default
+        # 生产环境接入 webhook/钉钉/飞书;当前占位
+        # webhook_configs:
+        #   - url: http://example.com/alert
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: esp-observability
+  labels:
+    app: alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args: ["--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager"]
+          ports:
+            - name: http
+              containerPort: 9093
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: storage
+              mountPath: /alertmanager
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 200m, memory: 256Mi}
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: esp-observability
+spec:
+  selector:
+    app: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http

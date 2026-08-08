@@ -1,0 +1,73 @@
+# PodDisruptionBudget — 应用服务自愿驱逐保护(架构评分 P0:缺 PDB)。
+#
+# 保证每个关键服务在 voluntary 驱逐(节点 drain/集群升级)时至少保留 1 个副本,
+# 避免滚动/驱逐把单副本服务打成零可用。HPA 多副本场景下与 HPA 联动更有效。
+#
+# 注意:单节点 + 单副本环境,minAvailable:1 会使 kubectl drain 阻塞(无第二节点接纳);
+# 这是预期行为(PDB 即"宁可 drain 失败也不可用")。多节点环境副本数 ≥2 时正常工作。
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-go-pdb
+  namespace: esp-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gateway-go
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: bff-java-pdb
+  namespace: esp-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: bff-java
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: learning-java-pdb
+  namespace: esp-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: learning-java
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: teacher-java-pdb
+  namespace: esp-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: teacher-java
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: writing-py-pdb
+  namespace: esp-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: writing-py
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: emotion-svc-pdb
+  namespace: esp-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: emotion-svc

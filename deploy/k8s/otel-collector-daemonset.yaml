@@ -1,0 +1,109 @@
+# P2-4 OTel Collector DaemonSet(边缘层)+ tail-sampling
+#
+# 单节点 RD 不 apply(DaemonSet 每节点一个,单节点=1 个,与现有 Deployment 等价,无收益)。
+# 迁移多节点后:先 apply gateway(中心),再 apply 本 DaemonSet(边缘),各服务 OTLP endpoint
+# 改指本 DaemonSet。详见 docs/design/p2-4-otel-collector-tiering.md。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-daemonset-config
+  namespace: esp-observability
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      # tail-sampling:边缘层降量,大规模下避免撑爆 Tempo。
+      # 策略:常规 10% + ERROR 100% + 慢查询(span>1s)100% + DB 写 100%。
+      tail_sampling:
+        decision_wait: 30s
+        num_traces: 50000
+        expected_new_traces_per_sec: 1000
+        policies:
+          - name: error-traces
+            type: status_code
+            status_code:
+              status_codes: [ERROR]
+          - name: slow-spans
+            type: latency
+            latency:
+              threshold_ms: 1000
+          - name: db-write
+            type: string_attribute
+            string_attribute:
+              key: db.operation
+              values: [insert, update, delete]
+          - name: baseline-10pct
+            type: probabilistic
+            probabilistic:
+              sampling_percentage: 10
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+      resource:
+        attributes:
+          - key: deployment.environment
+            value: esp-prod
+            action: upsert
+    exporters:
+      # 边缘层只发到中心 Gateway,不直连后端
+      otlp/gateway:
+        endpoint: otel-collector-gateway.esp-observability.svc.cluster.local:4317
+        tls:
+          insecure: true
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [resource, tail_sampling, batch]
+          exporters: [otlp/gateway]
+        logs:
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [otlp/gateway]
+        metrics:
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [otlp/gateway]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector-daemonset
+  namespace: esp-observability
+spec:
+  selector: {matchLabels: {app: otel-collector-daemonset}}
+  template:
+    metadata: {labels: {app: otel-collector-daemonset}}
+    spec:
+      containers:
+      - name: collector
+        image: otel/opentelemetry-collector-contrib:0.110.0
+        args: ["--config", "/etc/otelcol/config.yaml"]
+        ports:
+        - {containerPort: 4317, name: otlp-grpc}
+        - {containerPort: 4318, name: otlp-http}
+        volumeMounts:
+        - {name: config, mountPath: /etc/otelcol}
+        resources:
+          requests: {cpu: "100m", memory: 256Mi}
+          limits: {cpu: "500m", memory: 512Mi}
+      volumes:
+      - name: config
+        configMap: {name: otel-collector-daemonset-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector-daemonset
+  namespace: esp-observability
+spec:
+  selector: {app: otel-collector-daemonset}
+  ports:
+  - {name: otlp-grpc, port: 4317, targetPort: 4317}
+  - {name: otlp-http, port: 4318, targetPort: 4318}

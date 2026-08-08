@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        ESP 跨服务代码级集成测试模块(真实集群基础设施,禁用 H2)。
+        前置:esp-api / esp-rw-java / esp-cache / esp-disruptor 需先 `mvn install` 到本地仓库。
+        集群依赖:TiDB(tidb-primary/tidb-follower:4000,db=esp/root无密码)、Redis(redis-cluster:6379,主从模式)、
+                  Pulsar(pulsar-broker:6650,T3/T4 可关)、learning-java Dubbo Triple provider(tri://learning-java:50091)。
+    -->
+
+    <groupId>com.esp</groupId>
+    <artifactId>integration-tests</artifactId>
+    <version>1.0.0</version>
+    <name>integration-tests</name>
+    <packaging>jar</packaging>
+    <description>ESP 跨服务代码级集成测试:真实 TiDB/Redis/Pulsar,禁用 H2。</description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-boot.version>4.0.7</spring-boot.version>
+        <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
+        <dubbo.version>3.3.6</dubbo.version>
+        <mysql.version>9.3.0</mysql.version>
+        <caffeine.version>3.2.4</caffeine.version>
+        <junit.version>5.14.4</junit.version>
+        <assertj.version>3.27.3</assertj.version>
+        <mockito.version>5.18.0</mockito.version>
+        <aspectj.version>1.9.25.1</aspectj.version>
+    </properties>
+
+    <dependencies>
+        <!-- ===== ESP 公共包(需先 mvn install)===== -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-api</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-rw-java</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-cache</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-disruptor</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <!-- ===== Spring Boot ===== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- SB4:starter-web 移除 tomcat,需显式 Jetty(仅 T1 需 web 自动配置链路,可选) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jetty</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ===== TiDB/MySQL 真实驱动(禁用 H2)===== -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>${mysql.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ===== Dubbo Triple(consumer 直连 provider,绕开 Nacos)===== -->
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-spring-boot-starter</artifactId>
+            <version>${dubbo.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ===== Caffeine(L1)===== -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>${caffeine.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ===== AspectJ(@DataSource AOP 织入)===== -->
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+            <version>${aspectj.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ===== 测试框架 ===== -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.3</version>
+                <configuration>
+                    <!-- 集成测试默认不在普通 test 阶段跑(需集群);用 -Dit.skip=false 显式开启 -->
+                    <skipTests>${it.skip,true}</skipTests>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.0</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

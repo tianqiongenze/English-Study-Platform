@@ -1,0 +1,21 @@
+# BFF(Netty 边缘 + Disruptor + Dubbo Triple + SCA)—— 预构建 jar 模式(参考 learning-java)
+# 本地已 mvn package 生成 target/bff-java-1.0.0.jar,直接 COPY,避免源码多阶段构建拉依赖超时。
+FROM eclipse-temurin:21-jre-noble
+WORKDIR /app
+COPY target/bff-java-1.0.0.jar /app/app.jar
+
+# OpenTelemetry Java agent: 暂跳过(GitHub 下载网络不稳定),后续补
+# ADD https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.10.0/opentelemetry-javaagent.jar /app/otel-agent.jar
+
+# 8090=Spring MVC(本地控制器/auth/actuator),9090=Netty 边缘接入,50090=Dubbo Triple
+EXPOSE 8090 9090 50090
+
+# OTEL export config -> Collector in esp-observability ns (OTLP gRPC 4317)
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317
+ENV OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+ENV OTEL_SERVICE_NAME=bff-java
+ENV OTEL_TRACES_EXPORTER=otlp
+ENV OTEL_RESOURCE_ATTRIBUTES=service.namespace=esp-prod,deployment.environment=esp-prod
+
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

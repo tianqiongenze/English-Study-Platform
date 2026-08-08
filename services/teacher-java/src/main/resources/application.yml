@@ -1,0 +1,107 @@
+server:
+  port: 8083
+  jetty:
+    threads:
+      max: 400          # 默认 200,单节点 VM 高负载下 Jetty acceptor/工作线程易耗尽致 hang(51 CLOSE_WAIT 堆积),放宽到 400 防线程池耗尽(联网方案防线)
+      min: 50           # 保留最小工作线程,避免冷启动 accept 延迟
+      idle-timeout: 60s # 空闲线程 60s 回收,防止僵尸线程占用
+    acceptors: 2        # acceptor 线程数(默认 -1 自适应),显式 2 确保接受连接不阻塞
+    selectors: 4        # selector 线程数(默认 -1),显式 4 与 CPU 核数相关,防 selector 卡死致 acceptor 堆积
+spring:
+  application:
+    name: teacher-java
+  threads:
+    virtual:
+      enabled: true   # SB4 全局虚拟线程(I/O 密集收益,2026-08-06 #6 开启)
+  main:
+    allow-bean-definition-overriding: true   # SCA seata starter 传递 spring-boot-webclient:4.0.0,其 CodecsAutoConfiguration 与 SB3.5.16 defaultCodecCustomizer bean 重名,允许覆盖消解
+  jpa:
+    database-platform: org.hibernate.dialect.MariaDBDialect
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MariaDBDialect
+    open-in-view: false
+  datasource:
+    write:
+      jdbc-url: ${WRITE_DB_URL:jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true}
+      username: ${DB_USER:root}
+      password: ${DB_PASS:""}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      hikari:
+        maximum-pool-size: 30
+    read:
+      jdbc-url: ${READ_DB_URL:jdbc:mysql://tidb-follower:4000/esp?useSSL=false&allowPublicKeyRetrieval=true}
+      username: ${DB_USER:root}
+      password: ${DB_PASS:""}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      hikari:
+        maximum-pool-size: 30
+  data:
+    redis:
+      # Redis Cluster 模式(经 ExternalName redis-cluster → redis-cluster-new,3主3从)
+      cluster:
+        nodes: redis-cluster:6379
+        max-redirects: 3
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,caches
+  endpoint:
+    health:
+      probes:
+        enabled: true   # 激活 readiness/liveness health group,k8s httpGet 探针用(根治 jetty acceptor hang 假 Ready)
+      show-details: always
+# ADR-08 Dubbo Triple RPC(consumer,注册到 Nacos)
+dubbo:
+  application:
+    name: teacher-java
+    serialize-check-status: WARN
+  protocol:
+    name: tri
+  registry:
+    address: nacos://${NACOS_HOST:nacos}:8848?username=&password=
+    group: ${DUBBO_GROUP:esp}
+  consumer:
+    group: ${DUBBO_GROUP:esp}
+    version: 1.0.0
+    check: false
+  scan:
+    base-packages: com.esp.teacher.web
+
+# Seata 分布式事务(TC 已部署 seata:8091;consumer 侧发起全局事务)
+seata:
+  enabled: ${SEATA_ENABLED:true}
+  tx-service-group: esp_tx_group
+  service:
+    vgroup-mapping:
+      esp_tx_group: default
+    grouplist:
+      default: ${SEATA_ADDR:seata:8091}   # 显式 TC 地址兜底:registry nacos 发现失败时仍可直连
+  registry:
+    type: file   # registry 用 file:直接从本地 service.vgroup-mapping + service.grouplist 读 TC 地址,绕开 nacos lookup 对 vgroupMapping 的强制 getConfig(nacos 路径在 SB4 下 SeataProperties 绑定时序不稳,致 ConfigNotFoundException)
+  config:
+    type: file   # config 用 file 读本地 vgroup-mapping(SCA starter 桥接 Spring Environment);nacos config client gRPC 在 SB4 下不稳
+  data-source-proxy-mode: AT
+
+# 多级缓存(esp-cache:L1 Caffeine + L2 Redis + Pulsar 跨实例失效广播)
+# feature flag:false 时所有缓存代码走 no-op 直打 DB(回退安全)
+esp:
+  cache:
+    enabled: ${CACHE_ENABLED:true}
+    l1-spec: ${CACHE_L1_SPEC:maximumSize=10000,expireAfterWrite=60s}
+    l2-ttl-seconds: ${CACHE_L2_TTL:300}
+    empty-ttl-seconds: ${CACHE_EMPTY_TTL:30}
+    long-ttl-seconds: ${CACHE_LONG_TTL:1800}
+    double-delete-delay-ms: ${CACHE_DOUBLE_DELETE_DELAY:100}
+  pulsar:
+    service-url: ${PULSAR_URL:pulsar://pulsar-broker:6650}
+    topic: ${PULSAR_CACHE_TOPIC:esp-cache-invalidate}
+    consumer-enabled: ${PULSAR_CONSUMER_ENABLED:true}

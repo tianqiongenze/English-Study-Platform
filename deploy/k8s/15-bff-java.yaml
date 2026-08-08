@@ -1,0 +1,60 @@
+# bff-java: 边缘接入(Netty 9090)+ Spring MVC 控制器/auth/actuator(8090)+ Dubbo Triple(50090)
+# 对外接入端口 9090,经 Ingress 或 gateway-go 转发,本期 ClusterIP(不擅自加 NodePort 以免端口冲突)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bff-java
+  namespace: esp-prod
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: bff-java}}
+  template:
+    metadata: {labels: {app: bff-java}}
+    spec:
+      containers:
+      - name: bff-java
+        image: esp/bff-java:1.5.1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - {containerPort: 8090,  name: mvc}
+        - {containerPort: 9090,  name: edge}
+        - {containerPort: 50090, name: dubbo}
+        env:
+        - {name: NACOS_ADDR,    value: "nacos:8848"}
+        - {name: NACOS_NS,      value: "public"}
+        - {name: SENTINEL_DASH, value: "sentinel:8858"}
+        - {name: SEATA_ENABLED, value: "true"}
+        - {name: JWT_SECRET,    valueFrom: {secretKeyRef: {name: esp-secrets, key: JWT_SECRET, optional: true}}}
+        - {name: WRITE_DB_URL,  value: "jdbc:mysql://tidb-primary:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"}
+        - {name: DB_USER,       valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_USER}}}
+        - {name: DB_PASS,       valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_PASS}}}
+        - {name: REDIS_HOST,    value: "redis-cluster"}
+        - {name: WX_LOGIN_ENABLED, value: "false"}
+        # OTel 注入(ADR-observability-rebuild):javaagent 已在镜像 JAVA_OPTS 中(Dockerfile ENTRYPOINT),
+        # 这里只补 OTEL_* env 配置(agent 已加载,仅需配置 service 名/exporter 端点)。
+        # 注:本轮只写 manifest + 代码,不 build 部署(资源紧张,灌数完成后再 build+scale)
+        - {name: OTEL_SERVICE_NAME, value: "bff"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
+        - {name: OTEL_METRICS_EXPORTER, value: "none"}
+        - {name: OTEL_LOGS_EXPORTER, value: "none"}
+        envFrom:
+        - secretRef: {name: esp-rsa-jwt}
+        startupProbe:   {httpGet: {path: /actuator/health/liveness, port: 8090}, initialDelaySeconds: 30, periodSeconds: 10, failureThreshold: 120, timeoutSeconds: 5}   # 1230s 慢启动保护(RS256+Nacos+Seata+Dubbo 注册慢)
+        readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8090}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
+        livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8090}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
+        resources:
+          requests: {cpu: "200m", memory: 512Mi}
+          limits:   {cpu: "1",     memory: 1536Mi}   # 原 1Gi 偏紧,Netty+Dubbo+Seata 三件套加压升内存
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bff-java
+  namespace: esp-prod
+spec:
+  selector: {app: bff-java}
+  ports:
+  - {name: mvc,   port: 8090,  targetPort: 8090}
+  - {name: edge,  port: 9090,  targetPort: 9090}
+  - {name: dubbo, port: 50090, targetPort: 50090}

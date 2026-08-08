@@ -1,0 +1,42 @@
+# 基础设施复用:通过 ExternalName 引用已运行在 ekb-m2-* 命名空间的 TiDB / Redis Cluster / Pulsar。
+# 这样 esp-prod 中的微服务可用统一短名(tidb-primary / redis-cluster / pulsar-broker)访问,
+# 而无需重新部署一套基础设施(符合"容器中已有则重用"的要求)。
+---
+# TiDB(读写分离:写主、读副本,均为同一 TiDB 集群;生产中可指向不同 TiDB 节点)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tidb-primary
+  namespace: esp-prod
+spec:
+  type: ExternalName
+  externalName: tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tidb-follower
+  namespace: esp-prod
+spec:
+  type: ExternalName
+  externalName: tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+# Redis Cluster(会话/缓存/限流)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+  namespace: esp-prod
+spec:
+  type: ExternalName
+  externalName: redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+# Apache Pulsar(事件总线)
+apiVersion: v1
+kind: Service
+metadata:
+  name: pulsar-broker
+  namespace: esp-prod
+spec:
+  type: ExternalName
+  externalName: pulsar-broker.ekb-m2-aws-us-east-1.svc.cluster.local

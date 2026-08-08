@@ -1,0 +1,293 @@
+# ESP BFF 重构配套:Spring Cloud Alibaba 三件套中间件部署
+# - Nacos 2.4.x standalone(服务注册 + 配置中心,Dubbo/SCA 依赖)
+# - Sentinel Dashboard 1.8.8(流控可视化 + 规则推送)
+# - Seata Server 2.2.x(分布式事务 TC,esp_tx_group)
+#
+# 三者均为单节点 standalone,适配 Rancher Desktop 单节点开发集群。
+# 生产应改为集群模式 + 持久化卷(此处从简,与项目 K8s 单节点定位一致)。
+---
+# ============ Nacos 2.4 ============
+apiVersion: v1
+kind: Service
+metadata:
+  name: nacos
+  namespace: esp-prod
+  labels:
+    app: nacos
+spec:
+  type: ClusterIP
+  selector:
+    app: nacos
+  ports:
+    - name: http
+      port: 8848
+      targetPort: 8848
+    - name: grpc
+      port: 9848
+      targetPort: 9848
+    - name: raft
+      port: 9849
+      targetPort: 9849
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nacos
+  namespace: esp-prod
+  labels:
+    app: nacos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nacos
+  template:
+    metadata:
+      labels:
+        app: nacos
+    spec:
+      containers:
+        - name: nacos
+          # 单节点 dev 环境实际运行 v2.4.3(SCA 2025.1.0.0 client 2.x 原生兼容)。
+          # 升级到 v3.x(协议破坏性):embedded derby 无 PVC 需重导入配置,且 1ms.run 拉 v3.2.3/v3.1.1 超时(daocloud 403)。
+          # 配置已备份 report/nacos-backup-2026-08-02/。生产环境(直连 docker.io + PVC)可升 v3.x。详见 docs/PROGRESS.md task#10。
+          image: nacos/nacos-server:v2.4.3
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8848
+              name: http
+            - containerPort: 9848
+              name: grpc
+            - containerPort: 9849
+              name: raft
+          env:
+            - name: MODE
+              value: standalone
+            - name: NACOS_AUTH_ENABLE
+              value: "false"          # 开发期关闭鉴权,生产应开启
+            - name: JVM_XMS
+              value: "512m"
+            - name: JVM_XMX
+              value: "512m"
+            # 内嵌 derby,无需外部 DB;持久化靠 emptyDir(单节点开发可接受)
+          startupProbe:                # 单节点高负载下 nacos 启动慢(derby 初始化+raft),加 startup 防止被 liveness 误杀
+            httpGet:
+              path: /nacos/v1/console/health/readiness
+              port: 8848
+            periodSeconds: 10
+            failureThreshold: 60      # 最多等 600s 启动
+          readinessProbe:
+            httpGet:
+              path: /nacos/v1/console/health/readiness
+              port: 8848
+            periodSeconds: 10
+            failureThreshold: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /nacos/v1/console/health/liveness
+              port: 8848
+            periodSeconds: 30
+            failureThreshold: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 768Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi          # 原 1Gi 偏紧(derby+raft+gRPC),node 高负载下 GC 抖动超时,升内存
+---
+# ============ Sentinel Dashboard 1.8.8 ============
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel
+  namespace: esp-prod
+  labels:
+    app: sentinel
+spec:
+  type: ClusterIP
+  selector:
+    app: sentinel
+  ports:
+    - name: http
+      port: 8858
+      targetPort: 8858
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel
+  namespace: esp-prod
+  labels:
+    app: sentinel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sentinel
+  template:
+    metadata:
+      labels:
+        app: sentinel
+    spec:
+      containers:
+        - name: sentinel
+          image: bladex/sentinel-dashboard:1.8.9
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8858
+              name: http
+          env:
+            - name: JAVA_OPTS
+              value: "-Xms256m -Xmx512m"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8858
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8858
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+---
+# ============ Seata Server 2.2 ============
+# TC server:esp_tx_group 事务协调。Seata 2.x 默认 file 存储模式(单节点开发可接受)。
+# 注册到 Nacos,Seata Client 通过 nacos 发现 TC。
+# ConfigMap seata-config 显式定义 application.yml(之前靠 kubectl create cm 手建,重装集群会丢,
+# 导致 seata 回退 localhost:8848 CrashLoop;此处在 manifest 内固化,消除重装隐患)。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seata-config
+  namespace: esp-prod
+  labels:
+    app: seata
+data:
+  application.yml: |
+    server:
+      port: 7091
+    spring:
+      application:
+        name: seata-server
+    logging:
+      config: classpath:logback-spring.xml
+      file:
+        path: /home/seata/logs/seata
+    console:
+      user:
+        username: seata
+        password: seata
+    seata:
+      config:
+        type: file
+      registry:
+        type: nacos
+        nacos:
+          application: seata-server
+          server-addr: nacos:8848
+          group: SEATA_GROUP
+          namespace: ""
+          cluster: default
+      store:
+        mode: file
+      security:
+        secretKey: SeataSecretKey0c382ef121d778043159209298fd40bf3850a017
+        tokenValidityInMilliseconds: 1800000
+        ignore:
+          urls: /,/**/*.css,/**/*.js,/**/*.html,/**/*.map,/**/*.svg,/**/*.png,/**/*.jpeg,/**/*.ico,/api/v1/auth/login,/metadata/v1/**
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seata
+  namespace: esp-prod
+  labels:
+    app: seata
+spec:
+  type: ClusterIP
+  selector:
+    app: seata
+  ports:
+    - name: http
+      port: 7091
+      targetPort: 7091
+    - name: grpc
+      port: 8091
+      targetPort: 8091
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seata
+  namespace: esp-prod
+  labels:
+    app: seata
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: seata
+  template:
+    metadata:
+      labels:
+        app: seata
+    spec:
+      containers:
+        - name: seata
+          # 单节点 dev 环境实际运行 2.2.0(client 2.5.0 向下兼容握手 OK)。
+          # 升级到 apache/seata-server:2.5.0+ 需 jdk17 变体(默认 Java8 镜像 SB3 servlet 加载失败),
+          # 且 1ms.run/daocloud 镜像源对该 tag 不可达。生产环境(直连 docker.io + Java17)可升 2.5.0.jdk17。
+          # 详见 docs/PROGRESS.md task#10。
+          image: seataio/seata-server:2.2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7091
+              name: http
+            - containerPort: 8091
+              name: grpc
+          # Seata 2.x 通过 application.yml 配置(非 env),见 ConfigMap seata-config
+          # 注意:K8s 会从 Service "seata" 自动注入 SEATA_PORT=tcp://... 导致
+          # seata.server.service-port 绑定失败,此处显式覆盖为 8091
+          env:
+            - name: SEATA_PORT
+              value: "8091"
+          volumeMounts:
+            - name: seata-config
+              mountPath: /seata-server/resources/application.yml
+              subPath: application.yml
+          readinessProbe:
+            tcpSocket:
+              port: 8091
+            initialDelaySeconds: 30
+            periodSeconds: 15           # 原 10s 太紧:高负载下 8091 grpc 探针 i/o timeout,seata 被误杀 r=8+,
+            timeoutSeconds: 3           # 导致全局事务 TC 抖动、5000 CCU 期下游 503。放宽 + 提高容忍。
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8091
+            initialDelaySeconds: 60
+            periodSeconds: 30           # liveness 只杀真死,宽间隔避免高负载误判
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 150m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+      volumes:
+        - name: seata-config
+          configMap:
+            name: seata-config

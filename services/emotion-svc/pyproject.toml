@@ -1,0 +1,24 @@
+[project]
+name = "emotion-svc"
+version = "1.0.0"
+requires-python = ">=3.11"
+dependencies = [
+    "litestar>=2.24.0",
+    "granian>=1.6.0",
+    "pydantic>=2.7",
+    # 多级缓存:公共包 esp-cache-py(L1 cachetools + L2 redis.asyncio)
+    "esp-cache-py>=1.0.0",
+    # 读写分离数据访问:公共包 esp-db-py(主写 tidb-primary / 从读 tidb-follower)
+    "esp-db-py>=1.0.0",
+    # OpenTelemetry (tracing → OTel Collector via OTLP gRPC)
+    "opentelemetry-api==1.30.0",
+    "opentelemetry-sdk==1.30.0",
+    "opentelemetry-exporter-otlp==1.30.0",
+    # OTel 自动埋点:Litestar 2.x 内置 OpenTelemetryPlugin(litestar.contrib.opentelemetry),
+    # PyPI 上 opentelemetry-instrumentation-litestar 无真实发布,故不单独依赖。
+    "opentelemetry-instrumentation-asgi==0.51b0",
+]
+[project.optional-dependencies]
+test = ["pytest>=8.0", "httpx>=0.27"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(**)",
+      "Edit(**)",
+      "Write(**)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/joelgong/claude-Projects/English-Study-Platform/.claude/hooks/context_guard.py warn"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/joelgong/claude-Projects/English-Study-Platform/.claude/hooks/bash_guard.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/joelgong/claude-Projects/English-Study-Platform/.claude/hooks/context_guard.py warn"
+          }
+        ]
+      }
+    ]
+  }
+}

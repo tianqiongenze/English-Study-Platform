@@ -1,0 +1,342 @@
+// dialogue/mod.rs —— AI 多轮对话子模块
+// session/turn/persona CRUD + SSE 流式 /api/dialogue/chat
+// schema: esp_llm.dialogue_sessions / dialogue_turns / dialogue_personas
+
+use axum::{
+    extract::{Path, Query, State},
+    http::{HeaderMap, HeaderValue},
+    response::{IntoResponse, Response},
+    Json,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sqlx::mysql::MySqlPool;
+
+use crate::AppHandle;
+
+// ---------------- DTO ----------------
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSessionReq {
+    user_id: i64,
+    #[serde(default)]
+    scenario_id: Option<i64>,
+    #[serde(default)]
+    persona_id: Option<i64>,
+    #[serde(default)]
+    cefr_level: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionDto {
+    id: i64,
+    user_id: i64,
+    scenario_id: Option<i64>,
+    persona_id: Option<i64>,
+    cefr_level: Option<String>,
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatReq {
+    session_id: i64,
+    content: String,
+    #[serde(default)]
+    max_tokens: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    user_id: Option<i64>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreatePersonaReq {
+    name: String,
+    persona_prompt: String,
+    #[serde(default)]
+    voice_id: Option<String>,
+    #[serde(default)]
+    accent: Option<String>,
+    #[serde(default)]
+    cefr_level: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PersonaDto {
+    id: i64,
+    name: String,
+    persona_prompt: String,
+    voice_id: Option<String>,
+    accent: Option<String>,
+    cefr_level: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TurnDto {
+    id: i64,
+    session_id: i64,
+    role: String,
+    content: String,
+    tokens_in: i32,
+    tokens_out: i32,
+    latency_ms: i32,
+}
+
+// ---------------- session handlers ----------------
+
+pub async fn list_sessions(
+    State(h): State<AppHandle>,
+    Query(q): Query<ListQuery>,
+) -> Response {
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let rows: Result<Vec<(i64, i64, Option<i64>, Option<i64>, Option<String>, String)>, _> =
+        match q.user_id {
+            Some(uid) => sqlx::query_as(
+                "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
+                 FROM dialogue_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            )
+            .bind(uid)
+            .bind(limit)
+            .fetch_all(&h.0.mysql)
+            .await,
+            None => sqlx::query_as(
+                "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
+                 FROM dialogue_sessions ORDER BY created_at DESC LIMIT ?",
+            )
+            .bind(limit)
+            .fetch_all(&h.0.mysql)
+            .await,
+        };
+    match rows {
+        Ok(rs) => {
+            let dtos: Vec<SessionDto> = rs
+                .into_iter()
+                .map(|r| SessionDto {
+                    id: r.0,
+                    user_id: r.1,
+                    scenario_id: r.2,
+                    persona_id: r.3,
+                    cefr_level: r.4,
+                    status: r.5,
+                })
+                .collect();
+            Json(json!({"items": dtos})).into_response()
+        }
+        Err(e) => err_response(500, &e.to_string()),
+    }
+}
+
+pub async fn create_session(
+    State(h): State<AppHandle>,
+    Json(req): Json<CreateSessionReq>,
+) -> Response {
+    let res: Result<(i64,), _> = sqlx::query_as(
+        "INSERT INTO dialogue_sessions (user_id, scenario_id, persona_id, cefr_level, status) \
+         VALUES (?, ?, ?, ?, 'active') RETURNING id",
+    )
+    .bind(req.user_id)
+    .bind(req.scenario_id)
+    .bind(req.persona_id)
+    .bind(&req.cefr_level)
+    .fetch_one(&h.0.mysql)
+    .await;
+    match res {
+        Ok((id,)) => Json(json!({"id": id, "status": "active"})).into_response(),
+        Err(e) => err_response(500, &e.to_string()),
+    }
+}
+
+pub async fn get_session(
+    State(h): State<AppHandle>,
+    Path(id): Path<i64>,
+) -> Response {
+    let res: Result<(i64, i64, Option<i64>, Option<i64>, Option<String>, String), _> =
+        sqlx::query_as(
+            "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
+             FROM dialogue_sessions WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(&h.0.mysql)
+        .await;
+    match res {
+        Ok(r) => Json(json!(SessionDto {
+            id: r.0, user_id: r.1, scenario_id: r.2, persona_id: r.3, cefr_level: r.4, status: r.5
+        }))
+        .into_response(),
+        Err(e) => err_response(404, &e.to_string()),
+    }
+}
+
+pub async fn list_turns(
+    State(h): State<AppHandle>,
+    Path(session_id): Path<i64>,
+) -> Response {
+    let rows: Result<Vec<(i64, i64, String, String, i32, i32, i32)>, _> = sqlx::query_as(
+        "SELECT id, session_id, role, content, tokens_in, tokens_out, latency_ms \
+         FROM dialogue_turns WHERE session_id = ? ORDER BY created_at ASC",
+    )
+    .bind(session_id)
+    .fetch_all(&h.0.mysql)
+    .await;
+    match rows {
+        Ok(rs) => {
+            let dtos: Vec<TurnDto> = rs
+                .into_iter()
+                .map(|r| TurnDto {
+                    id: r.0,
+                    session_id: r.1,
+                    role: r.2,
+                    content: r.3,
+                    tokens_in: r.4,
+                    tokens_out: r.5,
+                    latency_ms: r.6,
+                })
+                .collect();
+            Json(json!({"items": dtos})).into_response()
+        }
+        Err(e) => err_response(500, &e.to_string()),
+    }
+}
+
+// ---------------- SSE chat ----------------
+
+/// POST /api/dialogue/chat —— SSE 流式对话
+/// 写入 user turn → 调 provider 流式生成 → 逐 token SSE 推送 → 落库 assistant turn
+pub async fn chat_sse(
+    State(h): State<AppHandle>,
+    headers: HeaderMap,
+    Json(req): Json<ChatReq>,
+) -> Response {
+    let trace_id = headers
+        .get("x-trace-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    // 1. 落 user turn
+    let _ = sqlx::query(
+        "INSERT INTO dialogue_turns (session_id, role, content, tokens_in, tokens_out, latency_ms) \
+         VALUES (?, 'user', ?, 0, 0, 0)",
+    )
+    .bind(req.session_id)
+    .bind(&req.content)
+    .execute(&h.0.mysql)
+    .await;
+
+    // 2. 调 provider(非流式简化实现;流式见 provider SSE 解析)
+    let started = std::time::Instant::now();
+    let result = h
+        .0
+        .providers
+        .call(None, None, &req.content, req.max_tokens, false, &trace_id)
+        .await;
+    let latency_ms = started.elapsed().as_millis() as i32;
+
+    match result {
+        Ok(r) => {
+            // 3. 落 assistant turn
+            let _ = sqlx::query(
+                "INSERT INTO dialogue_turns (session_id, role, content, tokens_in, tokens_out, latency_ms) \
+                 VALUES (?, 'assistant', ?, 0, 0, ?)",
+            )
+            .bind(req.session_id)
+            .bind(&r.content)
+            .bind(latency_ms)
+            .execute(&h.0.mysql)
+            .await;
+
+            // 4. SSE 单帧返回(完整内容;真正逐 token 流式可后续从 provider stream 改造)
+            let body = format!(
+                "event: turn\ndata: {}\n\nevent: done\ndata: [DONE]\n\n",
+                json!({
+                    "content": r.content,
+                    "provider": r.provider,
+                    "model": r.model,
+                    "trace_id": trace_id,
+                    "latency_ms": latency_ms,
+                })
+            );
+            let mut resp = Response::new(axum::body::Body::from(body));
+            resp.headers_mut()
+                .insert("content-type", HeaderValue::from_static("text/event-stream"));
+            resp.headers_mut()
+                .insert("cache-control", HeaderValue::from_static("no-cache"));
+            resp
+        }
+        Err(e) => err_response(502, &e.to_string()),
+    }
+}
+
+// ---------------- persona handlers ----------------
+
+pub async fn list_personas(State(h): State<AppHandle>) -> Response {
+    let rows: Result<Vec<(i64, String, String, Option<String>, Option<String>, Option<String>)>, _> =
+        sqlx::query_as(
+            "SELECT id, name, persona_prompt, voice_id, accent, cefr_level \
+             FROM dialogue_personas ORDER BY id ASC LIMIT 100",
+        )
+        .fetch_all(&h.0.mysql)
+        .await;
+    match rows {
+        Ok(rs) => {
+            let dtos: Vec<PersonaDto> = rs
+                .into_iter()
+                .map(|r| PersonaDto {
+                    id: r.0,
+                    name: r.1,
+                    persona_prompt: r.2,
+                    voice_id: r.3,
+                    accent: r.4,
+                    cefr_level: r.5,
+                })
+                .collect();
+            Json(json!({"items": dtos})).into_response()
+        }
+        Err(e) => err_response(500, &e.to_string()),
+    }
+}
+
+pub async fn create_persona(
+    State(h): State<AppHandle>,
+    Json(req): Json<CreatePersonaReq>,
+) -> Response {
+    let res: Result<(i64,), _> = sqlx::query_as(
+        "INSERT INTO dialogue_personas (name, persona_prompt, voice_id, accent, cefr_level) \
+         VALUES (?, ?, ?, ?, ?) RETURNING id",
+    )
+    .bind(&req.name)
+    .bind(&req.persona_prompt)
+    .bind(&req.voice_id)
+    .bind(&req.accent)
+    .bind(&req.cefr_level)
+    .fetch_one(&h.0.mysql)
+    .await;
+    match res {
+        Ok((id,)) => Json(json!({"id": id})).into_response(),
+        Err(e) => err_response(500, &e.to_string()),
+    }
+}
+
+// ---------------- helpers ----------------
+
+fn err_response(status: u16, msg: &str) -> Response {
+    (
+        axum::http::StatusCode::from_u16(status).unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
+        Json(json!({"error": msg})),
+    )
+        .into_response()
+}
+
+/// 允许在别处访问 MySqlPool(预留)
+#[allow(dead_code)]
+pub fn pool_of(h: &AppHandle) -> &MySqlPool {
+    &h.0.mysql
+}
+
+#[allow(dead_code)]
+pub fn value_of(v: &Value) -> String {
+    v.to_string()
+}

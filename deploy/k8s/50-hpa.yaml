@@ -1,0 +1,105 @@
+# HPA: 高可用弹性扩容(autoscaling/v2)
+# - gateway-go: 按 CPU + 内存扩缩,口语长连接场景下 CPU 是主要信号
+# - learning-java: 按 CPU 扩缩(Disruptor 批量写入,CPU 敏感)
+# - writing-py / teacher-java / emotion-svc: 按 CPU 扩缩
+# 所有 HPA 行为配置 stabilizationWindowSeconds,避免压测波动导致抖动。
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: gateway-go, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: gateway-go}
+  minReplicas: 1              # 单节点 RD 资源紧张,各服务 minReplicas 下调;多节点生产恢复原值
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 60}}
+  - type: Resource
+    resource: {name: memory, target: {type: Utilization, averageUtilization: 75}}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - {type: Percent, value: 100, periodSeconds: 30}
+      - {type: Pods, value: 4, periodSeconds: 30}
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies:
+      - {type: Percent, value: 25, periodSeconds: 60}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: learning-java, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: learning-java}
+  minReplicas: 1              # 单节点 RD 资源紧张;多节点生产恢复 3
+  maxReplicas: 15
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 65}}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - {type: Percent, value: 100, periodSeconds: 30}
+      - {type: Pods, value: 3, periodSeconds: 30}
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies:
+      - {type: Percent, value: 25, periodSeconds: 60}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: writing-py, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: writing-py}
+  minReplicas: 1              # 单节点 RD 资源紧张;多节点生产恢复 2
+  maxReplicas: 3              # 单节点降副本防 CPU 抢占;多节点生产恢复 10
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies: [{type: Percent, value: 100, periodSeconds: 30}]
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies: [{type: Percent, value: 25, periodSeconds: 60}]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: teacher-java, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: teacher-java}
+  minReplicas: 1              # 单节点 RD 资源紧张;多节点生产恢复 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies: [{type: Percent, value: 100, periodSeconds: 30}]
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies: [{type: Percent, value: 25, periodSeconds: 60}]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: emotion-svc, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: emotion-svc}
+  minReplicas: 1              # 单节点 RD 资源紧张;多节点生产恢复 2
+  maxReplicas: 3              # 单节点降副本防 CPU 抢占;多节点生产恢复 8
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies: [{type: Percent, value: 100, periodSeconds: 30}]
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies: [{type: Percent, value: 25, periodSeconds: 60}]

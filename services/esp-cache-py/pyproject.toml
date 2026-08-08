@@ -1,0 +1,16 @@
+[project]
+name = "esp-cache-py"
+version = "1.0.0"
+description = "ESP 多级缓存公共包: L1 cachetools(LRU 进程内) + L2 redis.asyncio(Redis Cluster) + 降级兜底"
+requires-python = ">=3.10"
+dependencies = [
+    "cachetools>=5.3.0",
+    "redis>=5.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["esp_cache"]

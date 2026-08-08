@@ -1,0 +1,7 @@
+[chaos] injecting 500ms latency on learning-java-545749f8c6-tbbnn for 10s at 23:33:11
+sh: 1: tc: not found
+command terminated with exit code 127
+[chaos] WARN: tc unavailable (no NET_ADMIN), skip
+[chaos] removing latency at 23:33:24
+command terminated with exit code 127
+[chaos] done at 23:33:28

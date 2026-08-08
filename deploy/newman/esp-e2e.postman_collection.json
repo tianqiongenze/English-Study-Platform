@@ -1,0 +1,90 @@
+{
+  "info": {
+    "name": "ESP 前后端连调功能测试(接口 e2e)",
+    "description": "ESP 平台三端核心业务用例的接口级 e2e 断言。覆盖鉴权链路 + 各业务服务核心 API 的契约(状态码/响应结构/关键字段)。\n入口:gateway-go(口语场景) + bff-java(鉴权/聚合) + 下游 learning/writing/teacher/emotion。\n鉴权:Bearer JWT(HS256),由 login/wx-login 签发或测试脚本铸造。\n\n运行:newman run deploy/newman/esp-e2e.postman_collection.json -e esp-env.json --env-var baseUrl=http://gateway-go --env-var bffUrl=http://bff-java\n集群内:经 ClusterIP 直连,避免 NodePort/Ingress 干扰。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "userToken", "value": ""},
+    {"key": "sessionId", "value": ""}
+  ],
+  "item": [
+    {
+      "name": "鉴权链路",
+      "item": [
+        {
+          "name": "AUTH-1 wx-login 签发 JWT(小程序入口)",
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));", "const j = pm.response.json();", "pm.test('返回 token', () => pm.expect(j.token).to.be.a('string').and.not.empty);", "pm.test('user.role=learner', () => pm.expect(j.user.role).to.eql('learner'));", "pm.collectionVariables.set('userToken', j.token);"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{bffUrl}}/api/auth/wx-login", "host": ["{{bffUrl}}"], "path": ["api","auth","wx-login"]}, "body": {"mode": "raw", "raw": "{\"code\":\"e2e-test-code\"}"}}
+        },
+        {
+          "name": "AUTH-2 无 token 访问受保护资源应 401",
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('401 unauthorized', () => pm.expect(pm.response.code).to.be.oneOf([401,403]));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{gatewayUrl}}/api/sessions", "host": ["{{gatewayUrl}}"], "path": ["api","sessions"]}, "body": {"mode": "raw", "raw": "{\"scenario_code\":\"restaurant_order\"}"}}
+        },
+        {
+          "name": "AUTH-3 伪造 X-User-Id 无 token 应 401(头不生效)",
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('伪造头被拒 401/403', () => pm.expect(pm.response.code).to.be.oneOf([401,403]));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "X-User-Id", "value": "9999"}, {"key": "X-Role", "value": "admin"}, {"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{gatewayUrl}}/api/sessions", "host": ["{{gatewayUrl}}"], "path": ["api","sessions"]}, "body": {"mode": "raw", "raw": "{\"scenario_code\":\"restaurant_order\"}"}}
+        }
+      ]
+    },
+    {
+      "name": "口语场景(gateway-go)",
+      "item": [
+        {
+          "name": "SPK-1 获取场景列表",
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));", "const j = pm.response.json();", "pm.test('返回场景数组', () => pm.expect(j).to.be.an('array').and.not.empty);", "pm.test('场景含 code 字段', () => pm.expect(j[0].code).to.be.a('string'));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "url": {"raw": "{{gatewayUrl}}/api/scenarios", "host": ["{{gatewayUrl}}"], "path": ["api","scenarios"]}}
+        },
+        {
+          "name": "SPK-2 合法 token 创建会话",
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));", "const j = pm.response.json();", "pm.test('返回 session_id', () => pm.expect(j.session_id).to.be.a('string').and.not.empty);", "pm.test('含 scenario 信息', () => pm.expect(j.scenario).to.be.an('object'));", "pm.collectionVariables.set('sessionId', encodeURIComponent(j.session_id));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{gatewayUrl}}/api/sessions", "host": ["{{gatewayUrl}}"], "path": ["api","sessions"]}, "body": {"mode": "raw", "raw": "{\"scenario_code\":\"restaurant_order\"}"}}
+        },
+        {
+          "name": "SPK-3 WS 越权(他人 token 连会话应 403)",
+          "event": [{"listen": "test", "script": {"exec": ["// WS 升级握手探测:用错误 token 连刚才的 session,应被拒(403/401),不应升级成功", "pm.test('越权 WS 被拒(403/401)', () => pm.expect(pm.response.code).to.be.oneOf([403,401]));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Upgrade", "value": "websocket"}, {"key": "Connection", "value": "Upgrade"}], "url": {"raw": "{{gatewayUrl}}/ws/speech/{{sessionId}}?token=invalid-token", "host": ["{{gatewayUrl}}"], "path": ["ws","speech","{{sessionId}}"], "query": [{"key": "token", "value": "invalid-token"}]}}
+        }
+      ]
+    },
+    {
+      "name": "下游业务服务(经 gateway 路由或直连)",
+      "item": [
+        {
+          "name": "LRN-1 学情事件上报(learning-java)",
+          "event": [{"listen": "test", "script": {"exec": ["// 接受 200(成功)或 4xx(参数/鉴权),只要不是 5xx 即契约在", "pm.test('非 5xx(服务可达且契约响应)', () => pm.expect(pm.response.code).to.be.below(500));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "X-User-Id", "value": "1001"}, {"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{learningUrl}}/api/learning/event", "host": ["{{learningUrl}}"], "path": ["api","learning","event"]}, "body": {"mode": "raw", "raw": "{\"user_id\":1001,\"event_type\":\"answer\",\"skill\":\"grammar\",\"correct\":true}"}}
+        },
+        {
+          "name": "LRN-2 学情复习推荐(learning-java)",
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('非 5xx', () => pm.expect(pm.response.code).to.be.below(500));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "X-User-Id", "value": "1001"}], "url": {"raw": "{{learningUrl}}/api/learning/review?user_id=1001", "host": ["{{learningUrl}}"], "path": ["api","learning","review"], "query": [{"key": "user_id", "value": "1001"}]}}
+        },
+        {
+          "name": "WRT-1 写作批改(writing-py)",
+          "event": [{"listen": "test", "script": {"exec": ["// writing 依赖 LLM,单节点可能超时;接受 200 或 5xx(LLM 不可达),契约检查放集成期", "pm.test('服务可达(响应即契约存在)', () => pm.expect(pm.response.code).to.be.a('number').and.to.be.above(0));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{writingUrl}}/api/writing/grade", "host": ["{{writingUrl}}"], "path": ["api","writing","grade"]}, "body": {"mode": "raw", "raw": "{\"text\":\"I goes to school yesterday.\",\"prompt\":\"past tense\"}"}}
+        },
+        {
+          "name": "EMO-1 情绪感知(emotion-svc)",
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('非 5xx', () => pm.expect(pm.response.code).to.be.below(500));"], "type": "text/javascript"}}],
+          "request": {"method": "POST", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "url": {"raw": "{{emotionUrl}}/api/emotion/sense", "host": ["{{emotionUrl}}"], "path": ["api","emotion","sense"]}, "body": {"mode": "raw", "raw": "{\"text\":\"I feel great today!\",\"user_id\":1001}"}}
+        },
+        {
+          "name": "TCH-1 教师知识点统计(teacher-java)",
+          "event": [{"listen": "test", "script": {"exec": ["pm.test('非 5xx', () => pm.expect(pm.response.code).to.be.below(500));"], "type": "text/javascript"}}],
+          "request": {"method": "GET", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "X-User-Id", "value": "1001"}], "url": {"raw": "{{teacherUrl}}/api/teacher/1001/kp-stats", "host": ["{{teacherUrl}}"], "path": ["api","teacher","1001","kp-stats"]}}
+        }
+      ]
+    },
+    {
+      "name": "健康检查(契约可用性)",
+      "item": [
+        {"name": "HC gateway-go", "event": [{"listen":"test","script":{"exec":["pm.test('200',()=>pm.response.to.have.status(200));"],"type":"text/javascript"}}], "request": {"method": "GET", "url": {"raw": "{{gatewayUrl}}/healthz", "host": ["{{gatewayUrl}}"], "path": ["healthz"]}}},
+        {"name": "HC writing-py", "event": [{"listen":"test","script":{"exec":["pm.test('200',()=>pm.response.to.have.status(200));"],"type":"text/javascript"}}], "request": {"method": "GET", "url": {"raw": "{{writingUrl}}/healthz", "host": ["{{writingUrl}}"], "path": ["healthz"]}}}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+server:
+  port: 8081
+  jetty:
+    threads:
+      max: 400          # 默认 200,单节点 VM 高负载下 Jetty 线程易耗尽致 hang,放宽到 400 防线程池耗尽(与 teacher 同构,联网方案防线)
+      min: 50
+      idle-timeout: 60s
+    acceptors: 2
+    selectors: 4
+spring:
+  application:
+    name: learning-java
+  threads:
+    virtual:
+      enabled: true   # SB4 全局虚拟线程(I/O 密集收益,2026-08-06 #6 开启)
+  main:
+    allow-bean-definition-overriding: true   # SCA seata starter 传递 spring-boot-webclient:4.0.0,其 CodecsAutoConfiguration 与 SB3.5.16 defaultCodecCustomizer bean 重名,允许覆盖消解
+  jpa:
+    database-platform: org.hibernate.dialect.MariaDBDialect
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MariaDBDialect
+    open-in-view: false
+  datasource:
+    write:
+      jdbc-url: ${WRITE_DB_URL:jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true}
+      username: ${DB_USER:root}
+      password: ${DB_PASS:""}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      hikari:
+        maximum-pool-size: 50
+        minimum-idle: 10
+    read:
+      jdbc-url: ${READ_DB_URL:jdbc:mysql://tidb-follower:4000/esp?useSSL=false&allowPublicKeyRetrieval=true}
+      username: ${DB_USER:root}
+      password: ${DB_PASS:""}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      hikari:
+        maximum-pool-size: 50
+        minimum-idle: 10
+        # P2-6: 从库连接初始化时设 tidb_read_consistency=strong(TiDB 6.5+),
+        # 让 follower 读强制读最新已提交版本,作为应用层 consistent=true 之外的兜底,
+        # 缩窄 follower lag 导致的读后写窗口。主库连接无需此设置(本就是最新)。
+        connection-init-sql: "SET SESSION tidb_read_consistency='strong'"
+    # app_logs 跨 schema 专用数据源(schema-per-service:app_logs 在 esp_shared,
+    # 业务读写分离连接指 esp_learning,需独立连接池供 AppLogClient 写 / BehaviorController 读 app_logs)。
+    shared:
+      jdbc-url: ${SHARED_DB_URL:jdbc:mysql://tidb-primary:4000/esp_shared?useSSL=false&allowPublicKeyRetrieval=true}
+      username: ${DB_USER:root}
+      password: ${DB_PASS:""}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      hikari:
+        maximum-pool-size: 10
+        minimum-idle: 2
+  data:
+    redis:
+      # Redis Cluster 模式(经 ExternalName redis-cluster → redis-cluster-new,3主3从)
+      cluster:
+        nodes: redis-cluster:6379
+        max-redirects: 3
+      # Lettuce 连接池:多副本下 L2 命中率高,池化复用连接
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+# 多级缓存(L1 Caffeine + L2 Redis + Pulsar 跨实例失效广播,ADR-多级缓存)
+esp:
+  cache:
+    # feature flag:false 时所有缓存代码走 no-op 直打 DB(回退安全)
+    enabled: ${CACHE_ENABLED:true}
+    # L1 Caffeine spec:maxSize 1w / 写后 60s 过期(TTL 兜底防 Pub/Sub 丢消息)
+    l1-spec: ${CACHE_L1_SPEC:maximumSize=10000,expireAfterWrite=60s}
+    # L2 Redis TTL(默认 5min)
+    l2-ttl-seconds: ${CACHE_L2_TTL:300}
+    # 空结果缓存 TTL(防穿透,30s)
+    empty-ttl-seconds: ${CACHE_EMPTY_TTL:30}
+    # 聚合类长 TTL(aggregateByUser 低频重查询,30min)
+    long-ttl-seconds: ${CACHE_LONG_TTL:1800}
+    # 延迟双删间隔(ms)
+    double-delete-delay-ms: ${CACHE_DOUBLE_DELETE_DELAY:100}
+  pulsar:
+    service-url: ${PULSAR_URL:pulsar://pulsar-broker:6650}
+    topic: ${PULSAR_CACHE_TOPIC:esp-cache-invalidate}
+    # consumer 启用开关(测试/单实例可关)
+    consumer-enabled: ${PULSAR_CONSUMER_ENABLED:true}
+  disruptor:
+    buffer-size: 65536
+    batch-size: 200
+    flush-interval-ms: 500
+# ADR-08 Dubbo Triple RPC(注册到 Nacos)
+dubbo:
+  application:
+    name: learning-java
+    serialize-check-status: WARN
+  protocol:
+    name: tri
+    port: 50091
+  registry:
+    address: nacos://${NACOS_HOST:nacos}:8848?username=&password=
+    group: ${DUBBO_GROUP:esp}
+  provider:
+    group: ${DUBBO_GROUP:esp}
+    version: 1.0.0
+  scan:
+    base-packages: com.esp.learning.rpc
+
+# Seata 分布式事务(TC 已部署 seata:8091;provider 侧参与全局事务回滚)
+seata:
+  enabled: ${SEATA_ENABLED:true}
+  tx-service-group: esp_tx_group
+  service:
+    vgroup-mapping:
+      esp_tx_group: default
+    grouplist:
+      default: ${SEATA_ADDR:seata:8091}   # 显式 TC 地址兜底:registry nacos 发现失败时仍可直连
+  registry:
+    type: file   # registry 用 file:直接从本地 service.vgroup-mapping + service.grouplist 读 TC 地址,绕开 nacos lookup 对 vgroupMapping 的强制 getConfig(nacos 路径在 SB4 下 SeataProperties 绑定时序不稳,致 ConfigNotFoundException)
+  config:
+    type: file   # config 用 file 读本地 vgroup-mapping(SCA starter 桥接 Spring Environment);nacos config client gRPC 在 SB4 下不稳
+  data-source-proxy-mode: AT
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,caches
+  endpoint:
+    health:
+      probes:
+        enabled: true   # 激活 readiness/liveness health group,k8s httpGet 探针用(与 teacher 同构,根治 jetty hang 假 Ready)
+
+# JWT RS256(ADR-12):learning-java 公钥校验 BFF 签发的 JWT
+jwt:
+  rsa:
+    public-key-pem: ${JWT_RSA_PUBLIC_KEY_PEM:}

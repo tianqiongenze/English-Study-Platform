@@ -1,0 +1,39 @@
+# NetworkPolicy — 网络分段(架构评分 P0:缺 NetworkPolicy)。
+#
+# 策略:default-deny ingress + 允许 esp-prod 命名空间内 Pod 互通(命名空间级隔离)。
+# 外部流量仅经 gateway-go NodePort 进入;内部服务间默认信任,跨命名空间(如 ekb-m2 基础设施)
+# 走 ExternalName/K8s DNS,不受本策略限制(NetworkPolicy 仅管控同 namespace pod)。
+#
+# 注意:单节点 Rancher Desktop 的 CNI 不一定强制 NetworkPolicy;多节点环境(Calico/Cilium)生效。
+# 生产零信任可细化为逐服务白名单(gateway→bff→各服务),本清单提供基线隔离 + 可移植性。
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: esp-default-deny-ingress
+  namespace: esp-prod
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: esp-allow-internal
+  namespace: esp-prod
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # 允许 esp-prod 内部 Pod 互相访问(服务网格内部信任)
+    - from:
+        - podSelector: {}
+    # 允许节点本机/NodePort 流量进入 gateway(NodePort 由 kube-proxy 在节点转发)
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 8080

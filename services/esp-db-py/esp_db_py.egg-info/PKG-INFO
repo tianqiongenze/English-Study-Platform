@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: esp-db-py
+Version: 1.0.0
+Summary: ESP 读写分离数据访问公共包(Python 侧):主写(tidb-primary)+ 从读(tidb-follower),与 Java 侧 rw/ 语义对齐
+Requires-Python: >=3.10
+Requires-Dist: aiomysql>=0.2.0
+Requires-Dist: pydantic>=2.0

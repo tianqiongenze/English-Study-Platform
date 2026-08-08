@@ -1,0 +1,124 @@
+version: "3.9"
+
+# English-Study-Platform 本地全栈验证环境
+# 含: TiDB 集群(PD+TiKV+TiDB)、Redis、Pulsar、各微服务、前端
+# 使用: docker compose up -d
+services:
+  # ---------- 基础设施 ----------
+  pd:
+    image: pingcap/pd:v7.5.2
+    command:
+      - --name=pd
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd:2379
+      - --advertise-peer-urls=http://pd:2380
+      - --data-dir=/data
+    ports: ["2379:2379"]
+    volumes: ["pd_data:/data"]
+
+  tikv:
+    image: pingcap/tikv:v7.5.2
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv:20160
+      - --data-dir=/data
+      - --pd=pd:2379
+    depends_on: [pd]
+    volumes: ["tikv_data:/data"]
+
+  tidb:
+    image: pingcap/tidb:v7.5.2
+    command:
+      - --store=tikv
+      - --path=pd:2379
+      - --status=10080
+      - -P=4000
+    ports: ["4000:4000", "10080:10080"]
+    depends_on: [pd, tikv]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "4000", "-uroot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  tidb-init:
+    image: mysql:8
+    depends_on:
+      tidb:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: tidb
+      MYSQL_PORT: 4000
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        mysql -h tidb -P 4000 -uroot -e "CREATE DATABASE IF NOT EXISTS esp;"
+        mysql -h tidb -P 4000 -uroot esp < /schema.sql
+        echo "schema initialized"
+    volumes:
+      - ../docs/design/schema.sql:/schema.sql:ro
+
+  redis:
+    image: redis:8.0-alpine
+    ports: ["6379:6379"]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+  pulsar:
+    image: apachepulsar/pulsar:3.3.1
+    command: ["bin/pulsar", "standalone"]
+    ports: ["6650:6650", "8081:8080"]
+    environment:
+      PULSAR_MEM: "-Xms512m -Xmx512m"
+
+  # ---------- 微服务 ----------
+  gateway-go:
+    build: ../services/gateway-go
+    environment:
+      PORT: "8080"
+      REDIS_ADDR: "redis:6379"
+      LLM_MODE: "mock"
+    ports: ["8080:8080"]
+    depends_on: [redis]
+
+  learning-java:
+    build: ../services/learning-java
+    environment:
+      WRITE_DB_URL: "jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"
+      READ_DB_URL: "jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"
+      DB_USER: "root"
+      DB_PASS: ""
+      REDIS_HOST: "redis"
+    ports: ["8081:8081"]
+    depends_on:
+      tidb:
+        condition: service_healthy
+
+  writing-py:
+    build: ../services/writing-py
+    environment:
+      PORT: "8082"
+      LLM_MODE: "mock"
+    ports: ["8082:8082"]
+
+  teacher-java:
+    build: ../services/teacher-java
+    environment:
+      WRITE_DB_URL: "jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"
+      READ_DB_URL: "jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"
+      DB_USER: "root"
+      DB_PASS: ""
+    ports: ["8083:8083"]
+    depends_on:
+      tidb:
+        condition: service_healthy
+
+  emotion-svc:
+    build: ../services/emotion-svc
+    environment:
+      PORT: "8084"
+    ports: ["8084:8084"]
+
+volumes:
+  pd_data:
+  tikv_data:

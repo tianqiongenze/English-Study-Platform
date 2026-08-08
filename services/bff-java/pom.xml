@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.7</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.esp</groupId>
+    <artifactId>bff-java</artifactId>
+    <version>1.0.0</version>
+    <name>bff-java</name>
+
+    <properties>
+        <java.version>21</java.version>
+        <spring-cloud.version>2025.1.2</spring-cloud.version>
+        <!-- 最新最优 SCA 2025.1.x(对齐 Spring Boot 3.5 / Spring Cloud 2025.1)-->
+        <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
+        <!-- Dubbo 3.3.x:Triple(gRPC over HTTP/2)+ 原生 Spring Boot 3 starter -->
+        <dubbo.version>3.3.6</dubbo.version>
+        <!-- Netty 边缘接入层(替代 Spring Cloud Gateway);4.2.16.Final 覆盖 SB BOM 4.2.15 修复 CVE-2026-59901/56816 -->
+        <netty.version>4.2.16.Final</netty.version>
+        <!-- Disruptor 高吞吐入口队列(ADR-09,学情/事件入口) -->
+        <disruptor.version>4.0.0</disruptor.version>
+        <mockito.version>5.16.1</mockito.version>
+        <byte-buddy.version>1.17.5</byte-buddy.version>
+        <jjwt.version>0.13.0</jjwt.version>
+        <!-- 安全对齐:强制 jackson-2 BOM 到 2.21.4(SB 4.0.7 BOM 默认值,防传递依赖降级到 2.18.1;修复 HIGH CVE-2026-54512 / GHSA-r7wm-3cxj-wff9) -->
+        <jackson-2-bom.version>2.21.4</jackson-2-bom.version>
+    </properties>
+
+    <dependencies>
+        <!-- ===== BFF 边缘接入:自建 Netty HTTP 接入层(替代 Spring Cloud Gateway)=====
+             - Netty 做边缘 HTTP 解码 + 路由转发 + 鉴权注入
+             - Disruptor 做高吞吐入口队列(异步化鉴权/事件入口)
+             - Spring Boot Web MVC 做 REST 聚合 + 控制器
+             - 服务间通信全部走 Dubbo Triple(强类型契约),治理走 SCA 全套
+             不再依赖 spring-cloud-gateway(已彻底移除)。 -->
+
+        <!-- Web MVC + Jetty(Spring Boot 4.0 已移除 Undertow,按用户要求用 Jetty 替代 Tomcat) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-tomcat</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jetty</artifactId>
+        </dependency>
+
+        <!-- Netty:边缘接入层核心 -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>${netty.version}</version>
+        </dependency>
+
+        <!-- Disruptor:高吞吐环形队列(BFF 入口异步化) -->
+        <dependency>
+            <groupId>com.lmax</groupId>
+            <artifactId>disruptor</artifactId>
+            <version>${disruptor.version}</version>
+        </dependency>
+
+        <!-- ESP 共用 Disruptor 工具包(ADR-09,抽取自 bff/learning 内联实现) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-disruptor</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <!-- ESP 共用多级缓存(L1 Caffeine + L2 Redis + Pulsar 广播,ADR-多级缓存) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-cache</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <!-- ESP 共用读写分离(RoutingDataSource + @DataSource AOP,主写从读) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-rw-java</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <!-- ===== Spring Cloud Alibaba 全套(最新)===== -->
+        <!-- Nacos:服务注册与发现 + 配置中心 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-bootstrap</artifactId>
+        </dependency>
+
+        <!-- Sentinel:流控/熔断/降级(注解 + Web MVC 适配) -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <!-- sentinel-spring-webmvc-v6x-adapter:Jakarta Servlet 6(Spring Boot 3.x)适配,不在 SCA BOM,需显式版本 -->
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-spring-webmvc-v6x-adapter</artifactId>
+            <version>1.8.8</version>
+        </dependency>
+        <!-- sentinel-datasource-nacos:Sentinel 规则从 Nacos 拉取所需(否则 NacosDataSourceFactoryBean NoClassDefFoundError) -->
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+            <version>1.8.8</version>
+        </dependency>
+
+        <!-- Dubbo Triple:服务间 RPC(gRPC over HTTP/2),注册到 Nacos -->
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-spring-boot-starter</artifactId>
+            <version>${dubbo.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-registry-nacos</artifactId>
+            <version>${dubbo.version}</version>
+        </dependency>
+
+        <!-- Seata:分布式事务(@GlobalTransactional,跨服务最终一致性)。
+             注意:spring-cloud-starter-alibaba-seata:2025.1.0.0 传递 spring-boot-webclient:4.0.0,
+             4.0.0 的 spring-boot-http-codec 自带 CodecsAutoConfiguration 与 SB3.5.16 冲突(defaultCodecCustomizer bean 重名)。
+             bff 侧保留 webclient(NacosConfigEndpointAutoConfiguration 依赖其带来的 spring-boot health 类);
+             通过 application.yml spring.main.allow-bean-definition-overriding=true 消解 bean 重名。 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-seata</artifactId>
+        </dependency>
+
+        <!-- 共享 API 契约(Dubbo Triple 接口) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-api</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- JWT(ADR-12:BFF RS256 签发,下游公钥校验) -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Nimbus JOSE+JWT:JWKS endpoint 公钥转 JWK Set(ADR-12 RS256) -->
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+            <version>10.3</version>
+        </dependency>
+
+        <!-- DB(用户登录)+ Redis(限流/缓存) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>9.1.0</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <!-- 下游 REST 调用(聚合非 Java 服务),WebFlux 仅用 WebClient 不用 Netty server -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- byte-buddy:运行期 Seata/Hibernate 需要 ElementMatcher 等;同时 Mockito inline mock 复用 -->
+        <!-- OpenTelemetry API:边缘层 traceparent 透传(P1-5),javaagent 运行时注入,编译期需 API jar。
+             版本由 Spring Boot 4.0.7 BOM 管理(opentelemetry.version=1.55.0)。 -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <!-- OpenTelemetry SDK:单测需要真实 GlobalOpenTelemetry propagator(否则 noop 不写 header) -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-trace</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy</artifactId>
+            <version>${byte-buddy.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <version>${byte-buddy.version}</version>
+        </dependency>
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba.cloud</groupId>
+                <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+                <version>${spring-cloud-alibaba.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- 安全:强制 bouncycastle 1.84(覆盖 pulsar-client 4.1.3 经 esp-cache 传递引入的 1.78.1,修复 CRIT CVE-2025-14813) -->
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>1.84</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk18on</artifactId>
+                <version>1.84</version>
+            </dependency>
+            <!-- 安全:Pulsar 4.1.3 把 bcprov 1.78.1 shade 进 bouncy-castle-bc:pkg:4.1.3(trivy 计为独立漏洞),排除该 shade 包 -->
+            <dependency>
+                <groupId>org.apache.pulsar</groupId>
+                <artifactId>pulsar-client</artifactId>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.pulsar</groupId>
+                        <artifactId>bouncy-castle-bc</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution><goals><goal>prepare-agent</goal></goals></execution>
+                    <execution><id>report</id><phase>test</phase><goals><goal>report</goal></goals></execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

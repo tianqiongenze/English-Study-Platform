@@ -1,0 +1,8 @@
+[chaos] simulating redis unavailability for 20s at 23:20:44
+deployment.apps/gateway-go env updated
+[chaos] waiting 20s while requests should fail/degrade...
+[chaos] restoring REDIS_HOST=redis-cluster at 23:21:04
+deployment.apps/gateway-go env updated
+Waiting for deployment "gateway-go" rollout to finish: 1 old replicas are pending termination...
+deployment "gateway-go" successfully rolled out
+[chaos] restored at 23:21:28

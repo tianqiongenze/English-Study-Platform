@@ -1,0 +1,106 @@
+# ESP 安全扫描流水线(Semgrep SAST + Trivy SCA/镜像 + Dependabot + Aikido)
+# 关联: docs/design/adr-security-scanning.md
+# 启用: 仓库迁入 GitHub 后零改动启用(push/PR 触发);本地可用 `act` 手跑。
+# 门禁: Semgrep ERROR=0 + Trivy CRITICAL/HIGH=0;豁免登记 docs/test/06-安全测试报告.md §5。
+name: ESP Security
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch: # 本地/手动(非 git 仓库期可用 act 手跑)
+
+jobs:
+  # ───────── Semgrep SAST(多语言源码)─────────
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/default
+            p/java
+            p/golang
+            p/python
+            p/owasp-top-ten
+            p/security-audit
+            p/secrets
+          generateSarif: "1"
+          output: semgrep.sarif
+      - name: Semgrep 门禁(ERROR 级 0)
+        run: |
+          # 解析 sarif,ERROR 级 finding 阻断
+          err=$(jq '[.runs[0].results[] | select(.level=="error")] | length' semgrep.sarif 2>/dev/null || echo 0)
+          echo "Semgrep ERROR findings: $err"
+          [ "$err" -eq 0 ] || { echo "::error::Semgrep 发现 $err 个 ERROR 级问题"; exit 1; }
+      - name: 上传 sarif 到 GitHub Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with: { sarif_file: semgrep.sarif }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: semgrep-sarif, path: semgrep.sarif }
+
+  # ───────── Trivy SCA + 秘密 + IaC(文件系统)─────────
+  trivy-fs:
+    name: Trivy FS (vuln+secret+config)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/setup-trivy@v0.24.0
+      - name: Trivy fs 扫描
+        run: |
+          trivy fs --scanners vuln,secret,config \
+            --severity CRITICAL,HIGH \
+            --ignorefile .trivyignore \
+            --format sarif -o trivy-fs.sarif \
+            --exit-code 1 \
+            . || true
+      - name: Trivy fs 门禁(CRITICAL/HIGH=0,豁免见 .trivyignore)
+        run: |
+          high=$(jq '[.runs[0].results[] | select(.level=="error")] | length' trivy-fs.sarif 2>/dev/null || echo 0)
+          echo "Trivy fs CRITICAL/HIGH findings: $high"
+          [ "$high" -eq 0 ] || { echo "::error::Trivy fs 发现 $high 个 CRITICAL/HIGH;豁免登记 docs/test/06-安全测试报告.md §5"; exit 1; }
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: trivy-fs.sarif }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: trivy-fs-sarif, path: trivy-fs.sarif }
+
+  # ───────── Trivy 镜像扫描(仅 main/手动;PR 跳过省资源)─────────
+  trivy-image:
+    name: Trivy image (${{ matrix.svc }})
+    needs: [semgrep, trivy-fs]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        svc: [gateway-go, bff-java, learning-java, teacher-java, writing-py, emotion-svc, course-path-go]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: 构建镜像(不推)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.svc }}/Dockerfile
+          tags: esp-${{ matrix.svc }}:scan
+          load: true
+      - uses: aquasecurity/setup-trivy@v0.24.0
+      - name: Trivy image 扫描(CRITICAL/HIGH + misconfig)
+        run: |
+          trivy image --scanners vuln,secret,misconfig \
+            --severity CRITICAL,HIGH \
+            --ignorefile .trivyignore \
+            --format sarif -o trivy-image.sarif \
+            --exit-code 1 \
+            esp-${{ matrix.svc }}:scan || true
+          high=$(jq '[.runs[0].results[] | select(.level=="error")] | length' trivy-image.sarif 2>/dev/null || echo 0)
+          echo "Trivy image ${{ matrix.svc }} CRITICAL/HIGH: $high"
+          [ "$high" -eq 0 ] || { echo "::error::镜像 ${{ matrix.svc }} 有 $high 个 CRITICAL/HIGH"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: trivy-image-${{ matrix.svc }}, path: trivy-image.sarif }

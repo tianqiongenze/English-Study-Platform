@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: esp-cache-py
+Version: 1.0.0
+Summary: ESP 多级缓存公共包: L1 cachetools(LRU 进程内) + L2 redis.asyncio(Redis Cluster) + 降级兜底
+Requires-Python: >=3.10
+Requires-Dist: cachetools>=5.3.0
+Requires-Dist: redis>=5.0.0

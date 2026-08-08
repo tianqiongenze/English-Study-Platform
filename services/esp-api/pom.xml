@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.esp</groupId>
+    <artifactId>esp-api</artifactId>
+    <version>1.0.0</version>
+    <name>esp-api</name>
+    <packaging>jar</packaging>
+    <description>跨服务共享 API: Dubbo Triple 接口契约(ADR-08, API 契约 §7)</description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- Dubbo Triple 接口只需注解 + 序列化,运行期由 provider/consumer 引入 dubbo starter -->
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-common</artifactId>
+            <version>3.3.6</version>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

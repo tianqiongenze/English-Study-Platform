@@ -1,0 +1,16 @@
+# Fast build: skip in-container maven (jar already built locally)
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY target/bff-java-1.0.0.jar app.jar
+COPY otel-agent.jar /app/otel-agent.jar
+
+EXPOSE 8090 9090 50090
+
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317
+ENV OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+ENV OTEL_SERVICE_NAME=bff-java
+ENV OTEL_TRACES_EXPORTER=otlp
+ENV OTEL_RESOURCE_ATTRIBUTES=service.namespace=esp-prod,deployment.environment=esp-prod
+
+ENV JAVA_OPTS="-javaagent:/app/otel-agent.jar"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -XX:MaxRAMPercentage=75.0 -jar app.jar"]

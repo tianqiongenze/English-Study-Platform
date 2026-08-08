@@ -1,0 +1,82 @@
+# ===== ESP 安全扫描四件套:.gitignore =====
+# 目的:迁入 git 时隔离敏感/制品/IDE/OS 文件,避免 secret 误提交 + 仓库膨胀。
+
+# ---- 敏感(绝不提交)----
+**/*.pem
+**/*.key
+**/*.p12
+**/*.keystore
+**/*.jks
+**/secrets/
+**/secret*.yml
+**/secret*.yaml
+**/.env
+**/.env.*
+**/application-local.yml
+**/application-secret*.yml
+**/esp-secrets.yaml
+**/esp-secrets/
+# K8s 含 secret 的 manifest(只允许模板 *_tpl.yaml / *_template.yaml 入库)
+**/*secret*.yaml
+**/*secret*.yml
+!**/*secret*template*.yaml
+!**/*secret*template*.yml
+!**/*secret*_tpl.yaml
+!**/*secret*_tpl.yml
+!**/secret*.tpl
+
+# ---- 构建制品 ----
+**/target/
+**/build/
+**/dist/
+**/out/
+**/*.class
+**/*.jar
+!**/lib/*.jar
+# OTel agent 是 Dockerfile 构建依赖(COPY otel-agent.jar),必须入库
+!**/otel-agent.jar
+**/*.war
+**/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.ruff_cache/
+**/coverage/
+**/coverage.out
+**/*.prof
+**/target-site/
+
+# ---- Go ----
+**/vendor/
+# Go 本地构建产物(go build 默认输出二进制,与目录同名),Dockerfile 内多阶段构建不依赖
+services/*/gateway-go
+services/*/**/gateway-go
+
+# ---- Rust ----
+**/target/
+
+# ---- 报告/日志(本地实跑产物,不入库)----
+report/security/
+report/scan/
+logs/*.log
+logs/*.out
+/tmp/
+
+# ---- IDE / OS ----
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+*.bak
+**/*.bak-*
+
+# ---- Claude / 临时 ----
+.claude/worktrees/
+$CLAUDE_JOB_DIR
+{{pkgetc}}/
+{{etc}}/
+*.local
+*.local.*

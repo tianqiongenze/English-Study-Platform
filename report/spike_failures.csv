@@ -1,0 +1,21 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,POST /api/learning/event,CatchResponseError('event rejected: 502'),152,2026-08-02T22:18:43Z,2026-08-02T22:22:57Z
+GET,GET /api/teacher/classes/analytics,CatchResponseError('analytics failed: 500'),1,2026-08-02T22:22:46Z,2026-08-02T22:22:46Z
+GET,GET /api/teacher/classes/analytics,CatchResponseError('analytics failed: 0'),2813,2026-08-02T22:17:07Z,2026-08-02T22:23:34Z
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 0'),5403,2026-08-02T22:17:07Z,2026-08-02T22:23:34Z
+POST,POST /api/learning/event,CatchResponseError('event rejected: 0'),20704,2026-08-02T22:17:07Z,2026-08-02T22:23:34Z
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 502'),35,2026-08-02T22:18:42Z,2026-08-02T22:22:55Z
+POST,POST /api/writing/grade,CatchResponseError('grade failed: 503'),6362,2026-08-02T22:18:52Z,2026-08-02T22:19:32Z
+POST,POST /api/learning/event,CatchResponseError('event rejected: 404'),307,2026-08-02T22:23:10Z,2026-08-02T22:23:11Z
+POST,POST /api/learning/event,CatchResponseError('event rejected: 400'),1,2026-08-02T22:22:46Z,2026-08-02T22:22:46Z
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 404'),2,2026-08-02T22:23:10Z,2026-08-02T22:23:10Z
+GET,GET /api/teacher/classes/analytics,CatchResponseError('analytics failed: 404'),1,2026-08-02T22:23:11Z,2026-08-02T22:23:11Z
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 500'),116,2026-08-02T22:18:42Z,2026-08-02T22:22:55Z
+POST,POST /api/learning/event,CatchResponseError('event rejected: 500'),91,2026-08-02T22:18:43Z,2026-08-02T22:22:57Z
+POST,POST /api/writing/grade,CatchResponseError('grade failed: 502'),321,2026-08-02T22:17:48Z,2026-08-02T22:24:06Z
+POST,POST /api/writing/grade,CatchResponseError('grade failed: 500'),360,2026-08-02T22:17:48Z,2026-08-02T22:24:06Z
+GET,GET /api/teacher/classes/analytics,CatchResponseError('analytics failed: 502'),4,2026-08-02T22:22:46Z,2026-08-02T22:22:46Z
+POST,POST /api/writing/grade,CatchResponseError('grade failed: 0'),9544,2026-08-02T22:17:07Z,2026-08-02T22:23:35Z
+GET,GET /api/scenarios,CatchResponseError('scenarios failed'),10436,2026-08-02T22:19:32Z,2026-08-02T22:23:37Z
+POST,POST /api/writing/grade,CatchResponseError('grade failed: 404'),60,2026-08-02T22:21:20Z,2026-08-02T22:23:11Z
+POST,POST /api/sessions,CatchResponseError('create session failed: 0'),62,2026-08-02T22:17:07Z,2026-08-02T22:17:09Z

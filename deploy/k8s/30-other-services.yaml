@@ -1,0 +1,156 @@
+# writing-py / teacher-java / emotion-svc
+# 注:tidb-primary / tidb-follower / redis-cluster / pulsar-broker 由 05-infra-reuse.yaml 通过 ExternalName 提供。
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: writing-py, namespace: esp-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: writing-py}}
+  template:
+    metadata: {labels: {app: writing-py}}
+    spec:
+      containers:
+      - name: writing-py
+        image: esp/writing-py:1.5.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8082}]
+        env:
+        - {name: LLM_MODE, value: "mock"}
+        - {name: ANTHROPIC_API_KEY, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_API_KEY}}}
+        # 读写分离 TiDB:写主库 tidb-primary / 读从库 tidb-follower(esp-db-py)
+        - {name: DB_ENABLED, value: "true"}
+        - {name: WRITE_DB_HOST, value: "tidb-primary"}
+        - {name: READ_DB_HOST, value: "tidb-follower"}
+        - {name: WRITE_DB_USER, value: "root"}
+        - {name: READ_DB_USER, value: "root"}
+        # OTel 注入(ADR-observability-rebuild):writing-py 已内置 opentelemetry-sdk(tracing.py),仅需 env
+        - {name: OTEL_SERVICE_NAME, value: "writing"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
+        startupProbe:   {httpGet: {path: /healthz, port: 8082}, periodSeconds: 10, failureThreshold: 18, timeoutSeconds: 3}   # 180s 慢启动保护(granian 冷启动 + OTel 连 collector)
+        readinessProbe: {httpGet: {path: /healthz, port: 8082}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
+        livenessProbe:  {httpGet: {path: /healthz, port: 8082}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
+        resources: {requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "1", memory: "1Gi"}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: writing-py, namespace: esp-prod}
+spec: {selector: {app: writing-py}, ports: [{port: 80, targetPort: 8082}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: teacher-java, namespace: esp-prod}
+spec:
+  replicas: 1              # 单节点 RD 资源紧张,JVM 服务暂缩 1 副本(原 2)
+  selector: {matchLabels: {app: teacher-java}}
+  template:
+    metadata: {labels: {app: teacher-java}}
+    spec:
+      containers:
+      - name: teacher-java
+        image: esp/teacher-java:1.6.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8083}]
+        env:
+        - {name: WRITE_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_teaching?useSSL=false&allowPublicKeyRetrieval=true"}
+        - {name: READ_DB_URL, value: "jdbc:mysql://tidb-follower:4000/esp_teaching?useSSL=false&allowPublicKeyRetrieval=true"}
+        - {name: DB_USER, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_USER}}}
+        - {name: DB_PASS, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_PASS}}}
+        - {name: NACOS_HOST, value: "nacos"}
+        - {name: DUBBO_GROUP, value: "esp"}
+        # OTel 注入(ADR-observability-rebuild):javaagent 已在镜像 JAVA_OPTS 中(Dockerfile ENTRYPOINT)
+        - {name: OTEL_SERVICE_NAME, value: "teacher"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
+        - {name: OTEL_METRICS_EXPORTER, value: "none"}
+        startupProbe:   {httpGet: {path: /actuator/health/readiness, port: 8083}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 10}   # httpGet 探针:Jetty acceptor hang 时 TCP 握手通但应用层死(tcpSocket 假 Ready 根因),改 httpGet 让 acceptor hang 被探针识破。
+        readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8083}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 5}   # period 放宽到 30s 减少 kubelet 探针 CLOSE_WAIT 堆积(单节点 VM 通病诱因)
+        livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8083}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 15}  # 恢复 liveness:acceptor hang 时 HTTP 超时→kubelet 自愈重启,根治"假 Running 不响应"。timeout 15s 容忍单节点 VM GC 抖动
+        resources: {requests: {cpu: "200m", memory: 768Mi}, limits: {cpu: "1", memory: 2048Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: teacher-java, namespace: esp-prod}
+spec: {selector: {app: teacher-java}, ports: [{port: 80, targetPort: 8083}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: emotion-svc, namespace: esp-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: emotion-svc}}
+  template:
+    metadata: {labels: {app: emotion-svc}}
+    spec:
+      containers:
+      - name: emotion-svc
+        image: esp/emotion-svc:1.5.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8084}]
+        env:
+        # 读写分离 TiDB:情绪事件写主库 / 历史查询读从库(esp-db-py)
+        - {name: DB_ENABLED, value: "true"}
+        - {name: WRITE_DB_HOST, value: "tidb-primary"}
+        - {name: READ_DB_HOST, value: "tidb-follower"}
+        - {name: WRITE_DB_USER, value: "root"}
+        - {name: READ_DB_USER, value: "root"}
+        # OTel 注入(ADR-observability-rebuild):emotion-svc 已内置 opentelemetry-sdk,仅需 env
+        - {name: OTEL_SERVICE_NAME, value: "emotion"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
+        startupProbe:   {httpGet: {path: /healthz, port: 8084}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 3}   # 600s 慢启动保护(AI 推理冷启动)
+        readinessProbe: {httpGet: {path: /healthz, port: 8084}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
+        livenessProbe:  {httpGet: {path: /healthz, port: 8084}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
+        resources: {requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "500m", memory: "512Mi"}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: emotion-svc, namespace: esp-prod}
+spec: {selector: {app: emotion-svc}, ports: [{port: 80, targetPort: 8084}]}
+---
+# writing-coach: 写作增强服务(Litestar+Granian,ADR adr-writing-coach)。端口 8085。
+# 模板/范文/综合批改/提升方案/进度跟踪。调 writing-py grade + learning weak mastery。
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: writing-coach, namespace: esp-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: writing-coach}}
+  template:
+    metadata: {labels: {app: writing-coach}}
+    spec:
+      containers:
+      - name: writing-coach
+        image: esp/writing-coach:1.0.1
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8085}]
+        env:
+        - {name: LLM_MODE, value: "mock"}
+        - {name: ANTHROPIC_API_KEY, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_API_KEY}}}
+        # 协同服务地址(ADR adr-writing-coach §5)
+        - {name: WRITING_PY_URL, value: "http://writing-py:80"}
+        - {name: LEARNING_URL, value: "http://learning-java:80"}
+        # 读写分离 TiDB:模板/范文读从库 / 计划+进度写主库(esp-db-py)
+        - {name: DB_ENABLED, value: "true"}
+        - {name: WRITE_DB_HOST, value: "tidb-primary"}
+        - {name: READ_DB_HOST, value: "tidb-follower"}
+        - {name: WRITE_DB_USER, value: "root"}
+        - {name: READ_DB_USER, value: "root"}
+        # Redis Cluster 多级缓存(esp-cache-py L2)
+        - {name: CACHE_ENABLED, value: "true"}
+        - {name: REDIS_HOST, value: "redis-cluster"}
+        - {name: REDIS_PORT, value: "6379"}
+        # OTel 注入
+        - {name: OTEL_SERVICE_NAME, value: "writing-coach"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
+        startupProbe:   {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 24, timeoutSeconds: 3}   # 240s 慢启动保护(granian 冷启动 + pip 装公共包)
+        readinessProbe: {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
+        livenessProbe:  {httpGet: {path: /healthz, port: 8085}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
+        resources: {requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "1", memory: "1Gi"}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: writing-coach, namespace: esp-prod}
+spec: {selector: {app: writing-coach}, ports: [{port: 80, targetPort: 8085}]}

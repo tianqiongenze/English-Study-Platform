@@ -1,0 +1,655 @@
+# ESP TiDB 多区域 TiKV 分布式栈(方案B:真多副本 Raft)
+# 目标:验证多区域方案可行性,后续可直接移植到多节点服务器
+# 拓扑(3 逻辑区域 ns,单物理节点模拟):
+#   ekb-m2-aws-us-east-1     = region us-east-1
+#   ekb-m2-azure-eastasia    = region azure-eastasia
+#   ekb-m2-gcp-europe-west1  = region gcp-europe-west1
+# PD 3 副本(每区域1个) + TiKV 3 副本(每区域1个) + TiDB 3(每区域1个) + TiFlash 1(aws)
+# Raft 多数派:3 副本可容忍 1 副本故障
+# 真正读写分离:tidb-primary(aws TiDB 写) / tidb-follower(azure/gcp TiDB 读)
+# 内存预算(40GB 节点):PD 3*512Mi=1.5G + TiKV 3*3Gi=9G + TiDB 3*1Gi=3G + TiFlash 1*3Gi=3G ≈ 16.5G
+---
+# ============ PD:3 副本,每区域1个 ============
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-config
+  namespace: ekb-m2-aws-us-east-1
+data:
+  start.sh: |
+    #!/bin/sh
+    exec /pd-server \
+      --name=${PD_NAME} \
+      --client-urls=http://0.0.0.0:2379 \
+      --peer-urls=http://0.0.0.0:2380 \
+      --advertise-client-urls=http://${PD_HOST}.ekb-m2-aws-us-east-1.svc.cluster.local:2379 \
+      --advertise-peer-urls=http://${PD_HOST}.ekb-m2-aws-us-east-1.svc.cluster.local:2380 \
+      --data-dir=/data \
+      --initial-cluster=pd-aws=http://pd-aws.ekb-m2-aws-us-east-1.svc.cluster.local:2380,pd-azure=http://pd-azure.ekb-m2-azure-eastasia.svc.cluster.local:2380,pd-gcp=http://pd-gcp.ekb-m2-gcp-europe-west1.svc.cluster.local:2380
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-config
+  namespace: ekb-m2-azure-eastasia
+data:
+  start.sh: |
+    #!/bin/sh
+    exec /pd-server \
+      --name=${PD_NAME} \
+      --client-urls=http://0.0.0.0:2379 \
+      --peer-urls=http://0.0.0.0:2380 \
+      --advertise-client-urls=http://${PD_HOST}.ekb-m2-azure-eastasia.svc.cluster.local:2379 \
+      --advertise-peer-urls=http://${PD_HOST}.ekb-m2-azure-eastasia.svc.cluster.local:2380 \
+      --data-dir=/data \
+      --initial-cluster=pd-aws=http://pd-aws.ekb-m2-aws-us-east-1.svc.cluster.local:2380,pd-azure=http://pd-azure.ekb-m2-azure-eastasia.svc.cluster.local:2380,pd-gcp=http://pd-gcp.ekb-m2-gcp-europe-west1.svc.cluster.local:2380
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pd-config
+  namespace: ekb-m2-gcp-europe-west1
+data:
+  start.sh: |
+    #!/bin/sh
+    exec /pd-server \
+      --name=${PD_NAME} \
+      --client-urls=http://0.0.0.0:2379 \
+      --peer-urls=http://0.0.0.0:2380 \
+      --advertise-client-urls=http://${PD_HOST}.ekb-m2-gcp-europe-west1.svc.cluster.local:2379 \
+      --advertise-peer-urls=http://${PD_HOST}.ekb-m2-gcp-europe-west1.svc.cluster.local:2380 \
+      --data-dir=/data \
+      --initial-cluster=pd-aws=http://pd-aws.ekb-m2-aws-us-east-1.svc.cluster.local:2380,pd-azure=http://pd-azure.ekb-m2-azure-eastasia.svc.cluster.local:2380,pd-gcp=http://pd-gcp.ekb-m2-gcp-europe-west1.svc.cluster.local:2380
+---
+# ============ Services: PD ============
+apiVersion: v1
+kind: Service
+metadata:
+  name: pd-aws
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  selector: {app: pd-aws}
+  ports:
+    - {name: client, port: 2379, targetPort: 2379}
+    - {name: peer, port: 2380, targetPort: 2380}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pd-azure
+  namespace: ekb-m2-azure-eastasia
+spec:
+  selector: {app: pd-azure}
+  ports:
+    - {name: client, port: 2379, targetPort: 2379}
+    - {name: peer, port: 2380, targetPort: 2380}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pd-gcp
+  namespace: ekb-m2-gcp-europe-west1
+spec:
+  selector: {app: pd-gcp}
+  ports:
+    - {name: client, port: 2379, targetPort: 2379}
+    - {name: peer, port: 2380, targetPort: 2380}
+---
+# ============ PVCs: PD ============
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: pd-aws-data, namespace: ekb-m2-aws-us-east-1}
+spec: {accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: pd-azure-data, namespace: ekb-m2-azure-eastasia}
+spec: {accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: pd-gcp-data, namespace: ekb-m2-gcp-europe-west1}
+spec: {accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 5Gi}}}
+---
+# ============ Deployment: PD-aws ============
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pd-aws, namespace: ekb-m2-aws-us-east-1}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: pd-aws}}
+  template:
+    metadata: {labels: {app: pd-aws, region: aws}}
+    spec:
+      containers:
+        - name: pd
+          image: pingcap/pd:v8.5.7
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: PD_NAME, value: pd-aws}
+            - {name: PD_HOST, value: pd-aws}
+          command: ["/bin/sh", "/start.sh"]
+          ports: [{containerPort: 2379}, {containerPort: 2380}]
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: start, mountPath: /start.sh, subPath: start.sh}
+          startupProbe:
+            tcpSocket: {port: 2379}
+            periodSeconds: 10
+            failureThreshold: 120
+          livenessProbe:
+            tcpSocket: {port: 2379}
+            periodSeconds: 30
+            failureThreshold: 20
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: pd-aws-data}
+        - name: start
+          configMap: {name: pd-config, defaultMode: 0755}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pd-azure, namespace: ekb-m2-azure-eastasia}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: pd-azure}}
+  template:
+    metadata: {labels: {app: pd-azure, region: azure}}
+    spec:
+      containers:
+        - name: pd
+          image: pingcap/pd:v8.5.7
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: PD_NAME, value: pd-azure}
+            - {name: PD_HOST, value: pd-azure}
+          command: ["/bin/sh", "/start.sh"]
+          ports: [{containerPort: 2379}, {containerPort: 2380}]
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: start, mountPath: /start.sh, subPath: start.sh}
+          startupProbe:
+            tcpSocket: {port: 2379}
+            periodSeconds: 10
+            failureThreshold: 120
+          livenessProbe:
+            tcpSocket: {port: 2379}
+            periodSeconds: 30
+            failureThreshold: 20
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: pd-azure-data}
+        - name: start
+          configMap: {name: pd-config, defaultMode: 0755}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pd-gcp, namespace: ekb-m2-gcp-europe-west1}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: pd-gcp}}
+  template:
+    metadata: {labels: {app: pd-gcp, region: gcp}}
+    spec:
+      containers:
+        - name: pd
+          image: pingcap/pd:v8.5.7
+          imagePullPolicy: IfNotPresent
+          env:
+            - {name: PD_NAME, value: pd-gcp}
+            - {name: PD_HOST, value: pd-gcp}
+          command: ["/bin/sh", "/start.sh"]
+          ports: [{containerPort: 2379}, {containerPort: 2380}]
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: start, mountPath: /start.sh, subPath: start.sh}
+          startupProbe:
+            tcpSocket: {port: 2379}
+            periodSeconds: 10
+            failureThreshold: 120
+          livenessProbe:
+            tcpSocket: {port: 2379}
+            periodSeconds: 30
+            failureThreshold: 20
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: pd-gcp-data}
+        - name: start
+          configMap: {name: pd-config, defaultMode: 0755}
+---
+# ============ TiKV ConfigMap(共享) ============
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: tikv-config, namespace: ekb-m2-aws-us-east-1}
+data:
+  tikv.toml: |
+    [rocksdb]
+    max-open-files = 256
+    [raftdb]
+    max-open-files = 256
+    [server]
+    status-port = 20180
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: tikv-config, namespace: ekb-m2-azure-eastasia}
+data:
+  tikv.toml: |
+    [rocksdb]
+    max-open-files = 256
+    [raftdb]
+    max-open-files = 256
+    [server]
+    status-port = 20180
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: tikv-config, namespace: ekb-m2-gcp-europe-west1}
+data:
+  tikv.toml: |
+    [rocksdb]
+    max-open-files = 256
+    [raftdb]
+    max-open-files = 256
+    [server]
+    status-port = 20180
+---
+# ============ Services: TiKV ============
+apiVersion: v1
+kind: Service
+metadata: {name: tikv-aws, namespace: ekb-m2-aws-us-east-1}
+spec:
+  selector: {app: tikv-aws}
+  ports: [{name: tikv, port: 20160, targetPort: 20160}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tikv-azure, namespace: ekb-m2-azure-eastasia}
+spec:
+  selector: {app: tikv-azure}
+  ports: [{name: tikv, port: 20160, targetPort: 20160}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tikv-gcp, namespace: ekb-m2-gcp-europe-west1}
+spec:
+  selector: {app: tikv-gcp}
+  ports: [{name: tikv, port: 20160, targetPort: 20160}]
+---
+# ============ PVCs: TiKV ============
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: tikv-aws-data, namespace: ekb-m2-aws-us-east-1}
+spec: {accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 10Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: tikv-azure-data, namespace: ekb-m2-azure-eastasia}
+spec: {accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 10Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: tikv-gcp-data, namespace: ekb-m2-gcp-europe-west1}
+spec: {accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 10Gi}}}
+---
+# ============ Deployment: TiKV-aws ============
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: tikv-aws, namespace: ekb-m2-aws-us-east-1}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: tikv-aws}}
+  template:
+    metadata: {labels: {app: tikv-aws, region: aws}}
+    spec:
+      containers:
+        - name: tikv
+          image: pingcap/tikv:v8.5.7
+          imagePullPolicy: IfNotPresent
+          command: ["/tikv-server"]
+          args:
+            - --addr=0.0.0.0:20160
+            - --advertise-addr=tikv-aws.ekb-m2-aws-us-east-1.svc.cluster.local:20160
+            - --data-dir=/data
+            - --pd=pd-aws.ekb-m2-aws-us-east-1.svc.cluster.local:2379,pd-azure.ekb-m2-azure-eastasia.svc.cluster.local:2379,pd-gcp.ekb-m2-gcp-europe-west1.svc.cluster.local:2379
+            - --config=/etc/tikv/tikv.toml
+          ports: [{containerPort: 20160}]
+          resources:
+            requests: {cpu: 200m, memory: 1Gi}
+            limits: {cpu: 1500m, memory: 3Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /etc/tikv}
+          startupProbe:
+            tcpSocket: {port: 20160}
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: {port: 20160}
+            periodSeconds: 15
+            failureThreshold: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: tikv-aws-data}
+        - name: config
+          configMap: {name: tikv-config}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: tikv-azure, namespace: ekb-m2-azure-eastasia}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: tikv-azure}}
+  template:
+    metadata: {labels: {app: tikv-azure, region: azure}}
+    spec:
+      containers:
+        - name: tikv
+          image: pingcap/tikv:v8.5.7
+          imagePullPolicy: IfNotPresent
+          command: ["/tikv-server"]
+          args:
+            - --addr=0.0.0.0:20160
+            - --advertise-addr=tikv-azure.ekb-m2-azure-eastasia.svc.cluster.local:20160
+            - --data-dir=/data
+            - --pd=pd-aws.ekb-m2-aws-us-east-1.svc.cluster.local:2379,pd-azure.ekb-m2-azure-eastasia.svc.cluster.local:2379,pd-gcp.ekb-m2-gcp-europe-west1.svc.cluster.local:2379
+            - --config=/etc/tikv/tikv.toml
+          ports: [{containerPort: 20160}]
+          resources:
+            requests: {cpu: 200m, memory: 1Gi}
+            limits: {cpu: 1500m, memory: 3Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /etc/tikv}
+          startupProbe:
+            tcpSocket: {port: 20160}
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: {port: 20160}
+            periodSeconds: 15
+            failureThreshold: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: tikv-azure-data}
+        - name: config
+          configMap: {name: tikv-config}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: tikv-gcp, namespace: ekb-m2-gcp-europe-west1}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: tikv-gcp}}
+  template:
+    metadata: {labels: {app: tikv-gcp, region: gcp}}
+    spec:
+      containers:
+        - name: tikv
+          image: pingcap/tikv:v8.5.7
+          imagePullPolicy: IfNotPresent
+          command: ["/tikv-server"]
+          args:
+            - --addr=0.0.0.0:20160
+            - --advertise-addr=tikv-gcp.ekb-m2-gcp-europe-west1.svc.cluster.local:20160
+            - --data-dir=/data
+            - --pd=pd-aws.ekb-m2-aws-us-east-1.svc.cluster.local:2379,pd-azure.ekb-m2-azure-eastasia.svc.cluster.local:2379,pd-gcp.ekb-m2-gcp-europe-west1.svc.cluster.local:2379
+            - --config=/etc/tikv/tikv.toml
+          ports: [{containerPort: 20160}]
+          resources:
+            requests: {cpu: 200m, memory: 1Gi}
+            limits: {cpu: 1500m, memory: 3Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /etc/tikv}
+          startupProbe:
+            tcpSocket: {port: 20160}
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: {port: 20160}
+            periodSeconds: 15
+            failureThreshold: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: tikv-gcp-data}
+        - name: config
+          configMap: {name: tikv-config}
+---
+# ============ TiDB Services(保持原名 tidb-cluster-tidb) ============
+apiVersion: v1
+kind: Service
+metadata: {name: tidb-cluster-tidb, namespace: ekb-m2-aws-us-east-1}
+spec:
+  selector: {app: tidb-cluster-tidb}
+  ports:
+    - {name: mysql, port: 4000, targetPort: 4000}
+    - {name: status, port: 10080, targetPort: 10080}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tidb-cluster-tidb, namespace: ekb-m2-azure-eastasia}
+spec:
+  selector: {app: tidb-cluster-tidb}
+  ports:
+    - {name: mysql, port: 4000, targetPort: 4000}
+    - {name: status, port: 10080, targetPort: 10080}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tidb-cluster-tidb, namespace: ekb-m2-gcp-europe-west1}
+spec:
+  selector: {app: tidb-cluster-tidb}
+  ports:
+    - {name: mysql, port: 4000, targetPort: 4000}
+    - {name: status, port: 10080, targetPort: 10080}
+---
+# ============ Deployment: TiDB-aws(主写) ============
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: tidb-cluster-tidb, namespace: ekb-m2-aws-us-east-1}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: tidb-cluster-tidb}}
+  template:
+    metadata: {labels: {app: tidb-cluster-tidb, region: aws, role: primary}}
+    spec:
+      containers:
+        - name: tidb
+          image: pingcap/tidb:v8.5.7
+          imagePullPolicy: IfNotPresent
+          command: ["/tidb-server"]
+          args:
+            - --store=tikv
+            - --path=pd-aws.ekb-m2-aws-us-east-1.svc.cluster.local:2379
+            - --host=0.0.0.0
+            - -P=4000
+            - --status=10080
+          ports: [{containerPort: 4000}, {containerPort: 10080}]
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: 1000m, memory: 1Gi}
+          startupProbe:
+            tcpSocket: {port: 4000}
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: {port: 4000}
+            periodSeconds: 15
+            failureThreshold: 10
+          readinessProbe:
+            httpGet: {path: /status, port: 10080}
+            periodSeconds: 5
+---
+# ============ Deployment: TiDB-azure(从读) ============
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: tidb-cluster-tidb, namespace: ekb-m2-azure-eastasia}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: tidb-cluster-tidb}}
+  template:
+    metadata: {labels: {app: tidb-cluster-tidb, region: azure, role: follower}}
+    spec:
+      containers:
+        - name: tidb
+          image: pingcap/tidb:v8.5.7
+          imagePullPolicy: IfNotPresent
+          command: ["/tidb-server"]
+          args:
+            - --store=tikv
+            - --path=pd-azure.ekb-m2-azure-eastasia.svc.cluster.local:2379
+            - --host=0.0.0.0
+            - -P=4000
+            - --status=10080
+          ports: [{containerPort: 4000}, {containerPort: 10080}]
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: 1000m, memory: 1Gi}
+          startupProbe:
+            tcpSocket: {port: 4000}
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: {port: 4000}
+            periodSeconds: 15
+            failureThreshold: 10
+          readinessProbe:
+            httpGet: {path: /status, port: 10080}
+            periodSeconds: 5
+---
+# ============ Deployment: TiDB-gcp(从读) ============
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: tidb-cluster-tidb, namespace: ekb-m2-gcp-europe-west1}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: tidb-cluster-tidb}}
+  template:
+    metadata: {labels: {app: tidb-cluster-tidb, region: gcp, role: follower}}
+    spec:
+      containers:
+        - name: tidb
+          image: pingcap/tidb:v8.5.7
+          imagePullPolicy: IfNotPresent
+          command: ["/tidb-server"]
+          args:
+            - --store=tikv
+            - --path=pd-gcp.ekb-m2-gcp-europe-west1.svc.cluster.local:2379
+            - --host=0.0.0.0
+            - -P=4000
+            - --status=10080
+          ports: [{containerPort: 4000}, {containerPort: 10080}]
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: 1000m, memory: 1Gi}
+          startupProbe:
+            tcpSocket: {port: 4000}
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: {port: 4000}
+            periodSeconds: 15
+            failureThreshold: 10
+          readinessProbe:
+            httpGet: {path: /status, port: 10080}
+            periodSeconds: 5
+---
+# ============ TiFlash(aws 区域,列存 OLAP) ============
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: tiflash-config, namespace: ekb-m2-aws-us-east-1}
+data:
+  config.toml: |
+    log_level = "info"
+    display_name = "tiflash-aws"
+    tcp_port = 9000
+    http_port = 8123
+    [raft]
+    pd_endpoints = "pd-aws.ekb-m2-aws-us-east-1.svc.cluster.local:2379"
+    [storage]
+    [storage.main]
+    dir = ["/data"]
+    [tiflash]
+    [status]
+    http_port = 20292
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tiflash, namespace: ekb-m2-aws-us-east-1}
+spec:
+  selector: {app: tiflash}
+  ports:
+    - {name: raft, port: 20170, targetPort: 20170}
+    - {name: proxy, port: 20171, targetPort: 20171}
+    - {name: status, port: 20292, targetPort: 20292}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: tiflash-data, namespace: ekb-m2-aws-us-east-1}
+spec: {accessModes: ["ReadWriteOnce"], resources: {requests: {storage: 10Gi}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: tiflash, namespace: ekb-m2-aws-us-east-1}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: tiflash}}
+  template:
+    metadata: {labels: {app: tiflash, region: aws}}
+    spec:
+      containers:
+        - name: tiflash
+          image: pingcap/tiflash:v8.5.7
+          imagePullPolicy: IfNotPresent
+          command: ["/tiflash/tiflash"]
+          args:
+            - server
+            - --config-file=/etc/tiflash/config.toml
+          ports: [{containerPort: 20170}, {containerPort: 20171}, {containerPort: 20292}]
+          resources:
+            requests: {cpu: 200m, memory: 1Gi}
+            limits: {cpu: 1500m, memory: 3Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /etc/tiflash}
+          startupProbe:
+            tcpSocket: {port: 9000}
+            periodSeconds: 15
+            failureThreshold: 80
+          livenessProbe:
+            tcpSocket: {port: 9000}
+            periodSeconds: 30
+            failureThreshold: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: tiflash-data}
+        - name: config
+          configMap: {name: tiflash-config}
+---
+# ============ esp-prod ExternalName 读写分离路由 ============
+# tidb-primary → aws TiDB(主写)
+# tidb-follower → azure TiDB(从读)
+# 保持原 ExternalName svc 名,esp-prod 服务无需改配置
+apiVersion: v1
+kind: Service
+metadata: {name: tidb-primary, namespace: esp-prod}
+spec:
+  type: ExternalName
+  externalName: tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tidb-follower, namespace: esp-prod}
+spec:
+  type: ExternalName
+  externalName: tidb-cluster-tidb.ekb-m2-azure-eastasia.svc.cluster.local

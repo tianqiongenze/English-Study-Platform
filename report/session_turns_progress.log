@@ -1,0 +1,1 @@
+2026-08-01 20:32:35 | pods=16/16 Running | TIDB_COUNT=1234000 | REDIS_SUM=1075000 | shard0_rate~163 rows/s eta~1914min | per-shard target=18750000 | total target=300000000

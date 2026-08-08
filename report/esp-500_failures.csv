@@ -1,0 +1,5 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,POST /api/learning/event,CatchResponseError('event rejected: 502'),23768,2026-07-30T04:53:25Z,2026-07-30T04:53:38Z
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 503'),2749,2026-07-30T04:53:25Z,2026-07-30T04:55:25Z
+GET,GET /api/teacher/classes/analytics,CatchResponseError('analytics failed: 503'),1384,2026-07-30T04:53:25Z,2026-07-30T04:55:24Z
+POST,POST /api/learning/event,CatchResponseError('event rejected: 503'),272845,2026-07-30T04:53:38Z,2026-07-30T04:55:25Z

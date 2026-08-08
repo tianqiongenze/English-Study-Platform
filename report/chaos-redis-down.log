@@ -1,0 +1,3 @@
+[chaos] simulating redis unavailability for 30s at 23:11:11
+deployment.apps/gateway-go env updated
+scripts/chaos/redis_down.sh: line 12: Dur: unbound variable

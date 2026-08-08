@@ -1,0 +1,19 @@
+Method,Name,Error,Occurrences
+POST,POST /api/learning/event,CatchResponseError('event rejected: 502'),75
+GET,GET /api/teacher/classes/analytics,CatchResponseError('analytics failed: 0'),24
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 0'),33
+POST,POST /api/learning/event,CatchResponseError('event rejected: 0'),307
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 502'),110
+POST,POST /api/writing/grade,CatchResponseError('grade failed: 503'),100
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 500'),58
+POST,POST /api/learning/event,CatchResponseError('event rejected: 500'),104
+POST,POST /api/writing/grade,CatchResponseError('grade failed: 502'),105
+POST,POST /api/writing/grade,CatchResponseError('grade failed: 500'),247
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 503'),256
+POST,POST /api/teacher/lesson-plan,CatchResponseError('lesson-plan failed: 504'),1
+POST,POST /api/writing/grade,CatchResponseError('grade failed: 0'),116
+GET,GET /api/teacher/classes/analytics,CatchResponseError('analytics failed: 503'),145
+POST,POST /api/sessions,CatchResponseError('create session failed: 503'),225
+POST,POST /api/learning/event,CatchResponseError('event rejected: 503'),4198
+GET,GET /api/scenarios,CatchResponseError('scenarios failed'),482
+POST,POST /api/sessions,CatchResponseError('create session failed: 0'),2

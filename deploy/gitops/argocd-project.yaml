@@ -1,0 +1,44 @@
+# ArgoCD AppProject: esp
+# -----------------------------------------------------------------------------
+# 用途:为 ESP 项目 GitOps 划定源仓库与目标命名空间白名单,统一纳管。
+# 安装顺序:先 kubectl apply 本文件(AppProject),再 apply argocd-apps.yaml。
+# 注意:sourceRepos / destinations 中的 repoURL 为占位,git 迁入后必须替换。
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: esp
+  namespace: argocd
+spec:
+  description: ESP AI English-Study-Platform GitOps 项目(应用 + 监控 + 基础设施)
+  # ① git 迁入后,把 <ORG> 替换为实际 GitHub org/user
+  sourceRepos:
+    - https://github.com/<ORG>/esp.git
+  # ② 允许部署到三个命名空间
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: esp-prod
+    - server: https://kubernetes.default.svc
+      namespace: esp-observability
+    - server: https://kubernetes.default.svc
+      namespace: ekb-m2-aws-us-east-1
+  # ③ 允许的资源白名单(应用栈 + 监控 + 基础设施常见资源)
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: ""
+      kind: PersistentVolume
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: "*"
+    - group: apps
+      kind: "*"
+    - group: autoscaling
+      kind: "*"
+    - group: networking.k8s.io
+      kind: "*"
+    - group: policy
+      kind: "*"
+  # ④ 禁止直接提交 Secret(走 sealed-secrets / external-secret,见 ADR)
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: Secret

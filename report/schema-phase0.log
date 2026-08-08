@@ -1,0 +1,77 @@
+=== ESP schema-per-service Phase 0 建表结果 ===
+时间: 2026-08-07 06:04:30
+DDL 文件: docs/design/schema-per-service-phase0.sql
+
+=== 执行结果(40 条语句,全部 OK) ===
+OK|1|CREATE DATABASE IF
+OK|2|CREATE DATABASE IF
+OK|3|CREATE TABLE IF
+OK|4|CREATE DATABASE IF
+OK|5|CREATE TABLE IF
+OK|6|CREATE TABLE IF
+OK|7|CREATE DATABASE IF
+OK|8|CREATE TABLE IF
+OK|9|CREATE TABLE IF
+OK|10|CREATE DATABASE IF
+OK|11|CREATE TABLE IF
+OK|12|CREATE TABLE IF
+OK|13|CREATE DATABASE IF
+OK|14|CREATE TABLE IF
+OK|15|CREATE TABLE IF
+OK|16|CREATE TABLE IF
+OK|17|CREATE DATABASE IF
+OK|18|CREATE TABLE IF
+OK|19|CREATE TABLE IF
+OK|20|CREATE DATABASE IF
+OK|21|CREATE TABLE IF
+OK|22|CREATE TABLE IF
+OK|23|CREATE TABLE IF
+OK|24|CREATE TABLE IF
+OK|25|CREATE TABLE IF
+OK|26|CREATE DATABASE IF
+OK|27|CREATE TABLE IF
+OK|28|CREATE TABLE IF
+OK|29|CREATE TABLE IF
+OK|30|CREATE TABLE IF
+OK|31|CREATE DATABASE IF
+OK|32|CREATE TABLE IF
+OK|33|CREATE TABLE IF
+OK|34|CREATE TABLE IF
+OK|35|CREATE TABLE IF
+OK|36|CREATE TABLE IF
+OK|37|CREATE DATABASE IF
+OK|38|CREATE TABLE IF
+OK|39|CREATE TABLE IF
+OK|40|CREATE TABLE IF
+SUMMARY|total=40|ok=40|err=0
+
+=== 建表后验证(每库表清单) ===
+VER|esp_learning|0|
+VER|esp_pronunciation|1|pronunciation_attempts
+VER|esp_listening|2|listening_attempts,listening_exercises
+VER|esp_vocab|2|user_vocabulary,vocabulary
+VER|esp_assessment|2|assessment_answers,assessment_sessions
+VER|esp_gamification|3|achievements,user_achievements,user_streaks
+VER|esp_reading|2|reading_attempts,reading_passages
+VER|esp_llm|5|dialogue_personas,dialogue_sessions,dialogue_turns,llm_call_logs,llm_semantic_cache
+VER|esp_path|4|learning_paths,path_nodes,path_progress,path_templates
+VER|esp_tutor|5|bookings,lesson_notes,lesson_packages,tutor_availability,tutors
+VER|esp_media|3|media_clips,media_expressions,media_subtitles
+
+=== 汇总 ===
+新建/确认 database: 11 个(esp_learning 占位 + 10 个新服务库)
+新建表总数: 29 张
+  esp_pronunciation: 1 (pronunciation_attempts)
+  esp_listening:     2 (listening_exercises, listening_attempts)
+  esp_vocab:         2 (vocabulary, user_vocabulary)
+  esp_assessment:    2 (assessment_sessions, assessment_answers)
+  esp_gamification:  3 (user_streaks, achievements, user_achievements)
+  esp_reading:       2 (reading_passages, reading_attempts)
+  esp_llm:           5 (llm_call_logs, llm_semantic_cache, dialogue_sessions, dialogue_turns, dialogue_personas)
+  esp_path:          4 (learning_paths, path_nodes, path_templates, path_progress)
+  esp_tutor:         5 (tutors, tutor_availability, bookings, lesson_packages, lesson_notes)
+  esp_media:         3 (media_clips, media_subtitles, media_expressions)
+  esp_learning:      0 (独立 DB 占位,Phase 3 物理隔离预备)
+
+错误: 0
+老库 esp 的 18 张表: 零改动(零风险原则遵守)

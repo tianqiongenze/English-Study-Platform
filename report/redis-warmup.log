@@ -1,0 +1,11 @@
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: pip install --upgrade pip
+[scenarios] rows=10000 set_ok=10000 elapsed=0.7s
+[knowledge_points] rows=29954 set_ok=29954 elapsed=1.5s
+[sessions] rows=1000 set_ok=1000 elapsed=0.1s
+[user_mastery] rows=1000 set_ok=1000 elapsed=0.1s
+[users] rows=1000 set_ok=1000 elapsed=0.1s
+=== WARMUP DONE total_rows=42954 total_set=42954 elapsed=3.1s ===
+pod "rwarmup4-14496" deleted from esp-prod namespace

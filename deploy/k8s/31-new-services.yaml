@@ -1,0 +1,123 @@
+# N8 course-path-go / N10 live-tutor-go / N11 media-learn-rs —— 新增 3 服务 manifest
+# ADR: docs/design/adr-new-services.md(10 服务矩阵,N9 并入 S1)
+# PRD: docs/design/prd-new-services.md
+# schema: docs/design/adr-schema-per-service.md(esp_path / esp_tutor / esp_media)
+#
+# 单节点 RD 策略:N8(P0)可实跑;N10/N11(P1)scaffold+manifest 就绪,HPA min=0 待命多节点。
+# 端口:N8=8093 / N10=8094 / N11=8095
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: course-path-go, namespace: esp-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: course-path-go}}
+  template:
+    metadata: {labels: {app: course-path-go}}
+    spec:
+      containers:
+      - name: course-path-go
+        image: esp/course-path-go:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8093}]
+        env:
+        - {name: PORT, value: "8093"}
+        - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: OTEL_SERVICE_NAME, value: "course-path-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        startupProbe:   {tcpSocket: {port: 8093}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {tcpSocket: {port: 8093}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: course-path-go, namespace: esp-prod}
+spec: {selector: {app: course-path-go}, ports: [{port: 80, targetPort: 8093}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: course-path-go, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: course-path-go}
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: live-tutor-go, namespace: esp-prod}
+spec:
+  replicas: 0              # 单节点 RD:P1 scaffold,HPA min=0 待命多节点
+  selector: {matchLabels: {app: live-tutor-go}}
+  template:
+    metadata: {labels: {app: live-tutor-go}}
+    spec:
+      containers:
+      - name: live-tutor-go
+        image: esp/live-tutor-go:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8094}]
+        env:
+        - {name: PORT, value: "8094"}
+        - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: OTEL_SERVICE_NAME, value: "live-tutor-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        startupProbe:   {tcpSocket: {port: 8094}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {tcpSocket: {port: 8094}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: live-tutor-go, namespace: esp-prod}
+spec: {selector: {app: live-tutor-go}, ports: [{port: 80, targetPort: 8094}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: live-tutor-go, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: live-tutor-go}
+  minReplicas: 1           # K8s HPA minReplicas 不允许 0;deploy replicas=0 时 Pod 不起,HPA 不扩(单节点待命)
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: media-learn-rs, namespace: esp-prod}
+spec:
+  replicas: 0              # 单节点 RD:P1 scaffold,HPA min=0 待命多节点
+  selector: {matchLabels: {app: media-learn-rs}}
+  template:
+    metadata: {labels: {app: media-learn-rs}}
+    spec:
+      containers:
+      - name: media-learn-rs
+        image: esp/media-learn-rs:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8095}]
+        env:
+        - {name: PORT, value: "8095"}
+        - {name: OTEL_SERVICE_NAME, value: "media-learn-rs"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        startupProbe:   {tcpSocket: {port: 8095}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {tcpSocket: {port: 8095}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: media-learn-rs, namespace: esp-prod}
+spec: {selector: {app: media-learn-rs}, ports: [{port: 80, targetPort: 8095}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: media-learn-rs, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: media-learn-rs}
+  minReplicas: 1           # K8s HPA minReplicas 不允许 0;deploy replicas=0 时 Pod 不起,HPA 不扩(单节点待命)
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}

@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: writing-coach
+Version: 1.0.0
+Summary: ESP Writing Coach: templates/essays recommendation, holistic grading, improvement plans
+Requires-Python: >=3.11
+Requires-Dist: litestar>=2.24.0
+Requires-Dist: granian>=1.6.0
+Requires-Dist: pydantic>=2.7
+Requires-Dist: httpx>=0.27
+Requires-Dist: anthropic>=0.120.0
+Requires-Dist: prometheus-client>=0.20.0
+Requires-Dist: msgspec>=0.18.0
+Requires-Dist: esp-cache-py>=1.0.0
+Requires-Dist: esp-db-py>=1.0.0
+Requires-Dist: opentelemetry-api<2.0,>=1.30.0
+Requires-Dist: opentelemetry-sdk<2.0,>=1.30.0
+Requires-Dist: opentelemetry-exporter-otlp-proto-grpc>=1.29
+Requires-Dist: opentelemetry-instrumentation-asgi<1.0,>=0.49b0

@@ -1,0 +1,105 @@
+# Dependabot 配置(ESP 多语言微服务)
+# 关联:docs/design/adr-security-scanning.md
+# 启用前提:仓库已迁入 GitHub(非 git 仓库下不生效,迁入后零改动启用)
+
+version: 2
+updates:
+  # ---- Java 服务(maven)----
+  - package-ecosystem: "maven"
+    directory: "/services/bff-java"
+    schedule: { interval: "weekly", day: "mon" }
+    open-pull-requests-limit: 5
+    labels: ["deps", "java", "security"]
+    groups:
+      maven-minor:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "maven"
+    directory: "/services/learning-java"
+    schedule: { interval: "weekly", day: "mon" }
+    open-pull-requests-limit: 5
+    labels: ["deps", "java", "security"]
+  - package-ecosystem: "maven"
+    directory: "/services/teacher-java"
+    schedule: { interval: "weekly", day: "mon" }
+    open-pull-requests-limit: 5
+    labels: ["deps", "java", "security"]
+  - package-ecosystem: "maven"
+    directory: "/services/esp-api"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "java", "security"]
+  - package-ecosystem: "maven"
+    directory: "/services/esp-disruptor"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "java", "security"]
+  - package-ecosystem: "maven"
+    directory: "/services/esp-rw-java"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "java", "security"]
+  - package-ecosystem: "maven"
+    directory: "/services/esp-cache"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "java", "security"]
+
+  # ---- Go 服务(go-mod)----
+  - package-ecosystem: "gomod"
+    directory: "/services/gateway-go"
+    schedule: { interval: "weekly", day: "mon" }
+    open-pull-requests-limit: 5
+    labels: ["deps", "go", "security"]
+  - package-ecosystem: "gomod"
+    directory: "/services/course-path-go"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "go", "security"]
+  - package-ecosystem: "gomod"
+    directory: "/services/live-tutor-go"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "go", "security"]
+
+  # ---- Python 服务(pip / pyproject)----
+  - package-ecosystem: "pip"
+    directory: "/services/writing-py"
+    schedule: { interval: "weekly", day: "mon" }
+    open-pull-requests-limit: 5
+    labels: ["deps", "python", "security"]
+  - package-ecosystem: "pip"
+    directory: "/services/emotion-svc"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "python", "security"]
+  - package-ecosystem: "pip"
+    directory: "/services/writing-coach"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "python", "security"]
+  - package-ecosystem: "pip"
+    directory: "/services/esp-cache-py"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "python", "security"]
+  - package-ecosystem: "pip"
+    directory: "/services/esp-db-py"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "python", "security"]
+
+  # ---- Rust 服务(cargo 不在 Dependabot 原生支持,由 Trivy SCA + Aikido 覆盖)----
+
+  # ---- 前端(npm)----
+  - package-ecosystem: "npm"
+    directory: "/frontend-react"
+    schedule: { interval: "weekly", day: "mon" }
+    open-pull-requests-limit: 10
+    labels: ["deps", "frontend", "security"]
+    groups:
+      npm-dev:
+        dependency-type: "development"
+  - package-ecosystem: "npm"
+    directory: "/frontend-h5"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "frontend", "security"]
+  - package-ecosystem: "npm"
+    directory: "/frontend-miniprogram"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "frontend", "security"]
+
+  # ---- GitHub Actions 自身依赖----
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule: { interval: "weekly", day: "mon" }
+    labels: ["deps", "ci", "security"]

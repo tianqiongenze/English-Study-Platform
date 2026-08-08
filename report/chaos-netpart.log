@@ -1,0 +1,5 @@
+[chaos] partition gateway-go<->learning-java for 10s at 23:33:28
+networkpolicy.networking.k8s.io/chaos-deny-gateway-go-learning-java created
+[chaos] removing partition at 23:33:39
+networkpolicy.networking.k8s.io "chaos-deny-gateway-go-learning-java" deleted from esp-prod namespace
+[chaos] done at 23:33:40

@@ -1,0 +1,373 @@
+# Pulsar 三区 + Geo-Replication K8s manifest(单节点 RD 可落地版)
+#
+# 资源压缩:broker 512Mi / ZK 256Mi / BK 512Mi,总 ~4G,单节点可跑。
+# 完整三区多节点移植时把 replicas 按区分布 + 调大堆。
+#
+# 部署步骤:
+#   1. kubectl apply -f deploy/k8s/06d-pulsar-geo.yaml
+#   2. 等 ZK/BK/Broker Pod Ready
+#   3. 跑 pulsar-geo-config Job:配 replication clusters + tenant/ns
+#   4. 校验: pulsar-admin namespaces get-replication-clusters esp/business
+
+---
+# ZooKeeper ensemble(3 节点,Pulsar 元数据 + Geo 复制协调)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pulsar-zk
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  serviceName: pulsar-zk
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pulsar-zk
+  template:
+    metadata:
+      labels:
+        app: pulsar-zk
+    spec:
+      containers:
+      - name: zk
+        image: docker.1ms.run/apachepulsar/pulsar:3.3.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          # bin/pulsar zookeeper 不自动应用 PULSAR_PREFIX_ env(只有 broker/bookie 入口跑 apply-config)。
+          # 需手动跑 apply-config-from-env.py 写 zookeeper.conf,否则 server.N 不生效 → standalone 模式。
+          bin/apply-config-from-env.py --prefix PULSAR_PREFIX_ conf/zookeeper.conf
+          # ZK ensemble 模式必须有 myid 文件(内容为 server.N 中的 N),否则启动报
+          # "myid file is missing"。从 POD 序号推导:N = ord(末位)+1。
+          N=$((${POD_NAME##*-} + 1))
+          echo "$N" > /pulsar/data/zookeeper/myid
+          exec bin/pulsar zookeeper
+        env:
+        - name: ZK_separateEnvLog
+          value: "false"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        # 显式声明 ZK ensemble,否则 QuorumPeerMain 退化为 standalone(无 server.N 行)。
+        # standalone 模式 ConnectionLoss 抖动 + 无 leader election,导致 broker BK 客户端
+        # bookie-list watch 不稳定 → allBookies [] 间歇性空。
+        - name: PULSAR_PREFIX_server.1
+          value: "pulsar-zk-0.pulsar-zk:2888:3888"
+        - name: PULSAR_PREFIX_server.2
+          value: "pulsar-zk-1.pulsar-zk:2888:3888"
+        - name: PULSAR_PREFIX_server.3
+          value: "pulsar-zk-2.pulsar-zk:2888:3888"
+        - name: PULSAR_PREFIX_initLimit
+          value: "10"
+        - name: PULSAR_PREFIX_syncLimit
+          value: "5"
+        - name: PULSAR_MEM
+          value: "-Xms128m -Xmx128m -XX:MaxDirectMemorySize=64m"
+        - name: PULSAR_GC
+          value: "-XX:+UseG1GC"
+        ports:
+        - containerPort: 2181
+          name: client
+        - containerPort: 2888
+          name: follower
+        - containerPort: 3888
+          name: election
+        resources:
+          requests: { cpu: 50m, memory: 384Mi }
+          limits: { cpu: 500m, memory: 768Mi }
+        volumeMounts:
+        - name: zk-data
+          mountPath: /pulsar/data
+  volumeClaimTemplates:
+  - metadata:
+      name: zk-data
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pulsar-zk
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  clusterIP: None
+  selector:
+    app: pulsar-zk
+  ports:
+  - port: 2181
+    name: client
+  - port: 2888
+    name: follower
+  - port: 3888
+    name: election
+---
+# BookKeeper(3 bookie,持久化消息存储,quorum 写多数派)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pulsar-bk
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  serviceName: pulsar-bk
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pulsar-bk
+  template:
+    metadata:
+      labels:
+        app: pulsar-bk
+    spec:
+      containers:
+      - name: bk
+        image: docker.1ms.run/apachepulsar/pulsar:3.3.0
+        imagePullPolicy: IfNotPresent
+        # pulsar 3.3.0 的 `bin/pulsar` 无 bookkeeper 子命令,bookie 必须用 `bin/bookkeeper bookie`。
+        # env 不会自动写入 conf,需先跑 apply-config-from-env.py(官方 Helm chart 同款机制)。
+        command:
+        - sh
+        - -c
+        - |
+          # bookie advertisedAddress 不能为空,否则不注册到 /ledgers/available → broker 报 "Not enough non-faulty bookies"。
+          # K8s $(VAR) 不能引用 valueFrom,故在 sh 里动态取 hostname(=pod name)写入 conf。
+          export PULSAR_PREFIX_advertisedAddress="${HOSTNAME}.pulsar-bk"
+          bin/apply-config-from-env.py --prefix PULSAR_PREFIX_ conf/bookkeeper.conf
+          # 注意:不要在 bookie 启动时跑 metaformat!每个 bookie 各自 metaformat 会各自生成 instanceId,
+          # ZK /ledgers/INSTANCEID 被反复覆盖,导致本地 cookie 与 ZK instanceId 不一致 → InvalidCookieException
+          # → bookie 注册失败 → broker "Not enough non-faulty bookies"。metaformat 由 pulsar-bk-init Job 单次完成。
+          #
+          # BK 4.17 cookie 校验:空目录(本地 cookie 被清/首次挂新 PVC)默认被视为非法环境,
+          # 报 "directories without a cookie, and this is neither a new environment, nor is storage expansion enabled"。
+          # 开 bookkeeperStorageExpansion=true 允许 bookie 在已注册集群中接受空目录(扩容/重建场景),
+          # 启动后自动用当前 ZK instanceId 写本地 cookie。PVC 已建但内容空的 bk 副本靠此通过校验。
+          exec bin/bookkeeper bookie
+        env:
+        # 用 PULSAR_PREFIX_ 前缀,apply-config-from-env.py 才会写入 conf/bookkeeper.conf
+        # advertisedAddress 不动态拼 POD_NAME(K8s $(VAR) 不能引用 valueFrom),用默认 hostname。
+        - name: PULSAR_PREFIX_zkServers
+          value: "pulsar-zk-0.pulsar-zk:2181,pulsar-zk-1.pulsar-zk:2181,pulsar-zk-2.pulsar-zk:2181"
+        - name: PULSAR_PREFIX_bookkeeperMetadataServiceUri
+          value: "zk+null://pulsar-zk-0.pulsar-zk:2181,pulsar-zk-1.pulsar-zk:2181,pulsar-zk-2.pulsar-zk:2181/ledgers"
+        # 允许空目录/含残留目录的 bookie 加入已注册集群(cookie 重建/扩容)。
+        # 注意 BK 4.17 的 conf key 是 allowStorageExpansion(非 bookkeeperStorageExpansionEnabled)。
+        - name: PULSAR_PREFIX_allowStorageExpansion
+          value: "true"
+        - name: PULSAR_MEM
+          value: "-Xms256m -Xmx256m -XX:MaxDirectMemorySize=128m"
+        - name: PULSAR_GC
+          value: "-XX:+UseG1GC"
+        ports:
+        - containerPort: 3181
+          name: bookie
+        resources:
+          requests: { cpu: 50m, memory: 256Mi }
+          limits: { cpu: 500m, memory: 512Mi }
+        volumeMounts:
+        - name: bk-data
+          mountPath: /pulsar/data/bookkeeper
+        - name: bk-journal
+          mountPath: /pulsar/data/bookkeeper/journal
+  volumeClaimTemplates:
+  - metadata:
+      name: bk-data
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 2Gi
+  - metadata:
+      name: bk-journal
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pulsar-bk
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  clusterIP: None
+  selector:
+    app: pulsar-bk
+  ports:
+  - port: 3181
+    name: bookie
+---
+# Broker(3 副本,模拟三区;单节点同 node,多节点移植按区 nodeSelector)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pulsar-broker
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  serviceName: pulsar-broker
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pulsar-broker
+  template:
+    metadata:
+      labels:
+        app: pulsar-broker
+    spec:
+      containers:
+      - name: broker
+        image: docker.1ms.run/apachepulsar/pulsar:3.3.0
+        imagePullPolicy: IfNotPresent
+        # `bin/pulsar broker` 启动器不自动把 env 写入 broker.conf,需先跑 apply-config-from-env.py
+        # (官方 Helm chart 同款机制)。env 用 PULSAR_PREFIX_ 前缀才会被脚本识别写入。
+        command:
+        - sh
+        - -c
+        - |
+          bin/apply-config-from-env.py --prefix PULSAR_PREFIX_ conf/broker.conf
+          exec bin/pulsar broker
+        env:
+        # POD_NAME(valueFrom)不能被 $(POD_NAME) 引用(K8s 限制),故 advertisedAddress
+        # 不动态拼 POD_NAME;broker 用默认 hostname(pulsar-broker-0.pulsar-broker)即可。
+        - name: PULSAR_PREFIX_zookeeperServers
+          value: "pulsar-zk-0.pulsar-zk:2181,pulsar-zk-1.pulsar-zk:2181,pulsar-zk-2.pulsar-zk:2181"
+        - name: PULSAR_PREFIX_configurationStoreServers
+          value: "pulsar-zk-0.pulsar-zk:2181,pulsar-zk-1.pulsar-zk:2181,pulsar-zk-2.pulsar-zk:2181"
+        # 根因H(真正根因):broker 的 BK 客户端 bookie-list watch 走 /ledgers 路径,
+        # 但 bookkeeperMetadataServiceUri 留空时 BK 客户端用默认 driver 找不到 bookie 注册根路径
+        # → allBookies [] → 创建 ledger 失败 → healthcheck 失败。必须显式指向与 bk-init 一致的 /ledgers。
+        - name: PULSAR_PREFIX_bookkeeperMetadataServiceUri
+          value: "zk+null://pulsar-zk-0.pulsar-zk:2181;pulsar-zk-1.pulsar-zk:2181;pulsar-zk-2.pulsar-zk:2181/ledgers"
+        - name: PULSAR_PREFIX_clusterName
+          value: "aws"
+        # 内存压缩:broker 默认 2G 堆,压到 512M
+        - name: PULSAR_MEM
+          value: "-Xms256m -Xmx256m -XX:MaxDirectMemorySize=128m"
+        - name: PULSAR_GC
+          value: "-XX:+UseG1GC"
+        - name: PULSAR_PREFIX_managedLedgerDefaultEnsembleSize
+          value: "1"
+        - name: PULSAR_PREFIX_managedLedgerDefaultWriteQuorum
+          value: "1"
+        - name: PULSAR_PREFIX_managedLedgerDefaultAckQuorum
+          value: "1"
+        # 根因H:broker BK客户端默认启用 RackawareEnsemblePlacementPolicy,单节点同rack下
+        # bookie-list watch 填充慢 → allBookies [] → 创建ledger失败 → healthcheck失败 → readiness杀。
+        # 显式关闭 rack-aware,并放宽 minNumRacks(单节点无多rack意义)。
+        - name: PULSAR_PREFIX_bookkeeperClientRackawarePolicyEnabled
+          value: "false"
+        - name: PULSAR_PREFIX_bookkeeperClientMinNumRacksPerWriteQuorum
+          value: "1"
+        - name: PULSAR_PREFIX_bookkeeperClientEnforceMinNumRacksPerWriteQuorum
+          value: "false"
+        ports:
+        - containerPort: 6650
+          name: pulsar
+        - containerPort: 8080
+          name: http
+        resources:
+          requests: { cpu: 100m, memory: 384Mi }
+          limits: { cpu: 1000m, memory: 640Mi }
+        readinessProbe:
+          httpGet: { path: /admin/v2/brokers/health, port: 8080 }
+          initialDelaySeconds: 120
+          periodSeconds: 10
+          failureThreshold: 24
+        livenessProbe:
+          httpGet: { path: /admin/v2/brokers/health, port: 8080 }
+          initialDelaySeconds: 120
+          periodSeconds: 10
+          failureThreshold: 24
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pulsar-broker
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  clusterIP: None
+  selector:
+    app: pulsar-broker
+  ports:
+  - port: 6650
+    name: pulsar
+  - port: 8080
+    name: http
+---
+# Bookkeeper 元数据初始化 Job(一次性,集群级,只跑一次,不能让每个 bookie 各自跑否则 instanceId 冲突)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pulsar-bk-init
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: bk-init
+        image: docker.1ms.run/apachepulsar/pulsar:3.3.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          export PULSAR_PREFIX_zkServers="pulsar-zk-0.pulsar-zk:2181,pulsar-zk-1.pulsar-zk:2181,pulsar-zk-2.pulsar-zk:2181"
+          export PULSAR_PREFIX_bookkeeperMetadataServiceUri="zk+null://pulsar-zk-0.pulsar-zk:2181,pulsar-zk-1.pulsar-zk:2181,pulsar-zk-2.pulsar-zk:2181/ledgers"
+          bin/apply-config-from-env.py --prefix PULSAR_PREFIX_ conf/bookkeeper.conf
+          # 集群级单次初始化 /ledgers/LAYOUT + INSTANCEID。metaformat 幂等:已初始化喂 Y 重置(单节点 dev 可接受)。
+          yes | bin/bookkeeper shell metaformat -f
+          echo "BK_INIT_DONE"
+---
+# Geo-Replication 配置 Job(一次性)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pulsar-geo-config
+  namespace: ekb-m2-aws-us-east-1
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pulsar-admin
+        image: docker.1ms.run/apachepulsar/pulsar:3.3.0
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+          export PULSAR_MEM="-Xms128m -Xmx128m"
+          ADMIN="pulsar-admin --admin-url http://pulsar-broker-0.pulsar-broker:8080"
+          echo "=== wait broker ready ==="
+          for i in $(seq 1 60); do
+            $ADMIN brokers list aws 2>/dev/null && break || sleep 5
+          done
+          echo "=== list brokers ==="
+          $ADMIN brokers list aws || true
+          echo "=== ensure cluster aws registered (broker 重启后 cluster metadata 可能丢) ==="
+          $ADMIN clusters create aws --url http://pulsar-broker-0.pulsar-broker:8080 || true
+          echo "=== create tenant esp (allow cluster aws) ==="
+          $ADMIN tenants create esp -c aws || true
+          echo "=== create namespace esp/business ==="
+          $ADMIN namespaces create esp/business || true
+          echo "=== set replication clusters (single-cluster aws; 多节点移植时加 azure,gcp) ==="
+          $ADMIN namespaces set-clusters esp/business -c aws || true
+          echo "=== get replication clusters ==="
+          $ADMIN namespaces get-clusters esp/business || true
+          echo "=== create cache-invalidate ns (区内广播,不开 replication) ==="
+          $ADMIN namespaces create esp/cache || true
+          $ADMIN namespaces set-clusters esp/cache -c aws || true
+          echo "=== list topics under esp/business ==="
+          $ADMIN topics list esp/business || true
+          echo "GEO_CONFIG_DONE"

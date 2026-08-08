@@ -1,0 +1,218 @@
+# S3 pronunciation-rs / S4 listening-go / S5 assessment-rs / S6 reading-go / S7 gamification-go
+# —— 第二批 5 新服务 manifest(schema-per-service Phase1)
+# ADR: docs/design/adr-new-services.md / PRD §三~§七 / schema esp_{pronunciation,listening,assessment,reading,gamification}
+#
+# 单节点 RD 策略:
+#   S3 pronunciation-rs(P0) replicas=1 实跑
+#   S4/S5/S6/S7(P1) replicas=0 scaffold 就绪,HPA min=1 待命多节点(deploy replicas=0 时 Pod 不起,HPA 不扩)
+# 端口:S3=8088 / S4=8089 / S5=8090 / S6=8091 / S7=8092
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: pronunciation-rs, namespace: esp-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: pronunciation-rs}}
+  template:
+    metadata: {labels: {app: pronunciation-rs}}
+    spec:
+      containers:
+      - name: pronunciation-rs
+        image: esp/pronunciation-rs:0.1.1
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8088}]
+        env:
+        - {name: PORT, value: "8088"}
+        - {name: TIDB_HOST, value: "tidb-primary"}
+        - {name: TIDB_READ_HOST, value: "tidb-follower"}
+        - {name: TIDB_PORT, value: "4000"}
+        - {name: TIDB_USER, value: "root"}
+        - {name: TIDB_PASSWORD, value: ""}
+        - {name: TIDB_DB, value: "esp_pronunciation"}
+        - {name: WRITE_DB_URL, value: "mysql://root:@tidb-primary:4000/esp_pronunciation?ssl-mode=DISABLED"}
+        - {name: READ_DB_URL, value: "mysql://root:@tidb-follower:4000/esp_pronunciation?ssl-mode=DISABLED"}
+        - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: OTEL_SERVICE_NAME, value: "pronunciation-rs"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        startupProbe:   {tcpSocket: {port: 8088}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {tcpSocket: {port: 8088}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: pronunciation-rs, namespace: esp-prod}
+spec: {selector: {app: pronunciation-rs}, ports: [{port: 80, targetPort: 8088}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: pronunciation-rs, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: pronunciation-rs}
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: listening-go, namespace: esp-prod}
+spec:
+  replicas: 1              # P1→实跑(单节点验证拓扑)
+  selector: {matchLabels: {app: listening-go}}
+  template:
+    metadata: {labels: {app: listening-go}}
+    spec:
+      containers:
+      - name: listening-go
+        image: esp/listening-go:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8089}]
+        env:
+        - {name: PORT, value: "8089"}
+        - {name: READ_DB_URL, value: "root:@tcp(tidb-follower:4000)/esp_listening?parseTime=true"}
+        - {name: WRITE_DB_URL, value: "root:@tcp(tidb-primary:4000)/esp_listening?parseTime=true"}
+        - {name: OTEL_SERVICE_NAME, value: "listening-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        startupProbe:   {tcpSocket: {port: 8089}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {tcpSocket: {port: 8089}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: listening-go, namespace: esp-prod}
+spec: {selector: {app: listening-go}, ports: [{port: 80, targetPort: 8089}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: listening-go, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: listening-go}
+  minReplicas: 1           # K8s HPA minReplicas 不允许 0;deploy replicas=0 时 Pod 不起
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: assessment-rs, namespace: esp-prod}
+spec:
+  replicas: 1              # P1 scaffold,已部署验证
+  selector: {matchLabels: {app: assessment-rs}}
+  template:
+    metadata: {labels: {app: assessment-rs}}
+    spec:
+      containers:
+      - name: assessment-rs
+        image: esp/assessment-rs:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8090}]
+        env:
+        - {name: PORT, value: "8090"}
+        - {name: TIDB_DB, value: "esp_assessment"}
+        - {name: WRITE_DB_URL, value: "mysql://root:@tidb-primary:4000/esp_assessment?ssl-mode=DISABLED"}
+        - {name: READ_DB_URL, value: "mysql://root:@tidb-follower:4000/esp_assessment?ssl-mode=DISABLED"}
+        - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: OTEL_SERVICE_NAME, value: "assessment-rs"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        startupProbe:   {tcpSocket: {port: 8090}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {tcpSocket: {port: 8090}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: assessment-rs, namespace: esp-prod}
+spec: {selector: {app: assessment-rs}, ports: [{port: 80, targetPort: 8090}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: assessment-rs, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: assessment-rs}
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: reading-go, namespace: esp-prod}
+spec:
+  replicas: 1              # S6 部署验证(单节点)
+  selector: {matchLabels: {app: reading-go}}
+  template:
+    metadata: {labels: {app: reading-go}}
+    spec:
+      containers:
+      - name: reading-go
+        image: esp/reading-go:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8091}]
+        env:
+        - {name: PORT, value: "8091"}
+        - {name: READ_DB_URL, value: "root:@tcp(tidb-follower:4000)/esp_reading?parseTime=true"}
+        - {name: WRITE_DB_URL, value: "root:@tcp(tidb-primary:4000)/esp_reading?parseTime=true"}
+        - {name: OTEL_SERVICE_NAME, value: "reading-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        startupProbe:   {tcpSocket: {port: 8091}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {tcpSocket: {port: 8091}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: reading-go, namespace: esp-prod}
+spec: {selector: {app: reading-go}, ports: [{port: 80, targetPort: 8091}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: reading-go, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: reading-go}
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: gamification-go, namespace: esp-prod}
+spec:
+  replicas: 1              # S7 启用,单节点验证
+  selector: {matchLabels: {app: gamification-go}}
+  template:
+    metadata: {labels: {app: gamification-go}}
+    spec:
+      containers:
+      - name: gamification-go
+        image: esp/gamification-go:0.1.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8092}]
+        env:
+        - {name: PORT, value: "8092"}
+        - {name: READ_DB_URL, value: "root:@tcp(tidb-follower:4000)/esp_gamification?parseTime=true"}
+        - {name: WRITE_DB_URL, value: "root:@tcp(tidb-primary:4000)/esp_gamification?parseTime=true"}
+        - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: OTEL_SERVICE_NAME, value: "gamification-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        startupProbe:   {tcpSocket: {port: 8092}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {tcpSocket: {port: 8092}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: gamification-go, namespace: esp-prod}
+spec: {selector: {app: gamification-go}, ports: [{port: 80, targetPort: 8092}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: gamification-go, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: gamification-go}
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}

@@ -1,0 +1,25 @@
+# 编译阶段
+FROM docker.1ms.run/library/golang:1.25-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+ENV GOPROXY=https://goproxy.cn,direct
+RUN go mod download
+COPY src ./src
+RUN CGO_ENABLED=0 go build -o /out/gateway-go ./src
+
+# 运行阶段
+FROM docker.1ms.run/library/alpine:3.22
+# 使用 mirrors.tuna.tsinghua.edu.cn 加速 apk（dl-cdn 在 lima 内偶发超时）
+RUN echo "https://mirrors.tuna.tsinghua.edu.cn/alpine/v3.22/main" > /etc/apk/repositories && \
+    echo "https://mirrors.tuna.tsinghua.edu.cn/alpine/v3.22/community" >> /etc/apk/repositories && \
+    apk add --no-cache ca-certificates
+RUN addgroup -S app && adduser -S -G app app
+WORKDIR /app
+COPY --from=builder /out/gateway-go /app/gateway-go
+EXPOSE 8080
+ENV PORT=8080
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317
+ENV OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+ENV OTEL_SERVICE_NAME=gateway-go
+USER app
+ENTRYPOINT ["/app/gateway-go"]

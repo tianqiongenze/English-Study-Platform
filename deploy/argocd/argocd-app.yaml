@@ -1,0 +1,25 @@
+# ArgoCD GitOps App —— ESP 全服务声明式同步
+# 仓库:https://github.com/tianqiongenze/English-Study-Platform(私有,凭证见 secret github-repo-creds)
+# 策略:automated prune + selfHeal,master 分支 deploy/k8s 目录全量同步到 esp-prod/argocd ns
+# 单节点 RD:syncPolicy.automated 开启,但先 manual sync 一次验证(避免 prune 误删现有资源)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: esp-platform
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/tianqiongenze/English-Study-Platform
+    targetRevision: master
+    path: deploy/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: esp-prod
+  syncPolicy:
+    automated:
+      prune: false        # 单节点 RD:先不自动 prune,避免误删现有 Running 资源
+      selfHeal: true      # 手动改集群时自动拉回 git 状态
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true  # 处理大 CRD/共存字段

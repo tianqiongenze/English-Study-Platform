@@ -636,20 +636,5 @@ spec:
         - name: config
           configMap: {name: tiflash-config}
 ---
-# ============ esp-prod ExternalName 读写分离路由 ============
-# tidb-primary → aws TiDB(主写)
-# tidb-follower → azure TiDB(从读)
-# 保持原 ExternalName svc 名,esp-prod 服务无需改配置
-apiVersion: v1
-kind: Service
-metadata: {name: tidb-primary, namespace: esp-prod}
-spec:
-  type: ExternalName
-  externalName: tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local
----
-apiVersion: v1
-kind: Service
-metadata: {name: tidb-follower, namespace: esp-prod}
-spec:
-  type: ExternalName
-  externalName: tidb-cluster-tidb.ekb-m2-azure-eastasia.svc.cluster.local
+# 注:esp-prod 的 tidb-primary / tidb-follower ExternalName 路由统一定义在 05-infra-reuse.yaml。
+# 此处曾重复定义导致 ArgoCD RepeatedResourceWarning(会话21 已去重,仅保留 05 一处)。

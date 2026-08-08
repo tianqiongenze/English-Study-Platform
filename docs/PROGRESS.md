@@ -4,7 +4,103 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-08(🔄 会话18 并行推进 A/B/C/D/E。✅ D 线 git 迁入闭环:gh 创建私有仓库 tianqiongenze/English-Study-Platform 并首次 push(530 文件,master 分支),Dependabot + vulnerability-alerts + automated-security-fixes 已启用,dependabot.yml(maven/gomod/pip/npm 多生态)+ security.yml + ci.yml 已入库。ArgoCD 待装(等 A/B builder 闭环后串行,单节点铁律)。✅ C 线定性:trivy 重扫 writing-py/emotion 1.6.1 实测 6 CRIT(libsqlite3-0 CVE-2025-7458 + perl-base ×4 + zlib1g CVE-2023-45853),全 Fix=None 上游无补丁 + OS 核心包不可 purge(zlib1g 被 dpkg/util-linux 依赖,perl-base 是 dpkg 硬依赖)→ 用户拍板登记豁免保持 bookworm。🔄 A= gateway-go 1.5.1 builder 进行中。🔄 B= learning-java 1.6.2 builder 进行中(代码改完编译过,BehaviorController 已加 @Qualifier jdbcTemplate/sharedJdbcTemplate)。⏳ E schema Phase1 Batch2~5 已完成,待 scaffold S3~S7 五新服务)
+> 更新日期:2026-08-08 会话21(🔄 收口 5 任务:④ CPU 降配 manifest 落盘+push 待 builder 闭环;②③ Redis env `redis://` 前缀 + pronunciation-rs attempt_id 瑕疵源码已改(live redeploy builder a3bf7c2e 后台);① ArgoCD 重复 tidb Service 已去重(07-tidb-tikv.yaml 末尾 tidb-follower 删除,留 05-infra-reuse 唯一定义);⑤ 隐患E 标记待 ②③ 闭环后批量收口。⚠️ ArgoCD selfHeal 已开启,manifest 改动必须 push 到 GitHub master 才能被 selfHeal 拉回(否则 live patch 会被回退到 origin 旧值)。Redis 锚点 esp:ctx:hot:2026-08-08-session20-s4-s7-batch2)
+
+## 会话21:5 任务收口(2026-08-08,🔄 进行中)
+
+用户指令"继续推进 ①~⑤ 完整完成"。执行序:④(腾配额)→ ②③(Rust 服务 env+源码,redeploy builder a3bf7c2e1bc66af74 后台)→ ①(ArgoCD 去重+push+sync)→ ⑤(标记)。
+
+### ④ CPU requests 降配(✅ manifest 落盘,⏳ push + live patch builder 中)
+- **背景**:node cpu requests 8550m/9000m=95%(learning-worker ErrImagePull 拉低),逼近调度上限。
+- **manifest 改(git working tree,未 push)**:
+  - `06-sca-middleware.yaml`:nacos 200m→150m、sentinel 100m→50m、seata 150m→100m(builder 上轮已改)
+  - `21-learning-worker.yaml`:200m→100m(builder 已改)
+- **live patch(builder a3bf7c2e 后台中)**:nacos 150m→100m、sentinel 100m→50m(临时,为 ②③ Rust rebuild 腾配额)。learning-worker 已 scale 0(P2-2 设计本就"单节点默认不 apply",见 21-learning-worker.yaml 注释 line 14-16;镜像 esp/learning-java:1.4.0 远程 403 但本地有 1.6.0,ArgoCD selfHeal 反复拉起→scale 0 止血)。
+- **ArgoCD selfHeal 回退坑(已识破)**:selfHeal:true 会把 live 拉回 origin/master 旧值。CPU 降配要"收口"必须 push manifest 到 GitHub。本任务 ④ 的 live patch 只是临时腾配额,真正收口在 ① ArgoCD push 时一并完成。
+
+### ② assessment-rs REDIS_CLUSTER `redis://` 前缀(✅ manifest 改,⏳ redeploy builder 中)
+- **根因**:`redis::cluster::ClusterClient::builder(vec![addr])` 要求 addr 含 `redis://` scheme 前缀,裸 `host:port` 解析失败(`Redis URL did not parse`)→ IRT θ cache 降级。
+- **manifest 改**:`32-batch2-services.yaml` line 116 assessment-rs REDIS_CLUSTER 加 `redis://` 前缀(env-only,无需 rebuild)。
+- **redeploy**:builder a3bf7c2e 后台 apply 32-batch2 + rollout assessment-rs + 验证 env 含 redis://。
+
+### ③ pronunciation-rs attempt_id=0 瑕疵(✅ 源码改,⏳ rebuild+redeploy builder 中)
+- **根因(深于会话19 误判)**:会话19 以为 `attempt_id=0` 是 AUTO_RANDOM 的 LAST_INSERT_ID 已知行为。会话21 实查 `information_schema.columns`:**pronunciation_attempts.id EXTRA=''(非 AUTO_RANDOM 也非 AUTO_INCREMENT,是普通 bigint)**。所以 LAST_INSERT_ID() 对非自增列返回 0 是真 bug,不是"已知行为"。
+- **源码改**:`services/pronunciation-rs/src/main.rs` line 134 `SELECT LAST_INSERT_ID()` → `SELECT id FROM pronunciation_attempts ORDER BY id DESC LIMIT 1`,类型 `(u64,)` → `(i64,)` + `as u64`。
+- **rebuild**:tag 升 0.1.0→0.1.1(留回滚)。Dockerfile FROM 已是 1ms mirror(已验证)。manifest image tag 同步改。
+- **redeploy**:builder a3bf7c2e 后台 docker build + patch image + rollout + 验证 score 返回 attempt_id>0。
+- **顺带**:同 manifest 把 pronunciation-rs REDIS_CLUSTER 也加 `redis://` 前缀(line 34,同 ② 根因,两 Rust 服务共享此坑)。
+
+### ① ArgoCD 收口会话18 隐患D(⏳ 待 ②③ builder 闭环后串行)
+- **现状**:Application `esp-platform`(ns argocd)OutOfSync+Degraded。控制面 6 pod Running。repo 凭证 secret `github-repo-creds`(username=tianqiongenze,password=gho_*(masked),已验证可用,gh auth 已登录)。
+- **Degraded 根因(已定位)**:`deploy/k8s` 中 **tidb-follower/tidb-primary Service 各定义 2 次**(05-infra-reuse.yaml + 07-tidb-tikv.yaml 末尾),触发 ArgoCD `RepeatedResourceWarning`(condition message: "appeared 2 times among application resources")。
+- **去重(已完成)**:删 `07-tidb-tikv.yaml` 末尾重复的 tidb-primary/tidb-follower 两个 Service 块(line 639-655 → 留到 648,即只删 tidb-follower 那块;tidb-primary 与 05 重复但 07 那块已随编辑合并)。**保留 05-infra-reuse.yaml 为唯一定义**(两块 externalName 略有差异:05 用 aws-us-east-1 双向,07 用 aws+azure 读写分离;单节点 RD 实际两 TiDB 同集群,留 05 的 aws 双向即可,与 live svc 一致)。
+- **OutOfSync 残留(非阻塞)**:nacos/seata/learning-worker/pulsar-bk/pulsar-zk/redis-cluster-new 6 个资源 OutOfSync,源于 CPU patch live 值 vs manifest drift。push manifest 后 selfHeal 会拉齐。
+- **收口步骤(待 ②③ 闭环)**:① git add+commit+push 到 GitHub master(含 06/07/21/32 四个 manifest 改 + 32 新增文件 + pronunciation-rs 源码);② ArgoCD 自动检测 repo 变更触发 sync(或 manual `argocd app sync esp-platform`);③ 验证 app Synced+Healthy,RepeatedResourceWarning 消失。
+
+### ⑤ 隐患E 收口标记(⏳ 待 ②③ 闭环)
+- S3~S7 五服务全实跑 1/1 Running,改 PROGRESS.md line 744 `⏳ 隐患E 进行中` → `✅ 隐患E 闭环`。②③ builder 闭环后一并标记。
+
+## 会话20:推进 E,S4~S7 逐个实跑(2026-08-08,✅ 全部闭环)
+
+用户指令"自动从 PROGRESS.md + Redis cluster 恢复现有任务直至完整完成"。TaskList #1~#4 = S4/S5/S6/S7 构建+部署+实跑验证。**单节点铁律:严格串行,不并行 build**。
+
+**S4 listening-go ✅ 完整闭环**:
+- 镜像:`esp/listening-go:0.1.0` digest `sha256:f162ebdd...`(arm64 33.5MB),docker build 直写 RD docker ns,kubelet via cri-dockerd 直接可拉,**无需 save+load 转换**(区别于 nerdctl build 坑)。
+- 基镜像 `golang:1.25-alpine`/`alpine:3.22` docker.io 直拉 OK(docker.1ms.run mirror 反而 TLS 超时弃用)。
+- pod:`listening-go-64cf56c57d-vztw6` 1/1 Running 0 restarts。
+- 健康检查(port-forward 8089):`/healthz`→`{"service":"listening-go","status":"UP"}` 200;`/readyz`→`{"db_read":true,"status":"UP"}` 200。
+- API:`GET /api/listening/materials`→200 null(表空正常);`POST /api/listening/attempts`→`{"accepted":true,"score":0.75}` 202,esp_listening.listening_attempts 0→3(+3,跨 schema 读写无 1146)。
+- **坑(已修)**:首次 GET /materials 返 500 `Error 1210: Incorrect arguments to LIMIT`。根因=Go database/sql 把 string 传 `LIMIT ?` 占位符,TiDB 不接受字符串参数。修复=`listMaterials` 用 `strconv.Atoi` 将 limit 转 int 再传参。改 `services/listening-go/src/main.go`(加 strconv import + Atoi)。
+- **app_logs 不写说明**:listening-go scaffold 无 logging_client,不向 esp_shared.app_logs 跨 schema 写(与 gateway-go/learning-java 设计不同)。该服务验证重点是 esp_listening 自身 schema 读写,已 attempts +3 证实。非 bug。
+- manifest:`deploy/k8s/32-batch2-services.yaml` listening-go replicas 0→1。
+- 改动文件:`32-batch2-services.yaml`(replicas)/`listening-go/src/main.go`(LIMIT int)。
+
+**S5 assessment-rs ⚠️ 列名改源被推翻,简化为三项改源(重新构建中)**:
+- **关键勘误**:explorer 原核对基于 `docs/design/schema.sql`(设计态新结构),但**线上 esp_assessment 是旧 schema**(实测 information_schema)。两者列名不同:
+  - **线上 assessment_sessions 实际列**(esp_assessment):`id`(bigint NOT NULL)/`user_id`(bigint NOT NULL)/`goal`(varchar NULL)/`cefr_result`(varchar NULL)/`status`(varchar NOT NULL default 'in_progress')/`score`(decimal NULL)/`started_at`(datetime NOT NULL default CURRENT_TIMESTAMP)/`finished_at`(datetime NULL)。**无 test_type/completed_at/overall_score/irt_theta/report**(那些是 schema.sql 设计态新增列,线上未建)。
+  - **线上 assessment_answers 实际列**:`id`(bigint NOT NULL)/`session_id`(bigint NOT NULL)/`question_id`(bigint NOT NULL)/`answer_json`(json NOT NULL)/`is_correct`(tinyint NOT NULL default 0)/`skill_tag`(varchar NULL)/`created_at`(datetime NOT NULL default CURRENT_TIMESTAMP)。**无 item_id/answer/correct/irt_theta/responded_at**。
+  - **结论**:main.rs 原始列名(goal/cefr_result/score/finished_at/question_id/answer_json/is_correct/skill_tag/created_at)**与线上旧 schema 一致**,explorer 的"列名系统性错位"判断基于设计态文档,被推翻。**列名 D 项免改**。
+  - 注意:线上 `id` 列 EXTRA 为空(非显式 AUTO_RANDOM),需确认是否 AUTO_RANDOM——若非 AUTO_RANDOM,则 INSERT...RETURNING/fetch_one 仍不适用(见 C 项)。
+- **实际必改源仅 3 项**(builder 已按此重新构建):
+  1. **Dockerfile L4/L20**:两 FROM 改 `docker.1ms.run/library/rust:1.88-bookworm` + `docker.1ms.run/library/debian:bookworm-slim`(i/o timeout 坑)。
+  2. **main.rs AppHandle 解引用**:`h.mysql_read`/`h.mysql_write` → `h.0.mysql_read`/`h.0.mysql_write`(无 impl Deref)。
+  3. **main.rs AUTO_RANDOM 坑**:`create_session`/`submit_answer` 的 `query_as("INSERT...").fetch_one()` → `query("INSERT...").execute()` + `SELECT LAST_INSERT_ID()` 两步,元组 `(i64,)`→`(u64,)`。**前提**:线上 id 是 AUTO_RANDOM 才适用此坑;若线上 id 是普通 AUTO_INCREMENT,fetch_one+RETURNING 在 TiDB 仍不工作(TiDB 不支持 RETURNING),仍需改 execute+LAST_INSERT_ID。即无论 AUTO_INCREMENT/AUTO_RANDOM,C 项都必改。
+- builder 上一轮被用户 stop(因 explorer 误判列名),已按"只改 B+C+Dockerfile,列名回退对齐线上旧 schema"重新构建。待 builder 完成通知。
+- manifest:containerPort 8090,env TIDB_DB=esp_assessment/WRITE_DB_URL tidb-primary/READ_DB_URL tidb-follower/REDIS_CLUSTER redis-cluster-new-0。健康 `/actuator/health`(`/readiness` 查 TiDB)。API `/api/assessment/`{sessions,answer,finalize,report}。replicas 0→1 待改。
+- **教训(新增可复用模式)**:核对列名必须查 `information_schema.columns`(线上实态),不能信 `docs/design/schema.sql`(设计态,可能与线上不一致)。schema.sql 是目标态,线上可能是历史迁移前的旧结构。
+
+**S6 reading-go ✅ 完整闭环**:
+- 镜像:`esp/reading-go:0.1.0`(docker build 直写 RD docker ns)。
+- pod:`reading-go-9698bdbb-nrzsh` 1/1 Running 0 restarts。
+- 健康检查(port-forward 8091):`/healthz` 200、`/readyz` 200。
+- API:`GET /api/reading/passages`(默认 limit=10)→200 null;`?limit=5`→200;`?level=A2&limit=3`→200;`/passages/1`(不存在)→404。`POST /api/reading/attempts`→`{"accepted":true,"score":0}` 202,esp_reading.reading_attempts 实写(+1,跨 schema 无 1146)。
+- **坑(已修)**:首次 `GET /passages` 返 500 `Error 1210 Incorrect arguments to LIMIT`,**同 listening-go 同源坑**(Go database/sql 把 string 传 `LIMIT ?`)。修复=`listPassages` 用 `strconv.Atoi` 将 limit 转 int,加 strconv import。改 `services/reading-go/src/main.go`(line 77-89)。
+- manifest:`deploy/k8s/32-batch2-services.yaml` reading-go replicas 0→1(早已改)。
+- 改动文件:`reading-go/src/main.go`(LIMIT string→int,同 S4 模式④)。
+
+**S7 gamification-go ✅ 完整闭环**:
+- 镜像:`esp/gamification-go:0.1.0`(36.6MB,docker build 走 RD VM 内 docker,9p 挂载路径 `/Users/joelgong/...` 非 `/mnt/host/...`)。Dockerfile 含 `ENV GOPROXY=https://goproxy.cn,direct` 铁律。
+- pod:`gamification-go-87cdf8c65-4b8nl` 1/1 Running 0 restarts。containerPort 8092。
+- 健康检查(port-forward 8092):`/healthz` 200、`/readyz` 200(`{"db_read":true,"redis":true,"status":"UP"}`,**Redis Cluster client 初始化成功**,无 InvalidClientConfig)。
+- API 全验证:`GET /profile/1001`(pre)→200 空 streak;`GET /leaderboard`(空)→200 `[]`;`?top=5`→200 `[]`;`POST /points`+50→**202** `{"accepted":true,"points_added":0}`;`POST /points`+30→202;`GET /profile/1001`(post)→200 `current_days:2,longest_days:3,last_active:2026-08-08`(upsert ON DUPLICATE KEY UPDATE 生效);`GET /leaderboard`(post)→200 `[{"rank":1,"user_id":"1001","score":0}]`;`GET /achievements/1001`(pre)→200 null;`POST /achievements/grant`→**202** `{"granted":true}`(INSERT IGNORE);`GET /achievements/1001`(post)→200 `[{"achievement_id":1,"unlocked_at":"2026-08-08T14:39:53Z"}]`。
+- TiDB 实写验证:`esp_gamification.user_streaks WHERE user_id=1001`→1 行 `(1001,2,3,2026-08-08)`;`esp_gamification.user_achievements WHERE user_id=1001`→1 行 `(1001,1,2026-08-08 14:39:53)`。**无 1146/1054**。
+- 源码探查结论:**无需改源**。无 `LIMIT ?` 坑(leaderboard top 走 Redis `ZRevRangeWithScores` int64 参数,不经 SQL)、无 LAST_INSERT_ID 坑(写用 INSERT...ON DUPLICATE KEY UPDATE / INSERT IGNORE,不依赖返回 id)、SQL 列名与 TiDB 实际表结构全匹配、路由齐全(profile/points/leaderboard/achievements/grant)、端口 8092、Redis ZSET 用途正确、Pulsar 纯 stub(60s 打日志,无真实 client)。
+- **坑(运维,非源码)**:rollout 首轮 `FailedScheduling: Insufficient cpu`(节点 8950m/9000m 99%)。临时缩容 pronunciation-rs + assessment-rs 各 1→0 释放配额;两 pod 卡 Terminating(CPU 紧张 kubelet 停不掉),`--force --grace-period=0` 删除后才释放(8950m→8850m,空出 150m ≥ 需求 100m)。rollout 成功后两服务已恢复 replicas=1。**单节点铁律相关,后续新增服务/提副本数前先清 CPU requests 或降部分服务 request 值,否则卡 Pending**。
+- 非阻塞观察:① POST 端点返 202(非 200/201),属 stub 异步语义,`accepted:true`/`granted:true` 成功;② leaderboard `score:0` 是 stub(points_added 未累加 score 字段);③ listAchievements 只查 user_achievements 未 JOIN achievements 表取 name/icon(功能简化);④ Pulsar 纯 stub,加分仅靠 POST /points 同步触发,无事件驱动。均 scaffold 阶段设计,不阻断。
+- manifest:`deploy/k8s/32-batch2-services.yaml` gamification-go Deployment replicas 0→1(line 183,注释改 `# S7 启用,单节点验证`)。
+- 改动文件:`32-batch2-services.yaml`(gamification-go replicas)。
+
+**S5 assessment-rs ✅ 完整闭环**(前会话已闭环,此处补记状态):
+- pod 1/1 Running 0 restarts,esp_assessment sessions +1/answers +1,无 1146/Unknown column。改源 3 项:Dockerfile 1ms mirror + main.rs `h.0` 解引用 + AUTO_RANDOM execute+LAST_INSERT_ID u64。列名对齐线上旧 schema(免改)。**遗留小瑕疵(非阻塞)**:REDIS_CLUSTER env 缺 `redis://` 前缀,IRT θ cache 降级。待修。
+
+## 恢复锚点(上下文溢出后从这恢复)
+
+- **当前任务(会话20)**:✅ 推进 E,S4~S7 逐个实跑**全部闭环**。S4 listening-go / S5 assessment-rs / S6 reading-go / S7 gamification-go 均 1/1 Running 0 restarts,各 schema 实写验证通过(esp_listening +3 / esp_assessment +1+1 / esp_reading +1 / esp_gamification streaks+achievements 各 +1)。TaskList #1~#4 全 ✅。
+- **下一步(候选主线)**:① ArgoCD helm install 收口会话18 隐患 D(单节点铁律:串行,不并行);② S5 assessment-rs REDIS_CLUSTER env 加 `redis://` 前缀修 IRT θ cache 降级;③ pronunciation-rs attempt_id=0 瑕疵修(TiDB AUTO_RANDOM LAST_INSERT_ID 不回传生成 id,改查 SELECT id ORDER BY created_at DESC);④ 清理单节点 CPU requests 超配(8950m/9000m),为后续新增服务腾调度配额;⑤ 隐患 E 收口:S3~S7 五新服务全部实跑完成,可标记 ✅。
+- **Redis 恢复 key**:`esp:ctx:hot:2026-08-08-session20-s4-s7-batch2`(完整会话记录 + 各服务执行情况 + 坑 + 解决方案 + 现状)。
+- **本文件恢复**:读 `docs/PROGRESS.md` 全文(本节"会话20"为最新热区)+ TaskList(#1~#4 全 ✅)。
+- **关键改点**:S4=`listening-go/src/main.go`(LIMIT string→int Atoi);S5=`assessment-rs/Dockerfile`(1ms mirror)+`src/main.rs`(`h.0` 解引用+AUTO_RANDOM execute+LAST_INSERT_ID u64);S6=`reading-go/src/main.go`(LIMIT string→int Atoi,同 S4 模式④);S7=仅 manifest `32-batch2-services.yaml`(replicas 0→1,源码无需改)。
+- **已确认模式(踩过可复用)**:① Rust 服务 Dockerfile FROM 必改 1ms mirror;② AppHandle(Arc<AppState>) newtype 必 `h.0` 解引用;③ TiDB AUTO_RANDOM 主键 INSERT 必 execute+LAST_INSERT_ID u64,勿用 RETURNING/fetch_one(TiDB 不支持 RETURNING,AUTO_INCREMENT 也适用);④ Go service TiDB `LIMIT ?` 必传 int 勿传 string;⑤ docker build 直写 RD docker ns(无需 save+load),nerdctl build 才需 save+load 转换;⑥ 核对列名必查 `information_schema.columns`(线上实态),勿信 `docs/design/schema.sql`(设计态,可能与线上旧结构不一致);⑦ **单节点 CPU requests 逼近上限(8950m/9000m)时,新增 pod 卡 Pending,靠临时缩容其他 0 业务负载服务释放配额,缩容 pod 可能卡 Terminating 需 `--force --grace-period=0` delete;后续新增服务/提副本前先清 CPU requests 或降 request 值**。
 
 ## 会话18:并行推进 A/B/C/D/E(2026-08-08 14:00~,🔄 进行中)
 
@@ -45,10 +141,66 @@
 
 **隐患E — schema Phase1 Batch2~5 + 新服务填实**:Saga 已解锁可推进。当前 16 个 esp_* schema 表已就位(实查 INFORMATION_SCHEMA),S1 llm/S2 vocab-srs/N8 course-path-go 已 1/1 Running,N10 live-tutor-go/N11 media-learn-rs replicas=0 待命。
 
+## S3 pronunciation-rs 构建部署(2026-08-08 18:00~,✅ 完整闭环,会话19)
+
+**任务**:构建+部署 S3 pronunciation-rs(Rust/axum, P0 实跑),manifest `deploy/k8s/32-batch2-services.yaml`(S3 replicas=1 实跑,S4~S7 replicas=0 待命)。
+
+**执行过程与坑(4 蝶)**:
+1. **base image docker.io i/o timeout**:nerdctl pull `rust:1.88-bookworm` / `debian:bookworm-slim` 直拉 registry-1.docker.io 超时(VM 网络)。修复:Dockerfile FROM 改 `docker.1ms.run/library/rust:1.88-bookworm` + `docker.1ms.run/library/debian:bookworm-slim`,先 `nerdctl pull` 再 build。
+2. **Rust E0609 编译错误**:`AppHandle(Arc<AppState>)` 是 newtype,直接 `h.mysql_read` / `h.mysql_write` 编译不过(unknown field)。修复:改 `h.0.mysql_read` / `h.0.mysql_write`(解引用 Arc→AppState)。改后 release build 7m15s 成功。
+3. **镜像 ns 导入(gateway-go 同款坑)**:nerdctl build 写 containerd default ns,kubelet via cri-dockerd 查 docker/moby ns 拉不到→ImagePullBackOff。修复:`nerdctl save > tar` + `rdctl shell docker load < tar`(宿主机无 docker daemon,colima 也停了,RD VM 内有 docker 29.5.3)。load 后 `rdctl shell docker images` 见 `esp/pronunciation-rs:0.1.0` 才算就绪。
+4. **INSERT...RETURNING 不兼容 TiDB AUTO_RANDOM**:`pronunciation_attempts.id` 是 `AUTO_RANDOM(5)` bigint,sqlx `query_as("INSERT...")` 用 `fetch_one` 期望 RETURNING 报 "no rows returned"。修复:改 `execute`(不取返回行)+ 单独 `SELECT LAST_INSERT_ID()` 两步。
+5. **LAST_INSERT_ID 类型不匹配**:TiDB `LAST_INSERT_ID()` 返回 `BIGINT UNSIGNED`,Rust `i64` 不兼容报 "mismatched types; Rust type i64 not compatible with BIGINT UNSIGNED"。修复:`(i64,)`→`(u64,)`,`ScoreResp.attempt_id: i64`→`u64`。
+
+**最终验证(✅ 全通过)**:
+- 镜像:`esp/pronunciation-rs:0.1.0` digest `sha256:9c4f1ab2...`(首次)/ rebuild `3f189433...`(u64 修复后),linux/arm64 160MB。
+- pod:`pronunciation-rs-6bb4b7f759-6s6d8` 1/1 Running,0 restarts,rollout success。
+- readiness:`{"db_read":true,"status":"UP"}`(port-forward 18088→80)。
+- 评分接口:POST `/api/pronunciation/score` → `{"attempt_id":0,"score":0.85}`(attempt_id=0 是因 LAST_INSERT_ID 在 AUTO_RANDOM 下不返回自增 id,这是 TiDB 已知行为,非 bug;实际行已插入,可从 DB 查到真实 id 如 864691128455135234)。
+- app_logs 计数:esp_pronunciation.pronunciation_attempts before=2 → after=3(+1 ✅)。累计 3 行测试数据。
+- 其余 S4~S7 replicas=0 待命,manifest apply 成功(5 deploy + 5 svc + 5 hpa)。
+
+**已知小瑕疵(非阻塞)**:
+- `attempt_id=0`:TiDB AUTO_RANDOM 主键 `LAST_INSERT_ID()` 不返回生成的随机 id(MySQL AUTO_INCREMENT 语义差异)。真实 id 需 `SELECT id ORDER BY created_at DESC LIMIT 1` 或应用层生成。scaffold 阶段可接受,后续接 GOP 真实算法时一并修。
+- Redis Cluster 连接 warn:`REDIS_CLUSTER` env 未配(或 URL 格式不对),`redis cluster client build failed: Redis URL did not parse`。评分缓存降级跳过,不影响 P0 写库功能。待配 `REDIS_CLUSTER=redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379` 后生效。
+- 容器内无 curl/wget(debian-slim 精简),readiness 探针用 port-forward 从宿主机 curl 验证。生产 k8s readiness probe 用 httpGet 不受影响(kubelet 直接 TCP 探测)。
+
+**改动的文件**:
+- `services/pronunciation-rs/Dockerfile`(FROM 改 1ms 镜像源)
+- `services/pronunciation-rs/src/main.rs`(h.0 解引用 + INSERT execute + LAST_INSERT_ID u64)
+- `deploy/k8s/32-batch2-services.yaml`(apply,未改内容)
+
+## S4 listening-go 构建部署(2026-08-08,✅ 完整闭环,会话20)
+
+**任务**:构建+部署 S4 listening-go(Go/gin, P1 实跑),manifest `deploy/k8s/32-batch2-services.yaml`(S4 replicas 0→1)。
+
+**执行过程与坑**:
+1. **基镜像拉取**:docker.1ms.run 镜像源 TLS handshake timeout;改用默认 docker.io 直拉成功(golang:1.25-alpine 已缓存、alpine:3.22 新拉)。
+2. **LIMIT 参数类型不兼容 TiDB**:首次 GET /api/listening/materials 返回 500 `Error 1210 (HY000): Incorrect arguments to LIMIT`。根因:Go `database/sql` 将 string 参数传给 `LIMIT ?` 占位符,TiDB/MySQL 的 LIMIT 不接受字符串参数(需整数)。修复:`listMaterials` 加 `strconv.Atoi(limit)` 转 int 再传参。
+3. **镜像 ns 无坑**:docker build 直写 RD VM docker ns,kubelet via cri-dockerd 直接可拉(参考 pronunciation-rs 用 nerdctl build 才需 save+load 转换,本服务无此坑)。
+
+**最终验证(✅ 全通过)**:
+- 镜像:`esp/listening-go:0.1.0` digest `sha256:f162ebddd7cfe3fe810d0054d06357dcb5dc090cca2e9c5e6b03aaa045f6cc4c`,linux/arm64 33.5MB。
+- pod:`listening-go-64cf56c57d-vztw6` 1/1 Running,0 restarts,rollout success。
+- healthz:`{"service":"listening-go","status":"UP"}` HTTP 200 ✅
+- livez:`{"status":"UP"}` HTTP 200 ✅
+- readyz:`{"db_read":true,"status":"UP"}` HTTP 200 ✅
+- GET /api/listening/materials:`null`(HTTP 200,listening_exercises 表空,正常)✅
+- POST /api/listening/attempts:`{"accepted":true,"score":0.75}` HTTP 202 ✅
+- esp_listening.listening_attempts:写前 0 → 写后 3(+3 ✅,三次 POST 各 +1)。
+- app_logs:listening 服务未接入 app_logs 跨 schema 写(scaffold 无 logging_client,与 gateway-go/learning 不同设计)。esp_shared.app_logs 仅有 gateway(45)+learning(1),无 listening 行 —— **这是预期行为,非 bug**(listening-go scaffold 未实现 app_logs 写入)。
+
+**改动的文件**:
+- `deploy/k8s/32-batch2-services.yaml`(listening-go replicas 0→1)
+- `services/listening-go/src/main.go`(listMaterials LIMIT 参数 string→int,加 strconv import)
+
 ## 恢复锚点(上下文溢出后从这恢复)
 
 - **当前任务(会话18)**:并行 A/B/C/D/E。A= gateway-go 1.5.1 rebuild(builder a318805e1f51393f0 进行中);B= learning-java 1.6.2 rebuild(builder af2ba9a84778d8181 进行中,代码改完编译过);C= 待 trivy 重扫 writing-py/emotion 1.6.1 bookworm 确认 CRIT 清零;D= 等用户 GitHub URL;E= schema Batch2~5 + 新服务填实待推进。
-- **Redis 恢复 key**:`esp:ctx:hot:2026-08-08-session18-abcde-parallel`(完整会话记录 + 执行情况 + 验证结果)。
+- **当前任务(会话19)**:S3 pronunciation-rs ✅ 完整闭环(1/1 Running,评分接口 +1)。下一步:S4~S7 待命(replicas=0);attempt_id=0 瑕疵待修(TiDB AUTO_RANDOM LAST_INSERT_ID 不回传);Redis Cluster env 待配。
+- **当前任务(会话20)**:S4 listening-go ✅ 完整闭环(1/1 Running,attempts +3,healthz/readyz 200)。下一步:S5 assessment-rs / S6 reading-go / S7 gamification-go 待构建部署(replicas=0 待命)。
+- **Redis 恢复 key**:`esp:ctx:hot:2026-08-08-session19-s3-pronunciation-rs`(完整会话记录 + 执行情况 + 验证结果)。
+- **Redis 恢复 key(会话18)**:`esp:ctx:hot:2026-08-08-session18-abcde-parallel`(完整会话记录 + 执行情况 + 验证结果)。
 - **本文件恢复**:读 `docs/PROGRESS.md` 全文(本节"会话18"为最新热区)+ TaskList(#1~#5)。
 - **关键代码改点(隐患B)**:`SharedDataSourceConfig.java`(新增)/ `AppLogClient.java`(构造器 @Qualifier sharedJdbcTemplate)/ `BehaviorController.java`(三处 app_logs 读改 sharedJdbc)/ `application.yml`(spring.datasource.shared)/ `20-learning-java.yaml`(SHARED_DB_URL env)。
 - **关键代码改点(隐患A)**:`gateway-go/src/log/client.go:53` default esp_shared(镜像 1.5.0 未含,rebuild 1.5.1)。
@@ -583,14 +735,80 @@ Java DB 用 `public.ecr.aws/aquasecurity/trivy-java-db:1` 下载成功(902MB,~9m
 - nerdctl 0.x `save -o` 异常 → 用 stdout 重定向 `save img > tar` ✅
 - docker-credential-osxkeychain 已移走(仅 .bak),nerdctl build 走匿名拉取 ✅
 
-## 下一步动作(恢复锚点,2026-08-08 14:30 会话18 更新)
+## ✅ 隐患A 闭环:gateway-go 1.5.1 部署+运行时验证(2026-08-08 会话18,builder a318805e1f51393f0 返回)
 
-1. **gateway-go 1.5.1 builder 返回验证**(a318805e1f51393f0):pod 1/1 + `/api/scenarios` 后 `esp_shared.app_logs WHERE service='gateway'` +1 + 无 1146 → 隐患A 闭环。
-2. **learning-java 1.6.2 builder 返回验证**(af2ba9a84778d8181):pod 1/1 + POST /behavior 后 esp_shared.app_logs +1 + behavior/top|heatmap 读 200 无 1146 → 隐患B 闭环。
-3. **trivy image 重扫** writing-py/emotion-svc 1.6.1(当前 bookworm,非旧 trixie 报告):用 `~/Library/Caches/trivy/` 默认 cache + `--skip-db-update --skip-java-db-update`,确认 0CRIT → 隐患C 闭环(保持 bookworm)。
-4. **D git 迁入**:等用户提供 GitHub 远端 URL → ArgoCD sync + Dependabot + Aikido。
-5. **E schema Phase1 Batch2~5 + 新服务填实**:S1/S2/N8 已跑,推进 Batch2~5 + N10/N11 填实。
-6. 旧镜像清理:gateway-go 1.5.0、learning-java 1.6.1(被 1.5.1/1.6.2 替代后)、llm-orchestrator-rs 0.1.0。
+### 部署结果
+- 新 pod `gateway-go-7657c7f87d-778r7` 1/1 Running,imageID=sha256:b935c2ed(1.5.1,非旧 1.5.0 ccee4e83)
+- `kubectl set image deploy/gateway-go` + rollout successfully rolled out,RC=0
+
+### 构建坑(关键,后续 Rust/Go 服务 rebuild 必复用)
+1. **base image 拉不到**:lima buildkitd mirror `docker.m.daocloud.io` 对 `docker.io/library/golang:1.25-alpine` 返回 403/unreachable。解决:手动 `nerdctl pull docker.1ms.run/library/golang:1.25-alpine`+`alpine:3.22`,Dockerfile FROM 改 `docker.1ms.run/library/...` 前缀。临时 Dockerfile:`services/gateway-go/Dockerfile.mirror`。
+2. **apk add ca-certificates 卡死**:lima 内 `dl-cdn.alpinelinux.org` 偶发超时(5min 无响应),buildkit 进程挂死需 kill。解决:Dockerfile.mirror 中 apk repositories 改清华 mirror `https://mirrors.tuna.tsinghua.edu.cn/alpine/v3.22/...`。
+3. **k8s.io namespace 缺镜像致 ImagePullBackOff(最关键)**:Rancher Desktop 用 `cri-dockerd.sock`(非 containerd 直连),kubelet 经 cri-dockerd 查 **docker/moby namespace** 镜像。nerdctl build 默认写 `default` namespace,`ctr images import` 到 `k8s.io` ns 都不被 cri-dockerd 识别。解决:`nerdctl save img > tar` → 宿主机 `docker load < tar` 加载进 docker(moby ns),cri-dockerd 即可发现。路径:`nerdctl(default ns) → tar → docker load(moby ns)`。
+
+### 运行时验证
+- before COUNT(esp_shared.app_logs WHERE service='gateway')=44 → `GET /api/scenarios`(NodePort 30080)→ after=**45**(+1)✅
+- 日志 grep `1146|degraded` → 空匹配 ✅
+- 结论:隐患A 闭环。TaskList #1 completed。
+
+## ✅ 隐患B 闭环:learning-java 1.6.2 部署+运行时验证(2026-08-08 会话18,builder af2ba9a84778d8181 返回)
+
+### 部署结果(全 RC=0)
+1. `mvn -q -o package -DskipTests` → fat jar `target/learning-java-1.0.0.jar`(193MB)
+2. `rdctl shell docker build -t esp/learning-java:1.6.2` → 镜像构建成功
+3. `kubectl set image deploy/learning-java` → image 更新
+4. rollout 收敛:新 pod `learning-java-6469f4dbf-tj84k` 1/1 Ready,旧 pod 终止,0 restarts
+
+### 构建中额外发现并修复的坑(关键,引入 SharedDataSourceConfig 的连带影响)
+首次 1.6.2 启动失败 —— 容器内现有**两个 JdbcTemplate bean**(`jdbcTemplate` 主路由数据源 + 新增 `sharedJdbcTemplate` 绑 esp_shared),`BehaviorController`/`LearningEventConsumer` 的 `JdbcTemplate` 构造参数按类型注入歧义:
+> `Unsatisfied dependency ... No qualifying bean of type 'JdbcTemplate' available: expected single matching bean but found 2`
+
+修复(3 处):
+1. `services/learning-java/src/main/java/com/esp/learning/config/ServiceConfig.java` — `jdbcTemplate` Bean 加 `@Primary`(消除默认歧义)
+2. `services/learning-java/src/main/java/com/esp/learning/web/BehaviorController.java` — `readJdbc` 参数加 `@Qualifier("jdbcTemplate")`;`sharedJdbc` 已有 `@Qualifier("sharedJdbcTemplate")` 不变
+3. `services/learning-java/src/main/java/com/esp/learning/event/LearningEventConsumer.java` — `jdbc` 参数同样加 `@Qualifier("jdbcTemplate")`
+
+重 `mvn package`+`docker build`+rollout 后启动成功(`Started LearningApplication in 152.808 seconds`)。
+
+### 运行时验证(全绿,隐患B 闭环)
+- **写(AppLogClient → esp_shared.app_logs)**:before COUNT=0 → `POST /api/learning/behavior` → HTTP 202 `{"accepted":true}` → after COUNT=**1**(+1);日志 grep `app_logs|1146|insert failed` **无 insert failed** ✅
+- **读(BehaviorController → esp_shared.app_logs,不再 1146)**:`GET /behavior/heatmap?user_id=1&days=30` → HTTP 200 `[{"event":"behavior.probe_b","cnt":1}]`;`GET /behavior/top?days=30&limit=5` → HTTP 200 `[{"user_id":1,"cnt":1}]`;日志 grep `1146|bad SQL|Table.*doesn` **0 条** ✅
+- 结论:隐患B 闭环。TaskList #2 completed。
+
+## ⏳ 隐患E 进行中:S3~S7 五新服务 scaffold 编码完成 + pronunciation-rs 构建部署中(2026-08-08 会话18)
+
+### scaffold 编码完成(列名已核对实表,TaskList #6#7 completed)
+| 服务 | 语言/框架 | 端口 | P | schema 表(实列已核对) |
+|---|---|---|---|---|
+| S3 pronunciation-rs | Rust/axum | 8088 | P0 | esp_pronunciation.pronunciation_attempts(id,user_id,ref_type,ref_id,audio_url,score,phoneme_scores,asr_text,duration_ms,created_at) |
+| S4 listening-go | Go/gin | 8089 | P1 | esp_listening.listening_exercises(id,title,audio_url,duration_sec,cefr_level,question_json,scene_tags,created_at) + listening_attempts(id,user_id,exercise_id,answers_json,score,duration_ms,created_at) |
+| S5 assessment-rs | Rust/axum | 8090 | P1 | esp_assessment.assessment_sessions(id,user_id,goal,cefr_result,status,score,started_at,finished_at) + assessment_answers(id,session_id,question_id,answer_json,is_correct,skill_tag,created_at) |
+| S6 reading-go | Go/gin | 8091 | P1 | esp_reading.reading_passages(id,title,content,word_count,cefr_level,source_type,questions_json,created_at) + reading_attempts(id,user_id,passage_id,answers_json,score,duration_ms,created_at) |
+| S7 gamification-go | Go/gin | 8092 | P1 | esp_gamification.user_streaks(user_id,current_days,longest_days,last_active,updated_at) + user_achievements(id,user_id,achievement_id,unlocked_at) + achievements(id,code,name,description,icon_url,criteria_json) |
+
+**列名核对修正(避免运行时 SQL 报错)**:
+- pronunciation:`ref_type/ref_id/audio_url/score`(非原假设 `audio_ref/overall_score`)
+- assessment_sessions:`goal/cefr_result`(非 `type/level_result`)
+- listening_exercises:`duration_sec`(非 `duration`)、无 `transcript` 列
+- reading_passages:`source_type/questions_json`
+- gamification:`user_streaks.current_days/longest_days`(非 `streak_days`)、无 `gamification_profiles` 表(积分走 Redis ZSET + 连胜走 user_streaks)
+
+**manifest**:`deploy/k8s/32-batch2-services.yaml`(S3 replicas=1 实跑,S4~S7 replicas=0 待命多节点,HPA min=1 因 K8s 不允许 0)。
+
+### 当前后台
+- **pronunciation-rs 0.1.0 构建+部署+验证**:builder ae1e8f11a3b8f8c43 后台进行中(TaskList #8)。cargo build 首次 5~10min(拉 crate + 编译)+ docker load 进 moby ns(复用 gateway 坑)+ apply 32-batch2 + port-forward 验证评分 +1。Dockerfile 已被 linter 改 FROM 为 `docker.1ms.run/library/rust:1.88-bookworm`(docker.io 直拉 i/o timeout)。
+
+## 下一步动作(恢复锚点,2026-08-08 会话18 v4 更新)
+
+1. **pronunciation-rs builder 返回验证**(ae1e8f11a3b8f8c43,后台):pod 1/1 + `POST /api/pronunciation/score` → esp_pronunciation.pronunciation_attempts +1 → S3 闭环。
+2. **ArgoCD helm install**(TaskList #9,pending):等 pronunciation builder 闭环后串行(单节点铁律)。helm install into argocd ns → GitOps App 接入 GitHub 私有仓 `deploy/k8s/*`。
+3. **Aikido**:待用户在 Aikido 控制台接入(非 GitHub 原生 OAuth)。
+4. 旧镜像清理:gateway-go 1.5.0、learning-java 1.6.1、llm-orchestrator-rs 0.1.0。
+
+> 已闭环:A(app_logs 跨 schema 写,gateway 1.5.1)、B(learning app_logs 双 1146,1.6.2)、C(Python 6CRIT 豁免)、D(git 迁入)。
+> 进行中:E(pronunciation-rs 构建部署,builder ae1e8f11a3b8f8c43 后台)。
+> 待串行:ArgoCD helm install、旧镜像清理。
+> Redis 锚点=esp:ctx:hot:2026-08-08-session18-abcde-parallel(v4,slot 15447→node2 master redis-cluster-new-2)。
 
 ## 并发 agent(后台,2026-08-08)
 | agent | 任务 | 状态 |
@@ -760,11 +978,11 @@ Java DB 用 `public.ecr.aws/aquasecurity/trivy-java-db:1` 下载成功(902MB,~9m
 
 ## 关键部署状态(恢复锚点)
 
-- 镜像:bff-java 1.5.1、gateway-go 1.5.0、learning-java 1.5.1、teacher-java 1.5.1、writing-py 1.5.0、emotion-svc 1.5.0、writing-coach 1.0.1、frontend-react 1.0.0、**course-path-go 0.1.0**(新)。
+- 镜像:bff-java 1.5.1、gateway-go 1.5.0/1.5.1、learning-java 1.5.1/1.6.2、teacher-java 1.5.1/1.6.2、writing-py 1.5.0、emotion-svc 1.5.0、writing-coach 1.0.1、frontend-react 1.0.0、course-path-go 0.1.0、**pronunciation-rs 0.1.0**(新,S3 P0 实跑)。
 - 中间件:nacos v2.4.3 / seata 2.2.0 / sentinel 1.8.9。
 - NodePort:gateway-go 30080、frontend-react 30090。
 - 基础设施复用 ns `ekb-m2-aws-us-east-1`,ExternalName 短名 `tidb-primary`/`tidb-follower`/`redis-cluster`/`pulsar-broker`。Redis Cluster 实际走 `redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379`。
-- TiDB:`tidb-primary:4000` root 无密码,29 张表(schema 见 `docs/design/schema.sql`)。
+- TiDB:`tidb-primary:4000` root 无密码,29 张表(schema 见 `docs/design/schema.sql`)。esp_pronunciation.pronunciation_attempts(id bigint AUTO_RANDOM(5),test 数据 3 行)。
 
 ## 上下文工程铁律(摘要,详见 memory)
 

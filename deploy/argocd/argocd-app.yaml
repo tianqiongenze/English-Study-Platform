@@ -23,3 +23,21 @@ spec:
     syncOptions:
     - CreateNamespace=true
     - ServerSideApply=true  # 处理大 CRD/共存字段
+  # ignoreDifferences:忽略 K8s 默认填充字段 + kubectl-rollout 注解,避免 pulsar-bk/zk、redis-cluster-new
+  # 3 个 StatefulSet 持续 OutOfSync(ServerSideApply 只 own 了 containers[name],其余字段由 k3s/kubectl-rollout 默认填充)。
+  # 这些字段(live 有 / target manifest 未显式声明)值与 K8s 默认一致,force-conflicts 也不会改 Running pod 行为,
+  # 但默认值字段即使被 argocd own 仍可能持续 OOS,故 ignoreDifferences 更彻底。会话22 模式⑨。
+  ignoreDifferences:
+  - group: apps
+    kind: StatefulSet
+    jsonPointers:
+    - /spec/podManagementPolicy
+    - /spec/revisionHistoryLimit
+    - /spec/persistentVolumeClaimRetentionPolicy
+    - /spec/updateStrategy
+    - /spec/template/metadata/annotations
+    - /spec/template/spec/dnsPolicy
+    - /spec/template/spec/restartPolicy
+    - /spec/template/spec/schedulerName
+    - /spec/template/spec/securityContext
+    - /spec/template/spec/terminationGracePeriodSeconds

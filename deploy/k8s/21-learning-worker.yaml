@@ -20,14 +20,14 @@ metadata:
   name: learning-worker
   namespace: esp-prod
 spec:
-  replicas: 1
+  replicas: 0
   selector: {matchLabels: {app: learning-worker}}
   template:
     metadata: {labels: {app: learning-worker}}
     spec:
       containers:
       - name: learning-worker
-        image: esp/learning-java:1.4.0
+        image: esp/learning-java:1.6.0
         imagePullPolicy: IfNotPresent
         env:
         - {name: ESP_ROLE, value: "worker"}

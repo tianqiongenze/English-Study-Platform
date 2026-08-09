@@ -4,9 +4,56 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-09 会话22-4(五服务串行 build/deploy 全闭环 ✅ + jar uf 腐败根因模式⑭)。主线 4 批次进度:**A ArgoCD 3sts drift 收口 ✅**;**B infra Degraded 全修 ✅**;**C 前端补全 ⏳ pending**;**D 种子续灌+压测摸底 ⏳ pending**。Redis 锚点 `esp:ctx:hot:2026-08-09-session22-4-five-svc-deploy`。
+> 更新日期:2026-08-09 会话22-5(git push 闭环 ✅ + H5 部署 ✅ + 改动来源厘清 ✅ + PROGRESS/Redis 双轨落盘)。主线 4 批次进度:**A ArgoCD 3sts drift 收口 ✅**;**B infra Degraded 全修 ✅**;**C 前端补全 ✅(H5 已部署)**;**D 种子续灌+压测摸底 ⏳ pending**;**债1+2 esp-common-go 骨架完成 1/7(listening-go),剩 6 服务待迁移**。Redis 锚点 `esp:ctx:hot:2026-08-09-session22-5-push-h5-deploy`。
 
-## 会话22:ABCD 四批次推进(2026-08-09,A✅ B✅ C⏳ D⏳)
+## 会话22-5:push 闭环 + H5 部署 + 改动来源厘清 + 双轨落盘(2026-08-09,✅)
+
+用户指令"自动从 PROGRESS + Redis 恢复,完整完成后续所有任务(可并行就并行)"。本会话执行:恢复→厘清未记录改动→push→H5 部署→双轨落盘。
+
+### ✅ 改动来源厘清(esp-explorer adafd7f0,39k token)
+PROGRESS/Redis 未记录的 git 改动分三类,全部核实无冲突:
+| 类别 | 改动 | 状态 |
+|---|---|---|
+| 已完成可部署(线上已生效,补落盘) | bff API Portal(债3)、gateway-go sessions/history、teacher-java 1.7.0 manifest | 功能闭环,线上实测可用 |
+| 半成品需继续 | esp-common-go 公共包:仅 listening-go 1/7 迁移,6 服务未动;tracing 包 go.mod 缺 otel require(隐患) | 进行中 |
+| 已完成未部署 | listening-go 迁移(可编译,线上仍 0.1.0);pronunciation-rs /healthz +1 行(0.1.1 镜像可能已含) | 代码就绪,镜像未 bump |
+- **gateway-go sessions/history**:`main.go:94` +`/api/sessions/history` + `handleListSessionHistory`;`manager.go:96-131` `SessionSummary` + `ListHistory` 直读 `esp_speaking.sessions`。线上 1.5.1 实测返回历史数据(401=需 JWT)。
+- **bff API Portal**:`ApiPortalController.java`(暴露 /openapi-go-rust.yaml)+ `static/openapi-go-rust.yaml`(226 行,11 服务 43 路由)+ `docs/api/portal/openapi-go-rust.yaml`(源,与 static/ 相同)+ `application.yml:136-157` springdoc 聚合配置 + `pom.xml:239-245` springdoc 依赖。EdgeAuthHandler/RouteTable/AuthFilter 三处白名单对应。线上 bff 1.7.0 四端点全 200。
+- **esp-common-go 5 包**:`config`(Getenv/GetenvInt)、`db`(MustConnectDB/DefaultDSN/ReadWriteDSN)、`health`(GinHealthz/GinLivez/StdHealthz)、`redisx`(MustNewCluster)、`tracing`(InitPropagator/TraceparentFromRequest/InjectTraceparent)。**隐患**:`tracing/tracing.go` import otel 但 `go.mod` 未 require otel(当前无服务 import 故未暴露,迁移前必补)。
+- **go.work**:8 模块 workspace(esp-common-go + gateway/course-path/listening/reading/gamification/live-tutor/vocab-srs)。仅本地 IDE/编译用,不进 Docker 上下文(各服务 go.mod replace 解析)。
+
+### ✅ git push(commit 15b5ffc)
+- 清理误产物:根目录 `src`(12MB arm64 二进制,workspace `go build` 误产生)移除 + `.gitignore` 补 `/src`(commit cf10841)。
+- 主提交 `15b5ffc`:债3/4 闭环 + API Portal + 三端补建 + H5 容器化 + esp-common-go 骨架(1/7)。
+- `git -c http.version=HTTP/1.1 push` 成功(模式⑩,绕 HTTP/2 framing)。`120c15f..15b5ffc`。GitHub 提示 44 dependabot 漏洞(非阻塞,已知)。
+
+### ✅ H5 部署(esp-builder ab94bb62 镜像已 build,主线程 apply)
+- **镜像**:esp/frontend-h5:1.0.0(66.6MB,与 frontend-react 同构多阶段 nginx)。builder 卡在 macOS BSD tar `--exclude` 不生效 + stdin Dockerfile PAX 头污染坑(见下),但镜像最终 build 成功。
+- **apply**:`kubectl apply -f deploy/k8s/16-frontend-h5.yaml` RC=0,deploy 1/1 Running。
+- **端点验证**(port-forward 30091):`/`=200、`/index.html`=200、`/api/sessions/history`=401(JWT 保护,反代 Traefik 通)。
+- **NodePort**:frontend-h5-np 30091(30090 被 Web 占用,已确认未冲突)。
+
+### 新模式(踩过可复用,累计 ⑧~⑭ + 新增 ⑮)
+⑮ **macOS BSD tar + docker build stdin 坑(前端镜像 build)**:① BSD tar `--exclude=node_modules` 不生效(GNU 才认),需 `COPYFILE_DISABLE=1 tar --exclude='./node_modules'`(加 `./` 前缀 + 关 AppleDouble);② `tar | docker build -f Dockerfile -` 报 `ambiguous Dockerfile source`(Dockerfile 既在 context 又在 `-f`);③ `docker build -f - .` 从 stdin 读 Dockerfile 被 macOS pax 格式 `PaxHeader/currentdir` 扩展头污染 → `unknown instruction`。**解法**:绕 stdin,源码 rsync 到 RD VM 内 `docker build <dir>`(context 本地读,`.dockerignore` 生效,无 PAX 坑)。本次镜像在 builder 卡点前已用其他方式 build 成功,模式⑮ 供后续前端镜像复用。
+
+### ArgoCD 状态(会话22-5)
+- push 后触发 `patch sync`,operation Succeeded 但 sync=OutOfSync health=Degraded。
+- **OutOfSync 资源**:仅 pulsar-bk / pulsar-zk / redis-cluster-new 3 sts(即 A 批次 ignoreDifferences 未被 GitHub 网络稳定时重新比较自愈的那 3 个,非新增)。
+- **Degraded 源**:ComparisonError `context deadline exceeded`(repo-server 拉 GitHub 抖动)。host `curl info/refs`=401(private,1s 内响应,网络通)→ repo-server 内部 git ls-remote 瞬时超时,待 GitHub 网络稳定后 hard refresh 自愈(模式⑨,勿重启 repo-server)。
+- **非阻塞**:esp-prod 全业务 deploy 实测 Running(bff/learning/teacher 1.7.0、gateway 1.5.1、pronunciation-rs 0.1.1、frontend-h5 1.0.0 等全 1/1)。
+
+### learning-java HPA 波动(会话22-5 观察)
+- HPA(min1/max15/CPU65%)因 metrics `<unknown>` 抖动扩到 5 副本又缩回(监控期间见 4/5→5/5→4/4→3/3→2/2)。属单节点 metrics-server 抖动,非业务问题。PROGRESS 已记录历史(模式:node NotReady 后 HPA 疯扩,临时 cap max=1)。
+
+### 遗留项
+1. **.m2 springdoc patch 非持久化**(模式⑭):换机器/CI �重新 patch。后续评估私有 Maven 仓 fork jar 或升 springdoc 支持 SB 4.x。
+2. **listening-go 迁移代码已 commit 但线上仍 0.1.0**(债1+2):需 rebuild 镜像 bump 0.2.0 部署验证(待债1+2 推进时统一)。
+3. **pronunciation-rs /healthz 行**:0.1.1 镜像可能已含,待确认;若未含 bump 0.1.2。
+4. **ArgoCD 3 sts OOS + Degraded**:待 GitHub 网络稳定后自愈,非阻塞。
+
+---
+
+## 会话22:ABCD 四批次推进(2026-08-09,A✅ B✅ C✅ D⏳)
 
 用户指令"ArgoCD 3 sts 完全 Synced / infra Degraded 收口 / 主线推进(多级缓存、种子续灌、压测、前端审计并行)",决策"全串行 A→B→C→D + 全修"。
 
@@ -109,34 +156,39 @@ springdoc 2.6.0/2.8.13 的 `QuerydslPredicateOperationCustomizer` 引用 `org.sp
 
 ---
 
-## 下一步动作(恢复锚点,2026-08-09 会话22-3 后)
+## 下一步动作(恢复锚点,2026-08-09 会话22-5 后)
 
-债3/债4 builder 部署验证中。C 前端代码完成(H5 镜像/部署待 builder)。继续全串行:
+债3/4 ✅闭环+push(15b5ffc)。C 前端 ✅(H5 已部署)。改动来源厘清 ✅。**当前推进债1+2 公共包抽取 + D 种子压测**。
 
 ### ⏳ 债1+2 公共包抽取(纯重构,行为不变红线)
-1. 建 `services/esp-common-go/`(module `esp/common-go`):抽 config/health/db/redis init(无行为变更);**不抽** log(日志库切换风险)+ trace(单列)。
-2. 7 Go 服务迁移引用,每服务 rebuild 验证 healthz + 核心接口不退化。
-3. 建 `services/esp-common-rs/` + root `Cargo.toml` [workspace](4 crate 共享依赖)。抽 db/redis/health/tracing_init;**不抽** error enum(改 HTTP body 契约)。
-4. 4 Rust 服务迁移,改 Dockerfile build context(workspace 化),每服务 rebuild 验证。
-5. vocab-srs-go trace 统一(`v-`→OTel propagator)+ llm-orchestrator trace_id 透传统一:**单列评估下游依赖**后再改。
+**Go(esp-common-go 骨架已完成,1/7)**:
+1. **先修隐患**:`services/esp-common-go/go.mod` 补 `require go.opentelemetry.io/otel`(tracing 包 import 但未声明,迁移前必补,否则编译失败)。
+2. 6 Go 服务迁移(gateway/course-path/reading/gamification/live-tutor/vocab-srs),按 listening-go 模式:go.mod 加 `require+replace esp/common-go`,main.go 改 import config/db/health。
+   - **gateway-go 特殊**:已有未落盘的 sessions/history 改动(已 commit);其 db 是自研 `db.Read`(读写分离+fallback),与 esp-common-go `db.MustConnectDB` 不同层次,不可直接替换,需评估保留自研 db 还是统一。
+3. 每服务 rebuild 镜像 bump 版本,验证 healthz + 核心接口不退化(listening-go 0.1.0→0.2.0)。
 
-### ⏳ D:种子续灌 + 压测摸底(Task #7)
-1. 确认 CPU headroom(债3/4 build 后查)。
-2. session_turns 16 分片续灌(目标 300M,当前 50.14M / 16.7%,断点续传);sessions 补齐 2.42M。
+**Rust(esp-common-rs 未建)**:
+4. 建 `services/esp-common-rs/` + root `Cargo.toml` [workspace](4 crate 共享依赖)。抽 db/redis/health/tracing_init;**不抽** error enum(改 HTTP body 契约)。
+5. 4 Rust 服务(pronunciation-rs/assessment-rs/reading?/media-learn-rs/llm-orchestrator-rs)迁移,改 Dockerfile build context(workspace 化),每服务 rebuild 验证。
+6. vocab-srs-go trace 统一(`v-`→OTel propagator)+ llm-orchestrator trace_id 透传统一:**单列评估下游依赖**后再改。
+
+### ⏳ D:种子续灌 + 压测摸底
+1. 确认 CPU headroom(会话22-5 观察:node CPU 46~65%,learning HPA 抖动,有 headroom 但需监控)。
+2. session_turns 16 分片续灌(目标 300M,当前 50.14M / 16.7%,断点续传,Redis `esp:ctx:seed:session_turns:shard:{0..15}` 存 offset);sessions 补齐 2.42M(当前 47.58M/50M=95.16% suspended@08-04)。
 3. locust 基线压测摸底(单节点铁律:压测机与被测同节点禁,重负载串行,CPU 监控)。
 
 **其他主线(非阻塞)**:多级缓存(L1 Caffeine/cachetools/LRU + L2 Redis Cluster + Pulsar 广播失效 + 降级,已落 6 服务)、bff sentinel datasource empty 根因(SCA 版本/dataId)、Python 镜像 base 决策(bookworm 6 CRIT fix=N/A,待用户)、Java/Go/Rust 性能对比报告、Redis announce FQDN 持久化(P1)。
 
 **单节点铁律**:重 mvn/docker build 必须与集群操作串行(esp-singlenode-host-cluster-contention);不碰 k3s 配置/restart/pkill/Factory Reset(esp-never-break-k3s);VM 重启/切驱动后必预置 pause 镜像(esp-pause-image-mirror-ironrule);压测机不能与被测同节点。
 
-## 关键部署状态(恢复锚点,2026-08-09 会话22 更新)
+## 关键部署状态(恢复锚点,2026-08-09 会话22-5 更新)
 
-- **镜像**:bff-java **1.7.0**(springdoc+patched)、gateway-go 1.5.1、learning-java **1.7.0**(springdoc)、teacher-java **1.7.0**(springdoc)、writing-py 1.6.1、emotion-svc 1.6.1、writing-coach 1.0.1、frontend-react 1.0.0、course-path-go 0.1.0、pronunciation-rs 0.1.1、listening-go / assessment-rs / reading-go / gamification-go / live-tutor-go / media-learn-rs 0.1.0、llm-orchestrator-rs 0.1.0(→0.2.0 待 cluster fix)。
+- **镜像**:bff-java **1.7.0**(springdoc+patched)、gateway-go 1.5.1(含 sessions/history)、learning-java **1.7.0**(springdoc)、teacher-java **1.7.0**(springdoc)、writing-py 1.6.1、emotion-svc 1.6.1、writing-coach 1.0.1、frontend-react 1.0.0、**frontend-h5 1.0.0**(会话22-5 部署)、course-path-go 0.1.0、pronunciation-rs 0.1.1、listening-go / assessment-rs / reading-go / gamification-go / live-tutor-go / media-learn-rs 0.1.0、llm-orchestrator-rs 0.1.0。
 - **中间件**:nacos v2.4.3 / seata 2.2.0 / sentinel 1.8.9。
-- **NodePort**:gateway-go 30080、frontend-react 30090(待加 frontend-h5 30091)。
-- **基础设施复用** ns `ekb-m2-aws-us-east-1`,ExternalName 短名 `tidb-primary`/`tidb-follower`/`redis-cluster`/`pulsar-broker`。Redis Cluster 实际 `redis-cluster-new-{0..5}.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379`(3主3从,slots 0-5460/5461-10922/10923-16383)。TiDB `tidb-primary:4000` root 无密码,11 DB/29 表。
-- **infra(B 批次后)**:tiflash v8.5.5 1/1 Running;tikv-aws Recreate 1/1 Running(new pod 84b4bcdcb5-2kx7m);tikv-azure/gcp Running(observedGeneration=6,strategy=Recreate);redis-cluster-new 6/6 Running,cluster_state:ok。ekb-m2-azure/gcp ns tikv 仍单节点无对应节点调度(环境固有,记录)。
-- **ArgoCD**:app `esp-platform`(deploy/k8s,GitHub 私有仓,automated prune=false selfHeal=true ServerSideApply),ignoreDifferences 已加(commit 120c15f)。esp-prod 全 Deployment Synced+Healthy。
+- **NodePort**:gateway-go 30080、frontend-react 30090、**frontend-h5 30091**(会话22-5)。
+- **基础设施复用** ns `ekb-m2-aws-us-east-1`,ExternalName 短名 `tidb-primary`/`tidb-follower`/`redis-cluster`/`pulsar-broker`。Redis Cluster 实际 `redis-cluster-new-{0..5}.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379`(3主3从)。TiDB `tidb-primary:4000` root 无密码,11 DB/29 表。
+- **infra(B 批次后)**:tiflash v8.5.5 1/1 Running;tikv-aws Recreate 1/1 Running;tikv-azure/gcp Running(strategy=Recreate);redis-cluster-new 6/6 Running cluster_state:ok。
+- **ArgoCD**:app `esp-platform`(deploy/k8s,GitHub 私有仓,automated prune=false selfHeal=true ServerSideApply),ignoreDifferences 已加(commit 120c15f)。**会话22-5 状态**:sync=OutOfSync(仅 pulsar-bk/pulsar-zk/redis-cluster-new 3 sts,待 GitHub 网络稳定自愈)+ health=Degraded(ComparisonError repo-server 拉 GitHub 抖动,host curl=401 网络通,模式⑨勿重启)。esp-prod 全业务 deploy 实测 Running。
 
 ## 关键命令速查
 

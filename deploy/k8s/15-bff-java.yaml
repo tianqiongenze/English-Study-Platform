@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: bff-java
-        image: esp/bff-java:1.5.1
+        image: esp/bff-java:1.7.0
         imagePullPolicy: IfNotPresent
         ports:
         - {containerPort: 8090,  name: mvc}

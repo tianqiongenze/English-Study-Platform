@@ -133,6 +133,29 @@ management:
     nacos-config:
       enabled: false   # nacos config gRPC 健康检查连 127.0.0.1:9848 噪声(config 模块默认 localhost),discovery 已 UP,关闭避免拖垮整体 health=DOWN
 
+# 统一 API 在线测试门户(会话22-2 债3):springdoc-openapi 聚合四语言 API 清单。
+# bff /swagger-ui.html 作为聚合门户入口(urls 聚合 bff+learning+teacher Java 三服务 + writing-py/emotion Litestar + Go/Rust 手写清单)。
+# Go/Rust 手写清单见 docs/api/portal/openapi-go-rust.yaml(静态托管,手动维护)。
+springdoc:
+  swagger-ui:
+    path: /docs                       # 聚合门户入口:bff-nodeport:30009/docs 或经 Traefik esp.example.com/docs
+    urls-primary-name: ESP BFF
+    urls:
+      - name: ESP BFF (Java)
+        url: /v3/api-docs
+      - name: ESP Learning (Java)
+        url: http://learning-java:80/v3/api-docs
+      - name: ESP Teacher (Java)
+        url: http://teacher-java:80/v3/api-docs
+      - name: ESP Writing (Python/Litestar)
+        url: http://writing-py:80/schema/openapi.json
+      - name: ESP Emotion (Python/Litestar)
+        url: http://emotion-svc:80/schema/openapi.json
+      - name: ESP Go/Rust Services (手动清单)
+        url: /openapi-go-rust.yaml    # gateway-go 反代静态文件(见 docs/api/portal/)
+  api-docs:
+    path: /v3/api-docs
+
 logging:
   level:
     com.esp.bff: INFO

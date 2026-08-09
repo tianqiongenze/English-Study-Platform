@@ -91,6 +91,7 @@ func main() {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("/api/scenarios", srv.handleScenarios)
 	mux.HandleFunc("/api/sessions", srv.handleCreateSession)
+	mux.HandleFunc("/api/sessions/history", srv.handleListSessionHistory)
 	mux.HandleFunc("/ws/speech/", srv.handleSpeech)
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -158,6 +159,37 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 	gwlog.AppLog("INFO", "api.sessions.create", userID, map[string]any{"session_id": sess.ID, "scenario": sc.Code}, r.Context())
 	writeJSON(w, map[string]any{"session_id": sess.ID, "scenario": sc})
+}
+
+// handleListSessionHistory 按 user_id 列出会话历史(GET /api/sessions/history?user_id=&limit=)。
+// userID 优先取 BFF 注入的 X-User-Id,缺省取 query user_id(便于 Swagger 在线测试)。
+func (s *Server) handleListSessionHistory(w http.ResponseWriter, r *http.Request) {
+	userID := s.userIDFromRequest(r)
+	if userID == 0 {
+		// 允许 query 传 user_id(在线测试便利),生产由 BFF X-User-Id 鉴权
+		if uid := r.URL.Query().Get("user_id"); uid != "" {
+			fmt.Sscanf(uid, "%d", &userID)
+		}
+	}
+	if userID == 0 {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		fmt.Sscanf(l, "%d", &limit)
+	}
+	list, err := session.ListHistory(r.Context(), userID, limit)
+	if err != nil {
+		gwlog.AppLog("ERROR", "api.sessions.history", userID, map[string]any{"err": err.Error()}, r.Context())
+		http.Error(w, "list history failed", 500)
+		return
+	}
+	if list == nil {
+		list = []session.SessionSummary{}
+	}
+	gwlog.AppLog("INFO", "api.sessions.history", userID, map[string]any{"count": len(list)}, r.Context())
+	writeJSON(w, map[string]any{"user_id": userID, "sessions": list})
 }
 
 func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {

@@ -40,6 +40,9 @@ export const api = {
     request<import("./types").SessionResp>("/api/sessions", {
       method: "POST", body: JSON.stringify({ scenario_code }),
     }),
+  // 会话历史(gateway-go ListHistory,直读 esp_speaking.sessions,会话22-3 C 批次三端贯通)
+  sessionHistory: () =>
+    request<import("./types").SessionSummary[]>("/api/sessions/history"),
   // learning
   reportEvent: (user_id: number, event_type: string, payload: string) =>
     request<{ accepted: boolean }>("/api/learning/event", {

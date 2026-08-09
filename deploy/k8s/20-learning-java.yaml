@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: learning-java
-        image: esp/learning-java:1.6.0
+        image: esp/learning-java:1.7.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
         env:

@@ -53,6 +53,8 @@
 # Go 本地构建产物(go build 默认输出二进制,与目录同名),Dockerfile 内多阶段构建不依赖
 services/*/gateway-go
 services/*/**/gateway-go
+# 工作区根目录 go build 误产生的二进制(与目录同名 "src"),不入库
+/src
 
 # ---- Rust ----
 **/target/

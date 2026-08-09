@@ -25,6 +25,15 @@ export interface SessionResp {
   session_id: string;
   scenario: string;
 }
+// 会话历史摘要(gateway-go ListHistory 返回,对齐 services/gateway-go/src/session/manager.go:97-104)
+export interface SessionSummary {
+  id: number;
+  user_id: number;
+  scenario: string;
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+}
 export interface WsFrame {
   type: "ai_reply" | "correction" | "hint" | "end" | "error" | string;
   text?: string;

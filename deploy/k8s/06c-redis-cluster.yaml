@@ -135,6 +135,12 @@ spec:
             echo "waiting redis-cluster-new-$i ..."
             until redis-cli -h redis-cluster-new-$i.redis-cluster-new ping; do sleep 2; done
           done
+          # 建簇前先清空数据并 CLUSTER RESET HARD,确保幂等(节点已有元数据/keys 时清空,容忍新节点)
+          for i in 0 1 2 3 4 5; do
+            echo "resetting redis-cluster-new-$i ..."
+            redis-cli -h redis-cluster-new-$i.redis-cluster-new FLUSHALL || true
+            redis-cli -h redis-cluster-new-$i.redis-cluster-new CLUSTER RESET HARD || true
+          done
           # 建簇: 6 节点,每主 1 副本(--cluster-replicas 1)
           echo "=== creating cluster ==="
           redis-cli --cluster create \

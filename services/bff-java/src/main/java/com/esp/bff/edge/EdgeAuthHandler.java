@@ -40,7 +40,12 @@ import java.util.List;
 public class EdgeAuthHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
     private static final Logger log = LoggerFactory.getLogger(EdgeAuthHandler.class);
-    private static final List<String> WHITELIST = List.of("/api/auth/", "/healthz", "/actuator/", "/.well-known/");
+    // 放行:认证、健康、actuator、API 门户(springdoc /v3/api-docs + /docs 聚合 Swagger UI +
+    // /swagger-ui 静态资源 + /openapi-go-rust.yaml Go/Rust 手写清单)。门户为只读 API 文档,无敏感数据;
+    // 实际业务接口仍受本 Handler 保护。与 AuthFilter 白名单保持一致。
+    private static final List<String> WHITELIST = List.of(
+            "/api/auth/", "/healthz", "/actuator/", "/.well-known/",
+            "/v3/api-docs", "/docs", "/swagger-ui", "/openapi-go-rust.yaml");
 
     private static final Tracer TRACER = GlobalOpenTelemetry.getTracer("bff-edge");
 

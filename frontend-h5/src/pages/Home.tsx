@@ -13,6 +13,7 @@ export default function Home() {
         <NavLink to="/speech" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>口语</NavLink>
         <NavLink to="/writing" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>写作</NavLink>
         <NavLink to="/learning" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>学习</NavLink>
+        <NavLink to="/profile" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>我的</NavLink>
       </nav>
       <Outlet />
     </div>

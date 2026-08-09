@@ -307,6 +307,7 @@ kind: Deployment
 metadata: {name: tikv-aws, namespace: ekb-m2-aws-us-east-1}
 spec:
   replicas: 1
+  strategy: {type: Recreate}
   selector: {matchLabels: {app: tikv-aws}}
   template:
     metadata: {labels: {app: tikv-aws, region: aws}}
@@ -348,6 +349,7 @@ kind: Deployment
 metadata: {name: tikv-azure, namespace: ekb-m2-azure-eastasia}
 spec:
   replicas: 1
+  strategy: {type: Recreate}
   selector: {matchLabels: {app: tikv-azure}}
   template:
     metadata: {labels: {app: tikv-azure, region: azure}}
@@ -389,6 +391,7 @@ kind: Deployment
 metadata: {name: tikv-gcp, namespace: ekb-m2-gcp-europe-west1}
 spec:
   replicas: 1
+  strategy: {type: Recreate}
   selector: {matchLabels: {app: tikv-gcp}}
   template:
     metadata: {labels: {app: tikv-gcp, region: gcp}}
@@ -609,7 +612,7 @@ spec:
     spec:
       containers:
         - name: tiflash
-          image: pingcap/tiflash:v8.5.7
+          image: pingcap/tiflash:v8.5.5
           imagePullPolicy: IfNotPresent
           command: ["/tiflash/tiflash"]
           args:

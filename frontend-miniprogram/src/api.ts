@@ -27,6 +27,8 @@ export const api = {
   loginByCode: (code: string) => request<{ token: string; user: { id: number; name: string; role: string } }>("/api/auth/wx-login", { method: "POST", data: { code } }),
   scenarios: () => request<{ code: string; title: string }[]>("/api/scenarios"),
   createSession: (code: string) => request<{ session_id: string }>(`/api/sessions`, { method: "POST", data: { scenario_code: code } }),
+  // 会话历史(gateway-go ListHistory,会话22-3 C 批次三端贯通)
+  sessionHistory: () => request<{ id: number; user_id: number; scenario: string; status: string; started_at: string; ended_at: string | null }[]>("/api/sessions/history"),
   reportEvent: (uid: number) => request<{ accepted: boolean }>("/api/learning/event", { method: "POST", data: { user_id: uid, event_type: "answer", payload: "{}" } }),
   review: (uid: number) => request<unknown[]>(`/api/learning/review?user_id=${uid}`),
   weak: (uid: number) => request<unknown[]>(`/api/learning/mastery/weak?user_id=${uid}`),

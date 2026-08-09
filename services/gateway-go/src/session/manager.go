@@ -93,6 +93,43 @@ func (m *Manager) AppendTurn(ctx context.Context, id string, t Turn) (*Session, 
 	return s, nil
 }
 
+// SessionSummary 是会话历史的归档摘要(从 TiDB esp_speaking.sessions 读)。
+type SessionSummary struct {
+	ID         string `json:"id"`
+	UserID     int64  `json:"user_id"`
+	Scenario   string `json:"scenario"`
+	Status     string `json:"status"`
+	StartedAt  string `json:"started_at"`
+	EndedAt    string `json:"ended_at"`
+}
+
+// ListHistory 按 user_id 列出会话历史(从 TiDB esp_speaking.sessions 读从库,最近 N 条)。
+// End 时归档写入 sessions 表(id BIGINT AUTO_RANDOM,started_at/ended_at/status),
+// 此处读取供前端"会话历史"页展示。读从库 tidb-follower,forcedPrimary=false。
+func ListHistory(ctx context.Context, userID int64, limit int) ([]SessionSummary, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := db.Read(ctx,
+		"SELECT id, user_id, scenario_id, status, started_at, IFNULL(ended_at, '') FROM esp_speaking.sessions WHERE user_id = ? ORDER BY started_at DESC LIMIT ?",
+		false, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SessionSummary
+	for rows.Next() {
+		var s SessionSummary
+		var scenarioID int64
+		if err := rows.Scan(&s.ID, &s.UserID, &scenarioID, &s.Status, &s.StartedAt, &s.EndedAt); err != nil {
+			slog.Warn("session: ListHistory scan failed", "err", err)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // End 结束会话(删除 Redis 键),并异步把会话记录持久化到 TiDB(写主库 tidb-primary)。
 // TiDB 写失败只 warn 不阻断(会话状态已在 Redis,丢失只是无历史归档)。
 func (m *Manager) End(ctx context.Context, id string) error {

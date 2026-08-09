@@ -37,9 +37,11 @@ public final class RouteTable {
         return null;
     }
 
-    /** 是否为 BFF 自身处理的路径(/api/auth、/healthz、/actuator)。 */
+    /** 是否为 BFF 自身处理的路径(/api/auth、/healthz、/actuator、API 门户)。 */
     public static boolean isLocal(String path) {
         return path != null && (path.startsWith("/api/auth")
-                || path.startsWith("/healthz") || path.startsWith("/actuator"));
+                || path.startsWith("/healthz") || path.startsWith("/actuator")
+                || path.startsWith("/v3/api-docs") || path.startsWith("/docs")
+                || path.startsWith("/swagger-ui") || path.startsWith("/openapi-go-rust.yaml"));
     }
 }

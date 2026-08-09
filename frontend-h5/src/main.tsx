@@ -7,6 +7,7 @@ import Home from "./pages/Home";
 import Speech from "./pages/Speech";
 import Writing from "./pages/Writing";
 import Learning from "./pages/Learning";
+import Profile from "./pages/Profile";
 import "./styles.css";
 
 function Require({ children }: { children: React.JSX.Element }) {
@@ -24,6 +25,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="speech" element={<Speech />} />
           <Route path="writing" element={<Writing />} />
           <Route path="learning" element={<Learning />} />
+          <Route path="profile" element={<Profile />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

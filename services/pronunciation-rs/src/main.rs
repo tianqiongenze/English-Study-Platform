@@ -61,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppHandle(Arc::new(AppState { mysql_write, mysql_read, redis }));
 
     let app = Router::new()
+        .route("/healthz", axum::routing::get(health))
         .route("/actuator/health", axum::routing::get(health))
         .route("/actuator/health/readiness", axum::routing::get(readiness))
         .route("/actuator/health/liveness", axum::routing::get(liveness))

@@ -1,0 +1,226 @@
+# ESP Go/Rust 服务 API 路由清单(手动维护,会话22-2 债3)
+#
+# 本文件是 Go/Rust 服务的 OpenAPI 3.0 路由清单,供 bff-java 聚合门户(Swagger UI /docs)
+# 拉取展示。Go/Rust 服务本次未集成完整 OpenAPI 注解(代价高),路由清单从源码提取后手动维护。
+# Java 三服务有 springdoc 自动生成 /v3/api-docs,Python 两服务有 Litestar /schema/openapi.json,
+# 不在此文件内。更新路由后请同步本文件。
+#
+# 维护规则:新增/修改 Go/Rust 服务的 mux.HandleFunc / r.GET / axum .route 后,同步更新本文件对应 path。
+openapi: 3.0.3
+info:
+  title: ESP Go/Rust Services API
+  version: "1.0"
+  description: |
+    ESP 项目 Go/Rust 微服务路由清单(手动维护)。
+    - gateway-go: 口语场景会话入口(REST + WebSocket)
+    - course-path-go: 学习路径生成/解锁
+    - listening-go: 听力素材/听写
+    - reading-go: 分级阅读/长难句解析
+    - gamification-go: 积分/连胜/排行榜/成就
+    - vocab-srs-go: 间隔重复词汇复习
+    - live-tutor-go: 1v1 真人辅导预约/信令(scale 0,单节点策略)
+    - llm-orchestrator-rs: LLM 对话/SSE 流式/persona
+    - assessment-rs: 测评会话/诊断报告
+    - pronunciation-rs: 发音评分/反馈
+    - media-learn-rs: 影视片段学习(scale 0,单节点策略)
+servers:
+  - url: http://gateway-go:80
+    description: 集群内(经 bff-java 边缘层鉴权后转发,见 RouteTable)
+paths:
+  # ===== gateway-go =====
+  /api/scenarios:
+    get:
+      tags: [gateway-go]
+      summary: 列出口语场景
+  /api/sessions:
+    post:
+      tags: [gateway-go]
+      summary: 创建口语会话
+  /api/sessions/history:
+    get:
+      tags: [gateway-go]
+      summary: 按 user_id 列出会话历史(会话22-2 债4 新增)
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema: {type: integer, format: int64}
+  /ws/speech/{sessionId}:
+    get:
+      tags: [gateway-go]
+      summary: 口语 WebSocket(ASR/TTS/对话,Upgrade)
+  # ===== course-path-go =====
+  /api/path/:
+    get:
+      tags: [course-path-go]
+      summary: 读取学员学习路径
+  /api/path/generate:
+    post:
+      tags: [course-path-go]
+      summary: 首登生成路径(桩)
+  /api/path/unlock:
+    post:
+      tags: [course-path-go]
+      summary: 节点解锁判定(桩)
+  # ===== listening-go =====
+  /api/listening/materials:
+    get:
+      tags: [listening-go]
+      summary: 听力素材列表(桩)
+  /api/listening/materials/{id}:
+    get:
+      tags: [listening-go]
+      summary: 单素材(桩)
+  /api/listening/attempts:
+    post:
+      tags: [listening-go]
+      summary: 听写/做题提交(写 listening_attempts)
+  /api/listening/transcribe:
+    post:
+      tags: [listening-go]
+      summary: 音频转写流式占位(SSE)
+  # ===== reading-go =====
+  /api/reading/passages:
+    get:
+      tags: [reading-go]
+      summary: 分级文章列表
+  /api/reading/passages/{id}:
+    get:
+      tags: [reading-go]
+      summary: 单文章(含 content)
+  /api/reading/attempts:
+    post:
+      tags: [reading-go]
+      summary: 答题提交(写 reading_attempts)
+  /api/reading/parse:
+    post:
+      tags: [reading-go]
+      summary: 长难句解析(桩)
+  # ===== gamification-go =====
+  /api/gamification/profile/{user_id}:
+    get:
+      tags: [gamification-go]
+      summary: 积分/连胜画像
+  /api/gamification/points:
+    post:
+      tags: [gamification-go]
+      summary: 加分(同步直调,也由 Pulsar 异步触发)
+  /api/gamification/leaderboard:
+    get:
+      tags: [gamification-go]
+      summary: 排行榜(Redis ZSET 主)
+  /api/gamification/achievements/{user_id}:
+    get:
+      tags: [gamification-go]
+      summary: 用户成就
+  /api/gamification/achievements/grant:
+    post:
+      tags: [gamification-go]
+      summary: 授予成就
+  # ===== vocab-srs-go =====
+  /api/vocab/review:
+    post:
+      tags: [vocab-srs-go]
+      summary: 间隔重复复习提交
+  /api/vocab/due:
+    get:
+      tags: [vocab-srs-go]
+      summary: 到期复习卡片
+  /api/vocab/word:
+    post:
+      tags: [vocab-srs-go]
+      summary: 创建词汇
+  /api/vocab/word/{id}:
+    get:
+      tags: [vocab-srs-go]
+      summary: 获取词汇
+    delete:
+      tags: [vocab-srs-go]
+      summary: 删除词汇
+  # ===== live-tutor-go (scale 0) =====
+  /api/tutor/book:
+    post:
+      tags: [live-tutor-go]
+      summary: 预约(seata 事务桩,scale 0)
+  /api/tutor/availability:
+    get:
+      tags: [live-tutor-go]
+      summary: 查可用时段(桩,scale 0)
+  /ws/signaling/:
+    get:
+      tags: [live-tutor-go]
+      summary: WebRTC 信令回声占位(scale 0)
+  # ===== llm-orchestrator-rs =====
+  /api/llm/chat:
+    post:
+      tags: [llm-orchestrator-rs]
+      summary: LLM 单轮对话(语义缓存)
+  /api/dialogue/chat:
+    post:
+      tags: [llm-orchestrator-rs]
+      summary: 多轮对话 SSE 流式
+  /api/dialogue/sessions:
+    get:
+      tags: [llm-orchestrator-rs]
+      summary: 列出对话会话
+    post:
+      tags: [llm-orchestrator-rs]
+      summary: 创建对话会话
+  /api/dialogue/sessions/{id}:
+    get:
+      tags: [llm-orchestrator-rs]
+      summary: 获取对话会话
+  /api/dialogue/sessions/{id}/turns:
+    get:
+      tags: [llm-orchestrator-rs]
+      summary: 列出对话轮次
+  /api/dialogue/personas:
+    get:
+      tags: [llm-orchestrator-rs]
+      summary: 列出 persona
+    post:
+      tags: [llm-orchestrator-rs]
+      summary: 创建 persona
+  # ===== assessment-rs =====
+  /api/assessment/sessions:
+    post:
+      tags: [assessment-rs]
+      summary: 创建测评会话
+  /api/assessment/sessions/{id}:
+    get:
+      tags: [assessment-rs]
+      summary: 获取测评会话
+  /api/assessment/sessions/{id}/answer:
+    post:
+      tags: [assessment-rs]
+      summary: 提交答题
+  /api/assessment/sessions/{id}/finalize:
+    post:
+      tags: [assessment-rs]
+      summary: 结束测评(幂等 SETNX)
+  /api/assessment/report/{user_id}:
+    get:
+      tags: [assessment-rs]
+      summary: 诊断报告
+  # ===== pronunciation-rs =====
+  /api/pronunciation/score:
+    post:
+      tags: [pronunciation-rs]
+      summary: 发音评分
+  /api/pronunciation/feedback:
+    post:
+      tags: [pronunciation-rs]
+      summary: 发音反馈
+  # ===== media-learn-rs (scale 0) =====
+  /api/media/clips:
+    get:
+      tags: [media-learn-rs]
+      summary: 片段列表(桩,scale 0)
+  /api/media/clips/{id}/subtitles:
+    get:
+      tags: [media-learn-rs]
+      summary: 字幕同步(桩,scale 0)
+  /api/media/clips/{id}/cards:
+    get:
+      tags: [media-learn-rs]
+      summary: 表达卡片(桩,scale 0)

@@ -22,6 +22,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
+
+	"esp/common-go/config"
+	"esp/common-go/db"
+	"esp/common-go/health"
 )
 
 const serviceName = "listening-go"
@@ -32,18 +36,18 @@ var (
 )
 
 func main() {
-	port := getenv("PORT", "8089")
-	gin.SetMode(getenv("GIN_MODE", "release"))
+	port := config.Getenv("PORT", "8089")
+	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 	log.Printf("[%s] starting on :%s", serviceName, port)
 
-	readDB = mustConnectDB(getenv("READ_DB_URL", "root:@tcp(tidb-follower:4000)/esp_listening?parseTime=true"))
-	writeDB = mustConnectDB(getenv("WRITE_DB_URL", "root:@tcp(tidb-primary:4000)/esp_listening?parseTime=true"))
+	readDB = db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("tidb-follower:4000", "esp_listening")), serviceName)
+	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("tidb-primary:4000", "esp_listening")), serviceName)
 	log.Printf("[%s] TiDB pools ready (read+write)", serviceName)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"status": "UP", "service": serviceName}) })
-	r.GET("/livez", func(c *gin.Context) { c.JSON(200, gin.H{"status": "UP"}) })
+	r.GET("/healthz", health.GinHealthz(serviceName))
+	r.GET("/livez", health.GinLivez())
 	r.GET("/readyz", readyz)
 
 	api := r.Group("/api/listening")
@@ -163,21 +167,11 @@ func transcribe(c *gin.Context) {
 }
 
 func mustConnectDB(dsn string) *sql.DB {
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		log.Fatalf("[%s] db open: %v", serviceName, err)
-	}
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(2)
-	if err := db.Ping(); err != nil {
-		log.Fatalf("[%s] db ping: %v", serviceName, err)
-	}
-	return db
+	// 已迁移至 esp/common-go/db.MustConnectDB(会话22-3 债1+2)。保留空壳避免外部引用断裂。
+	return db.MustConnectDB(dsn, serviceName)
 }
 
 func getenv(k, dft string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return dft
+	// 已迁移至 esp/common-go/config.Getenv(会话22-3 债1+2)。保留空壳避免外部引用断裂。
+	return config.Getenv(k, dft)
 }

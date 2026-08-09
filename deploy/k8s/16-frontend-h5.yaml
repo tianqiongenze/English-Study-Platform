@@ -1,0 +1,40 @@
+# frontend-h5: H5 移动端静态托管(nginx)+ /api /ws 反代到集群 Ingress(Traefik)
+# 与 frontend-react(15)同构,反代策略对齐 Web(反代 Traefik esp.example.com)。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-h5
+  namespace: esp-prod
+  labels: {app: frontend-h5}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: frontend-h5}}
+  template:
+    metadata: {labels: {app: frontend-h5}}
+    spec:
+      containers:
+      - name: frontend-h5
+        image: esp/frontend-h5:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 80}]
+        readinessProbe: {httpGet: {path: /, port: 80}, periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 3}
+        livenessProbe:  {httpGet: {path: /, port: 80}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 5}
+        resources:
+          requests: {cpu: "50m", memory: 32Mi}
+          limits: {cpu: "200m", memory: 128Mi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: frontend-h5, namespace: esp-prod}
+spec:
+  selector: {app: frontend-h5}
+  ports: [{port: 80, targetPort: 80}]
+---
+# NodePort 暴露 H5 供本地移动浏览器访问(30091,30090 已被 Web 占用)
+apiVersion: v1
+kind: Service
+metadata: {name: frontend-h5-np, namespace: esp-prod}
+spec:
+  type: NodePort
+  selector: {app: frontend-h5}
+  ports: [{port: 80, targetPort: 80, nodePort: 30091}]

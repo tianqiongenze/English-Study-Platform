@@ -1,6 +1,6 @@
 import { useAuth, authHeader } from "./auth";
 import { traceparent } from "./trace";
-import type { Scenario, SessionResp, Mastery, GradeResult, PolishResult, TranslateResult, DifficultyResp, AuthUser } from "./types";
+import type { Scenario, SessionResp, SessionSummary, Mastery, GradeResult, PolishResult, TranslateResult, DifficultyResp, AuthUser } from "./types";
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = useAuth.getState().token;
@@ -17,6 +17,8 @@ export const api = {
   register: (email: string, password: string, name: string, role: string) => req<{ token: string; user: AuthUser }>("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password, name, role }) }),
   scenarios: () => req<Scenario[]>("/api/scenarios"),
   createSession: (code: string) => req<SessionResp>("/api/sessions", { method: "POST", body: JSON.stringify({ scenario_code: code }) }),
+  // 会话历史(gateway-go ListHistory,会话22-3 C 批次三端贯通)
+  sessionHistory: () => req<SessionSummary[]>("/api/sessions/history"),
   reportEvent: (uid: number, t: string, p: string) => req<{ accepted: boolean }>("/api/learning/event", { method: "POST", body: JSON.stringify({ user_id: uid, event_type: t, payload: p }) }),
   review: (uid: number) => req<Mastery[]>(`/api/learning/review?user_id=${uid}`),
   weak: (uid: number) => req<Mastery[]>(`/api/learning/mastery/weak?user_id=${uid}`),

@@ -3,7 +3,6 @@
 # ADR: docs/design/adr-new-services.md / PRD §三 / schema esp_pronunciation
 # NOTE: docker.io 直拉 i/o timeout(Rancher Desktop VM 网络),改 1ms 镜像源
 FROM docker.1ms.run/library/rust:1.88-bookworm AS builder
-WORKDIR /app
 
 # 国内镜像加速 crates 拉取
 RUN mkdir -p /usr/local/cargo && cat >> /usr/local/cargo/config.toml <<'EOF'
@@ -15,8 +14,12 @@ registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
 git-fetch-with-cli = true
 EOF
 
-COPY Cargo.toml Cargo.lock* ./
-COPY src ./src
+# build context = services/(含 esp-common-rs + pronunciation-rs)
+# Cargo.toml 的 esp-common-rs = { path = "../esp-common-rs" } → 需 /workspace/esp-common-rs
+WORKDIR /workspace/pronunciation-rs
+COPY esp-common-rs /workspace/esp-common-rs
+COPY pronunciation-rs/Cargo.toml Cargo.lock* ./
+COPY pronunciation-rs/src ./src
 RUN cargo build --release
 
 # 运行阶段:debian:bookworm-slim(nonroot)
@@ -25,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 65532 -r -s /usr/sbin/nologin nonroot
 WORKDIR /app
-COPY --from=builder /app/target/release/pronunciation-rs /app/pronunciation-rs
+COPY --from=builder /workspace/pronunciation-rs/target/release/pronunciation-rs /app/pronunciation-rs
 EXPOSE 8088
 ENV PORT=8088
 ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317

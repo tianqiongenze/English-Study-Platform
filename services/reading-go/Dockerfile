@@ -1,10 +1,12 @@
 # reading-go(S6, P1)—— 分级阅读 + 长难句解析 + 题目自动生成
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
-COPY go.mod ./
+COPY esp-common-go ./esp-common-go
+COPY reading-go/go.mod ./
 ENV GOPROXY=https://goproxy.cn,direct
+RUN sed -i 's|replace esp/common-go => ../esp-common-go|replace esp/common-go => ./esp-common-go|' go.mod
 RUN go mod download
-COPY src ./src
+COPY reading-go/src ./src
 RUN go mod tidy && CGO_ENABLED=0 go build -o /out/reading-go ./src
 
 FROM alpine:3.22

@@ -14,7 +14,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"esp/gateway-go/src/asr"
@@ -27,6 +26,9 @@ import (
 	"esp/gateway-go/src/session"
 	"esp/gateway-go/src/tts"
 	"esp/gateway-go/src/ws"
+
+	"esp/common-go/config"
+	"esp/common-go/redisx"
 )
 
 var upgrader = websocket.Upgrader{
@@ -57,13 +59,13 @@ func main() {
 		_ = shutdownTracing(ctx)
 	}()
 
-	redisAddr := env("REDIS_ADDR", "redis-cluster:6379")
+	redisAddr := config.Getenv("REDIS_ADDR", "redis-cluster:6379")
 	// Redis Cluster 模式(经 ExternalName redis-cluster → redis-cluster-new,3主3从)
-	rdb := redis.NewClusterClient(&redis.ClusterOptions{Addrs: []string{redisAddr}})
+	rdb := redisx.MustNewCluster(redisAddr, "gateway-go")
 
 	// P2-1: WS 分片广播 Hub(按 session_id hash 分 Redis Pub/Sub channel)。
 	// 跨 Pod 同步多端同 session / 教师旁听 / 情绪推送;点对点响应仍走 writeConn。
-	shardCount := envInt("WS_SHARD_COUNT", 8)
+	shardCount := config.GetenvInt("WS_SHARD_COUNT", 8)
 	wsHub := hub.New(rdb, shardCount)
 	wsHub.Start(context.Background())
 
@@ -95,7 +97,7 @@ func main() {
 	mux.HandleFunc("/ws/speech/", srv.handleSpeech)
 	mux.Handle("/metrics", promhttp.Handler())
 
-	addr := ":" + env("PORT", "8080")
+	addr := ":" + config.Getenv("PORT", "8080")
 	slog.Info("gateway-go starting", "addr", addr)
 	// Wrap mux with otelhttp so every HTTP request gets a span.
 	// /ws/speech upgrade happens after the handler-level span is created,
@@ -303,20 +305,13 @@ func (s *Server) userIDFromRequest(r *http.Request) int64 {
 }
 
 func env(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
+	// 已迁移至 esp/common-go/config.Getenv(会话22-3 债1+2)。保留空壳避免外部引用断裂。
+	return config.Getenv(k, def)
 }
 
 func envInt(k string, def int) int {
-	if v := os.Getenv(k); v != "" {
-		var n int
-		if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
-			return n
-		}
-	}
-	return def
+	// 已迁移至 esp/common-go/config.GetenvInt(会话22-3 债1+2)。保留空壳避免外部引用断裂。
+	return config.GetenvInt(k, def)
 }
 
 func newID() string {

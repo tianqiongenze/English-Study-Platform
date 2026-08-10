@@ -20,6 +20,11 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
+
+	"esp/common-go/config"
+	"esp/common-go/db"
+	"esp/common-go/health"
+	"esp/common-go/redisx"
 )
 
 const serviceName = "gamification-go"
@@ -31,21 +36,16 @@ var (
 )
 
 func main() {
-	port := getenv("PORT", "8092")
-	gin.SetMode(getenv("GIN_MODE", "release"))
+	port := config.Getenv("PORT", "8092")
+	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 	log.Printf("[%s] starting on :%s", serviceName, port)
 
-	readDB = mustConnectDB(getenv("READ_DB_URL", "root:@tcp(tidb-follower:4000)/esp_gamification?parseTime=true"))
-	writeDB = mustConnectDB(getenv("WRITE_DB_URL", "root:@tcp(tidb-primary:4000)/esp_gamification?parseTime=true"))
+	readDB = db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("tidb-follower:4000", "esp_gamification")), serviceName)
+	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("tidb-primary:4000", "esp_gamification")), serviceName)
 	log.Printf("[%s] TiDB pools ready (read+write)", serviceName)
 
 	// Redis Cluster:排行榜 ZSET 主存(esp:gamif:leaderboard:{period})
-	redisAddr := getenv("REDIS_CLUSTER", "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379")
-	rdb = redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs:    []string{redisAddr},
-		PoolSize: 16,
-	})
-	log.Printf("[%s] Redis Cluster client ready", serviceName)
+	rdb = redisx.MustNewCluster(config.Getenv("REDIS_CLUSTER", ""), serviceName)
 
 	// Pulsar 订阅 esp.business.*(scaffold 占位 goroutine)
 	// 真实接入:用 apache/pulsar-client-go Subscribe topic=esp.business.* subscription=gamification
@@ -54,8 +54,8 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.GET("/healthz", func(c *gin.Context) { c.JSON(200, gin.H{"status": "UP", "service": serviceName}) })
-	r.GET("/livez", func(c *gin.Context) { c.JSON(200, gin.H{"status": "UP"}) })
+	r.GET("/healthz", health.GinHealthz(serviceName))
+	r.GET("/livez", health.GinLivez())
 	r.GET("/readyz", readyz)
 
 	api := r.Group("/api/gamification")
@@ -209,23 +209,13 @@ func pulsarEventLoopStub() {
 }
 
 func mustConnectDB(dsn string) *sql.DB {
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		log.Fatalf("[%s] db open: %v", serviceName, err)
-	}
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(2)
-	if err := db.Ping(); err != nil {
-		log.Fatalf("[%s] db ping: %v", serviceName, err)
-	}
-	return db
+	// 已迁移至 esp/common-go/db.MustConnectDB(会话22-3 债1+2)。保留空壳避免外部引用断裂。
+	return db.MustConnectDB(dsn, serviceName)
 }
 
 func getenv(k, dft string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return dft
+	// 已迁移至 esp/common-go/config.Getenv(会话22-3 债1+2)。保留空壳避免外部引用断裂。
+	return config.Getenv(k, dft)
 }
 
 func uidStr(i int64) string {

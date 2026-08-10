@@ -33,6 +33,9 @@ import (
 	"esp/vocab-srs-go/src/dao"
 	"esp/vocab-srs-go/src/handler"
 
+	"esp/common-go/config"
+	"esp/common-go/health"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -45,17 +48,17 @@ func main() {
 	sugar := logger.Sugar()
 	sugar.Infof("[%s] starting", serviceName)
 
-	port := getenv("PORT", "8087")
-	gin.SetMode(getenv("GIN_MODE", "release"))
+	port := config.Getenv("PORT", "8087")
+	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 
 	// DSN 拼装:env 完整 DSN 优先,否则用 TIDB_HOST/PORT 组装。
-	readDSN := getenv("READ_DB_URL", "")
-	writeDSN := getenv("WRITE_DB_URL", "")
+	readDSN := config.Getenv("READ_DB_URL", "")
+	writeDSN := config.Getenv("WRITE_DB_URL", "")
 	if readDSN == "" {
-		readDSN = buildDSN(getenv("TIDB_HOST_READ", "tidb-follower"))
+		readDSN = buildDSN(config.Getenv("TIDB_HOST_READ", "tidb-follower"))
 	}
 	if writeDSN == "" {
-		writeDSN = buildDSN(getenv("TIDB_HOST", "tidb-primary"))
+		writeDSN = buildDSN(config.Getenv("TIDB_HOST", "tidb-primary"))
 	}
 
 	d, err := dao.NewVocabDAO(readDSN, writeDSN)
@@ -70,12 +73,8 @@ func main() {
 	r.Use(gin.Recovery(), traceMiddleware(sugar))
 
 	// 健康检查
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "UP", "service": serviceName})
-	})
-	r.GET("/livez", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "UP"})
-	})
+	r.GET("/healthz", health.GinHealthz(serviceName))
+	r.GET("/livez", health.GinLivez())
 	r.GET("/readyz", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
@@ -140,17 +139,15 @@ func traceMiddleware(log *zap.SugaredLogger) gin.HandlerFunc {
 // buildDSN 拼装 mysql DSN(默认 root 无密码,db esp_vocab)。
 // parseTime=true 让 DATETIME 自动 scan 到 time.Time。
 func buildDSN(host string) string {
-	user := getenv("TIDB_USER", "root")
-	pwd := getenv("TIDB_PASSWORD", "")
-	port := getenv("TIDB_PORT", "4000")
-	db := getenv("TIDB_DB", "esp_vocab")
+	user := config.Getenv("TIDB_USER", "root")
+	pwd := config.Getenv("TIDB_PASSWORD", "")
+	port := config.Getenv("TIDB_PORT", "4000")
+	db := config.Getenv("TIDB_DB", "esp_vocab")
 	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=UTC&timeout=5s&readTimeout=3s&writeTimeout=3s",
 		user, pwd, host, port, db)
 }
 
 func getenv(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
+	// 已迁移至 esp/common-go/config.Getenv(会话22-3 债1+2)。保留空壳避免外部引用断裂。
+	return config.Getenv(k, d)
 }

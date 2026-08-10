@@ -7,12 +7,13 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
+
+	"esp/common-go/config"
+	"esp/common-go/health"
+	"esp/common-go/tracing"
 )
 
 const serviceName = "live-tutor-go"
@@ -22,12 +23,12 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
-	port := getenv("PORT", "8094")
+	port := config.Getenv("PORT", "8094")
 	log.Printf("[%s] starting on :%s", serviceName, port)
-	otel.SetTextMapPropagator(propagation.TraceContext{})
+	tracing.InitPropagator()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/actuator/health", health)
+	mux.HandleFunc("/actuator/health", health.StdHealthz(serviceName))
 	mux.HandleFunc("/actuator/health/readiness", readiness)
 	mux.HandleFunc("/actuator/health/liveness", liveness)
 	mux.HandleFunc("/api/tutor/book", book)        // 预约(seata 事务桩)
@@ -44,9 +45,6 @@ func main() {
 	}
 }
 
-func health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]any{"status": "UP", "service": serviceName})
-}
 func readiness(w http.ResponseWriter, _ *http.Request) { writeJSON(w, map[string]any{"status": "UP"}) }
 func liveness(w http.ResponseWriter, _ *http.Request)  { writeJSON(w, map[string]any{"status": "UP"}) }
 
@@ -93,8 +91,6 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func getenv(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
+	// 已迁移至 esp/common-go/config.Getenv(会话22-3 债1+2)。保留空壳避免外部引用断裂。
+	return config.Getenv(k, d)
 }

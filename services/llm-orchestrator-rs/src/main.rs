@@ -21,7 +21,6 @@ use serde_json::{json, Value};
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing_subscriber::EnvFilter;
 
 const SERVICE_NAME: &str = "llm-orchestrator-rs";
 
@@ -39,9 +38,7 @@ pub struct AppHandle(Arc<AppState>);
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .init();
+    esp_common::tracing_init::init(SERVICE_NAME);
 
     let port: u16 = env::var("PORT").unwrap_or_else(|_| "8086".into()).parse().unwrap_or(8086);
     tracing::info!("[{}] starting on :{}", SERVICE_NAME, port);
@@ -69,21 +66,16 @@ async fn main() {
 }
 
 async fn init_state() -> AppState {
-    let redis_addr = env::var("REDIS_ADDR").unwrap_or_else(|_| "redis://redis-cluster:6379".into());
-    // ESP 用真 Redis Cluster(3 master 分片)。单连接 ConnectionManager 不处理 MOVED 重定向,
-    // 导致 SETEX/ZADD/SET NX 写到非本节点 key 时静默失败。改用 ClusterClient,自动跟随 MOVED/ASK。
-    // ClusterClient 接受单个 seed 节点 URL,会自动发现集群拓扑。
-    let redis_client = redis::cluster::ClusterClient::new(vec![redis_addr.as_str()])
-        .expect("redis cluster client");
-    let redis = redis_client
-        .get_async_connection()
-        .await
-        .expect("redis cluster async connection");
+    // Redis:ESP 用真 Redis Cluster(3 master 分片)。ClusterConnection 自动处理 MOVED/ASK。
+    // env=REDIS_ADDR,缺省 redis://redis-cluster:6379(对齐原默认值)。
+    let redis_addr = env::var("REDIS_ADDR").unwrap_or_else(|_| esp_common::redisx::DEFAULT_ADDR.into());
+    let redis = esp_common::redisx::connect_required(&redis_addr, SERVICE_NAME).await;
 
-    let mysql_url = env::var("TIDB_DSN").unwrap_or_else(|_| {
-        "mysql://root@tidb-primary:4000/esp_llm".into()
-    });
-    let mysql = sqlx::MySqlPool::connect(&mysql_url)
+    // TiDB 单 pool(env=TIDB_DSN)。保留原默认 DSN 字面量(行为不变红线):
+    // 原为 "mysql://root@tidb-primary:4000/esp_llm"(无 :pwd 无 ssl-mode),
+    // 与 esp_common::db::default_write_dsn 的 "mysql://root:@...?ssl-mode=DISABLED" 不同,故不套用默认。
+    let default_dsn = "mysql://root@tidb-primary:4000/esp_llm".to_string();
+    let mysql = esp_common::db::connect("TIDB_DSN", default_dsn, SERVICE_NAME)
         .await
         .expect("tidb esp_llm pool");
 

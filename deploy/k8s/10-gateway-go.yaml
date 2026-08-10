@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: gateway-go
-        image: esp/gateway-go:1.5.0
+        image: esp/gateway-go:1.6.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8080}]
         env:

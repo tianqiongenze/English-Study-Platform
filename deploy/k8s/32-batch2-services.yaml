@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: pronunciation-rs
-        image: esp/pronunciation-rs:0.1.1
+        image: esp/pronunciation-rs:0.2.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8088}]
         env:
@@ -65,7 +65,7 @@ spec:
     spec:
       containers:
       - name: listening-go
-        image: esp/listening-go:0.1.0
+        image: esp/listening-go:0.2.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8089}]
         env:
@@ -105,7 +105,7 @@ spec:
     spec:
       containers:
       - name: assessment-rs
-        image: esp/assessment-rs:0.1.0
+        image: esp/assessment-rs:0.2.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8090}]
         env:
@@ -147,7 +147,7 @@ spec:
     spec:
       containers:
       - name: reading-go
-        image: esp/reading-go:0.1.0
+        image: esp/reading-go:0.2.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8091}]
         env:
@@ -187,7 +187,7 @@ spec:
     spec:
       containers:
       - name: gamification-go
-        image: esp/gamification-go:0.1.0
+        image: esp/gamification-go:0.2.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8092}]
         env:

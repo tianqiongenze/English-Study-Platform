@@ -1,8 +1,7 @@
 # llm-orchestrator-rs(S1, P0)—— LLM 编排网关 + dialogue 子模块
-# 多阶段构建:rust:1.83-bookworm builder + debian:bookworm-slim runtime
+# 多阶段构建:rust:1.88-bookworm builder + debian:bookworm-slim runtime
 # ADR: docs/design/adr-new-services.md / PRD §一 / schema-per-service-phase0.sql esp_llm
-FROM rust:1.88-bookworm AS builder
-WORKDIR /app
+FROM docker.1ms.run/library/rust:1.88-bookworm AS builder
 
 # 国内镜像加速 crates 拉取(首次依赖预热)
 RUN mkdir -p /usr/local/cargo && cat >> /usr/local/cargo/config.toml <<'EOF'
@@ -14,8 +13,12 @@ registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
 git-fetch-with-cli = true
 EOF
 
-COPY Cargo.toml Cargo.lock* ./
-COPY src ./src
+# build context = services/(含 esp-common-rs + llm-orchestrator-rs)
+# Cargo.toml 的 esp-common-rs = { path = "../esp-common-rs" } → 需 /workspace/esp-common-rs
+WORKDIR /workspace/llm-orchestrator-rs
+COPY esp-common-rs /workspace/esp-common-rs
+COPY llm-orchestrator-rs/Cargo.toml Cargo.lock* ./
+COPY llm-orchestrator-rs/src ./src
 RUN cargo build --release
 
 # 运行阶段:debian:bookworm-slim(nonroot)
@@ -24,12 +27,12 @@ RUN cargo build --release
 # - distroless 无 shell,debian-slim 有;体积略大(~80MB vs ~20MB)但可拉取。
 # - 用 useradd 创建非 root 用户 65532,USER 切换,等价 nonroot 安全姿态。
 # ADR-security-scanning §4:对标 gateway-go/course-path-go 0 漏洞基线(运行时基线差异已记录)
-FROM debian:bookworm-slim
+FROM docker.1ms.run/library/debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 65532 -r -s /usr/sbin/nologin nonroot
 WORKDIR /app
-COPY --from=builder /app/target/release/llm-orchestrator-rs /app/llm-orchestrator-rs
+COPY --from=builder /workspace/llm-orchestrator-rs/target/release/llm-orchestrator-rs /app/llm-orchestrator-rs
 EXPOSE 8086
 ENV PORT=8086
 ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317

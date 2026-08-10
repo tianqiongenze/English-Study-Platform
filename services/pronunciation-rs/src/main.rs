@@ -14,7 +14,6 @@ use serde_json::{json, Value};
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing_subscriber::EnvFilter;
 
 const SERVICE_NAME: &str = "pronunciation-rs";
 
@@ -29,24 +28,16 @@ pub struct AppHandle(Arc<AppState>);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .init();
+    esp_common::tracing_init::init(SERVICE_NAME);
 
     let port: u16 = env::var("PORT").unwrap_or_else(|_| "8088".into()).parse()?;
     tracing::info!(%port, "[{}] starting", SERVICE_NAME);
 
-    let write_url = env::var("WRITE_DB_URL").unwrap_or_else(|_| {
-        format!("mysql://root:@tidb-primary:4000/esp_pronunciation?ssl-mode=DISABLED")
-    });
-    let read_url = env::var("READ_DB_URL").unwrap_or_else(|_| {
-        format!("mysql://root:@tidb-follower:4000/esp_pronunciation?ssl-mode=DISABLED")
-    });
+    // 读写分离 pool(env=WRITE_DB_URL/READ_DB_URL,缺省 tidb-primary/follower)
+    let (mysql_write, mysql_read) = esp_common::db::connect_rw("esp_pronunciation", SERVICE_NAME).await?;
 
-    let mysql_write = sqlx::MySqlPool::connect(&write_url).await?;
-    let mysql_read = sqlx::MySqlPool::connect(&read_url).await?;
-    tracing::info!("[{}] TiDB pools ready (write+read)", SERVICE_NAME);
-
+    // redis:保留各服务原语义(env 缺省=不连,返回 None)。esp-common-rs::redisx::connect
+    // 缺省会连 DEFAULT_ADDR,行为不同,故不抽(行为不变红线)。
     let redis = match env::var("REDIS_CLUSTER") {
         Ok(addr) => match redis::cluster::ClusterClient::builder(vec![addr]).build() {
             Ok(client) => client.get_async_connection().await.ok(),

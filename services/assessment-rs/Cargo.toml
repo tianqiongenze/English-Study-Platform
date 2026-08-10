@@ -25,5 +25,8 @@ redis = { version = "0.26", features = ["tokio-comp", "aio", "connection-manager
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# esp 公共库(tracing init / db / redisx / health)
+esp-common-rs = { path = "../esp-common-rs" }
+
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }

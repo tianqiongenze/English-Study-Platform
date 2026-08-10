@@ -6,15 +6,12 @@ use axum::{routing::get, Router};
 use serde_json::json;
 use std::env;
 use std::net::SocketAddr;
-use tracing_subscriber::EnvFilter;
 
 const SERVICE_NAME: &str = "media-learn-rs";
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .init();
+    esp_common::tracing_init::init(SERVICE_NAME);
 
     let port: u16 = env::var("PORT")
         .unwrap_or_else(|_| "8095".into())

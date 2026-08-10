@@ -1,10 +1,12 @@
 # 编译阶段
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
-COPY go.mod ./
+COPY esp-common-go ./esp-common-go
+COPY course-path-go/go.mod ./
 ENV GOPROXY=https://goproxy.cn,direct
+RUN sed -i 's|replace esp/common-go => ../esp-common-go|replace esp/common-go => ./esp-common-go|' go.mod
 RUN go mod download
-COPY src ./src
+COPY course-path-go/src ./src
 RUN go mod tidy && CGO_ENABLED=0 go build -o /out/course-path-go ./src
 
 # 运行阶段

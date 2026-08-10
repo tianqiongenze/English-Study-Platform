@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
       - name: vocab-srs-go
-        image: esp/vocab-srs-go:0.1.0
+        image: esp/vocab-srs-go:0.2.0
         imagePullPolicy: IfNotPresent
         ports:
         - {containerPort: 8087, name: http}

@@ -4,7 +4,80 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-09 会话22-5(git push 闭环 ✅ + H5 部署 ✅ + 改动来源厘清 ✅ + PROGRESS/Redis 双轨落盘)。主线 4 批次进度:**A ArgoCD 3sts drift 收口 ✅**;**B infra Degraded 全修 ✅**;**C 前端补全 ✅(H5 已部署)**;**D 种子续灌+压测摸底 ⏳ pending**;**债1+2 esp-common-go 骨架完成 1/7(listening-go),剩 6 服务待迁移**。Redis 锚点 `esp:ctx:hot:2026-08-09-session22-5-push-h5-deploy`。
+> 更新日期:2026-08-10 会话22-6(债1+2 Go 全迁移 ✅ 7/7 + Rust 全迁移 ✅ 4/4 镜像 build ✅ + apply ✅ 3/4 healthz ✅,media-learn-rs 秒退根因已定位+修复待 rebuild)。主线 4 批次:**A ArgoCD ✅**;**B infra ✅**;**C 前端 ✅**;**D 种子续灌 ⏳(TiKV OOM 风险待解,见下)**;**债1+2 Go 7/7 迁移+部署 ✅、Rust 4/4 迁移+镜像 build+apply ✅(media-learn-rs 待 rebuild)**。Redis 锚点 `esp:ctx:hot:2026-08-10-session22-6-common-pkg-migration`。
+
+## 会话22-6:债1+2 公共包全迁移(Go 7/7 + Rust 4/4)+ 部署验证(2026-08-10,Go ✅ Rust build+apply ✅ healthz 3/4,media-learn-rs 秒退根因已修待 rebuild)
+
+用户指令"自动从 PROGRESS + Redis 恢复,完整完成后续所有任务"。本会话推进债1+2 公共包抽取(原 PROGRESS 记"骨架 1/7"已过时,实际 Go 7 服务 + Rust 4 服务代码均已迁移)。
+
+### ✅ Go 公共包迁移(7/7 编译+部署+healthz 验证)
+- **esp-common-go/go.mod 隐患已不存在**:实际 go.mod 已 `require go.opentelemetry.io/otel v1.36.0`(tracing 包 import otel 已声明,原 PROGRESS 记的"未 require otel"是过时信息)。
+- **7 Go 服务编译验证**(esp-builder,串行 go build):course-path/gateway/gamification/live-tutor/reading/vocab-srs/listening 全 RC=0。workspace 模式通过 go.work 解析 replace。
+- **7 Go 服务镜像 build**(esp-builder,串行,模式⑧ `rdctl shell docker build`,context tar stdin):全 RC=0,镜像 32-59MB。tag:gateway 1.6.0,其余 6 服务 0.2.0。
+- **manifest image tag 同步**:10-gateway-go(1.5.0→1.6.0)/31-new-services(course-path 0.1.0→0.2.0、live-tutor 0.1.0→0.2.0)/32-batch2(listening/reading/gamification 0.1.0→0.2.0)/esp-prod/vocab-srs(0.1.0→0.2.0)。
+- **部署验证**:apply 后 7 服务全 1/1 Running。healthz 集群内互访验证(用 listening-go pod 串行 wget):
+  - course-path-go /actuator/health=200(net/http mux 系,路径 /actuator/health 非 /healthz)
+  - live-tutor-go /actuator/health=200
+  - listening-go /healthz=200(gin 系)
+  - reading-go /healthz=200
+  - gamification-go /healthz=200
+  - vocab-srs-go /healthz=200
+  - gateway-go /healthz=200(NodePort 30080)+ /api/sessions/history=401(JWT 保护,路由存在)
+- **坑①**:course-path-go 首次 rollout 卡 Pending(Scheduled 但容器不创建),删 pod 让 RS 重建后正常(疑似 kubelet 瞬时卡顿,非镜像问题)。
+- **坑②**:live-tutor-go manifest `replicas: 0`(单节点 RD P1 scaffold 待命),HPA min=1 但 replicas=0 致 0 副本。手动 `kubectl scale --replicas=1` 后 startupProbe 通过 1/1。
+- **坑③(健康路径不一致,非 bug)**:net/http mux 系(course-path/live-tutor)注册 `/actuator/health`,gin 系(listening/reading/gamification/vocab-srs)注册 `/healthz`。验证时需对齐各服务实际路径。
+- **坑④(网络诊断弯路)**:host curl pod IP/svc ClusterIP 全 000(RD 单节点 host 不直接路由 pod CIDR/ClusterIP),但 NodePort 30080 可达。集群内 pod 互访正常。验证健康端点必须用集群内 pod 或 NodePort,不能用 host 直连 ClusterIP。
+
+### ✅ Rust 公共包迁移(4/4 编译 ✅ + 镜像 build ✅ + apply ✅ + healthz 3/4 ✅,media-learn-rs 秒退待 rebuild)
+- **esp-common-rs 补 health.rs**:`lib.rs` 声明 `pub mod health` 但缺 `src/health.rs`(cargo build E0583)。补建:health(service_name:&'static str)->Json<Value>({"status":"UP","service":name})、liveness()->Json<Value>({"status":"UP"})。cargo build RC=0。
+- **4 Rust 服务迁移**(esp-builder,串行 cargo build 全 RC=0):
+  | 服务 | 抽取项 | 保留项(不抽原因) |
+  |---|---|---|
+  | pronunciation-rs | tracing_init::init、db::connect_rw("esp_pronunciation") | redis(env 缺省语义差异:原=None 不连,esp-common-rs=连 DEFAULT_ADDR,行为不变红线不抽)、health/liveness(零参 fn axum 兼容,收益低)、readiness(读各自 AppState) |
+  | assessment-rs | tracing_init::init、db::connect_rw("esp_assessment") | 同 pronunciation-rs |
+  | llm-orchestrator-rs | tracing_init::init、redisx::connect_required(REDIS_ADDR/DEFAULT_ADDR)、db::connect("TIDB_DSN",default) | db 默认 DSN(原字面量 `mysql://root@tidb-primary...` 无 :pwd 无 ssl-mode,与 esp-common-rs default_write_dsn 不同,保留原字面量) |
+  | media-learn-rs | tracing_init::init(仅此项,无 db/redis) | health/readiness/liveness 全保留 |
+- **Dockerfile build context 改 services/**:4 服务 Dockerfile 改 `COPY esp-common-rs /workspace/esp-common-rs` + `WORKDIR /workspace/<svc>` + `COPY <svc>/Cargo.toml` + `COPY <svc>/src`,build 时 `tar cf - -C services esp-common-rs <svc> | rdctl shell docker build -f <svc>/Dockerfile -`(模式⑧)。
+- **host ~/.cargo/config.toml 新建**:USTC 镜像(原先不存在,导致首次 cargo build 卡 DNS 解析 index.crates.io)。
+- **镜像 build(✅ 4/4 全成功,串行,模式⑧ RD VM 内 docker)**:
+  | 服务 | tag | RC | 镜像大小 | 失败摘要 |
+  |---|---|---|---|---|
+  | pronunciation-rs | 0.2.0 | 0 | 160MB | OK |
+  | assessment-rs | 0.2.0 | 0 | 160MB | OK |
+  | llm-orchestrator-rs | 0.2.0 | 0 | 164MB | OK(覆盖旧 0.2.0) |
+  | media-learn-rs | 0.2.0 | 0 | 150MB | OK |
+- **坑⑤(Dockerfile WORKDIR/COPY 路径不匹配 path 依赖,首次 pronunciation-rs build 失败)**:Cargo.toml 声明 `esp-common-rs = { path = "../esp-common-rs" }`,原 Dockerfile `WORKDIR /app`+`COPY esp-common-rs ./esp-common-rs` 放到 `/app/esp-common-rs`,cargo 期望相对 WORKDIR 的 `../esp-common-rs` 即 `/esp-common-rs`,找不到 Cargo.toml(E0583 变体:failed to read `/esp-common-rs/Cargo.toml`)。修复:全部 4 个 Dockerfile 统一 `WORKDIR /workspace/<svc>`+`COPY esp-common-rs /workspace/esp-common-rs`,`COPY --from=builder` 二进制路径同步改 `/workspace/<svc>/target/release/<svc>`。
+- **坑⑥(镜像源不统一)**:llm-orchestrator-rs Dockerfile 用裸 `rust:1.88-bookworm`+`debian:bookworm-slim`;media-learn-rs Dockerfile 用 `rust:1.83-bookworm`(版本不对齐)+`gcr.io/distroless/cc-debian12:nonroot`(国内被墙拉取超时)。统一:`docker.1ms.run/library/rust:1.88-bookworm`+`docker.1ms.run/library/debian:bookworm-slim`;media-learn-rs 运行时降级为 debian-slim+useradd nonroot(与其它三个一致)。media-learn-rs 基础镜像 1.83→1.88 对齐。
+- **build 耗时**:首个 pronunciation-rs 首次编译依赖无缓存 ~6min(超 10min host 超时但 RD VM 内 buildkit 继续,cargo 进程退出后镜像已生成);后续 3 个共享 buildkit 缓存层,每个 ~3-4min。严格串行(等前一个 cargo 进程退出再起下一个),RD VM 内存安全。
+- **改动文件**:services/{pronunciation,assessment,llm-orchestrator,media-learn}-rs/Dockerfile 共 4 个。
+
+### ✅ Rust 镜像 apply + healthz 验证(3/4 ✅,media-learn-rs 秒退根因已修待 rebuild)
+- **apply**:4 服务 manifest image tag 已 0.2.0(`32-batch2-services.yaml` pronunciation-rs/assessment-rs targetPort 8088/8090;`31-new-services.yaml` media-learn-rs targetPort 8095 replicas=0 P1;`esp-prod/llm-orchestrator-rs.yaml` port 8086)。apply 后 deploy tag 全部 0.2.0。
+- **healthz 集群内验证(3/4 Running 1/1)**:
+  - assessment-rs 1/1 Running,98m。
+  - pronunciation-rs 1/1 Running,98m。
+  - llm-orchestrator-rs 1/1 Running(重启 5 次,2d2h,旧 pod 沿用)。
+  - listening-go / reading-go / gamification-go / course-path-go 全 1/1 Running。
+- **坑⑦(media-learn-rs CrashLoopBackOff 秒退,Exit Code 0)**:restart=22,CrashLoopBackOff。describe pod:`Last State Terminated Reason=Completed Exit Code=0`(1s 内完成退出),`--previous` 日志空(container 内 tracing 日志走 stdout 但 rdctl shell docker logs 也空)。**根因定位(esp-explorer 子代理 a6d520eb 本地复现确认)**:`services/media-learn-rs/Cargo.toml:11` axum 声明 `axum = "0.7"`(裸版本无 features),而 pronunciation-rs/assessment-rs/llm-orchestrator-rs 均为 `axum = { version = "0.7", features = ["json","tokio","http1"] }`。**axum 0.7 缺 `http1` feature 时 `axum::serve()` future 运行时不阻塞(立即完成),main 走到底退出 Exit 0**,编译期不报错(运行时行为)。本地 `./target/debug/media-learn-rs` 复现:打两行 tracing 日志后 EXIT_CODE=0(非 124 timeout,证明没阻塞)。
+- **修复**:`Cargo.toml:11` 改 `axum = { version = "0.7", features = ["json", "tokio", "http1"] }`,与其它 3 Rust 服务对齐。**待执行**:rebuild 镜像(0.2.0 覆盖)+ media-learn-rs deploy replicas=0(单节点 P1 待命,manifest replicas=0),apply 即可(CrashLoop pod 由 deploy replicas=0 不再起,healthz 不强制要求该 P1 服务 Running)。
+- **坑⑧(K8s API TLS handshake timeout 偶发)**:探查期 `kubectl logs --previous` 多次 TLS handshake timeout(RD 单节点 VM 网络抖动),无法拉线上 previous 日志二次印证。但本地复现已闭合根因链,不依赖线上日志。`kubectl get/describe` 可用,仅 `logs --previous` 偶发超时。
+- **坑⑨(media-learn-rs replicas=0 但 HPA min=1)**:manifest `replicas: 0`(P1 scaffold 待命多节点),HPA `minReplicas: 1`(K8s HPA minReplicas 不允许 0)。deploy replicas=0 时 Pod 不起,HPA 不扩(单节点待命)。此为既定设计,非 bug。
+
+
+- **诊断**:tikv-aws restarts=11,Last State OOMKilled(exit 137)。limit 3Gi,实际用量 2.3GB(76%)逼近。node 内存 30Gi,limits 总和 56Gi(超卖 186%),MemoryPressure=False 但紧。TiDB pod 重启 6 次,tidb 日志见 "get timestamp too slow"(PD 压力)。TiDB 连接持续超时(COUNT 查询 60s 超时)。
+- **种子目标 DB 关键发现**:种子脚本 `TIDB_DB=esp` + `INSERT INTO session_turns`(无库名前缀),即灌 `esp.session_turns`。**但 esp 库现只有 `undo_log` 1 表** → esp.session_turns 被删/库重建过。Redis 断点 ~30M offset 对应的行已不存在。**续灌前必须**:① 重建 esp.session_turns 表(schema.sql L34,AUTO_RANDOM id + idx_session);② 清 Redis 断点(shard:0..15 reset 0)从 0 重灌;或改脚本 TIDB_DB 指向已有该表的库(需核实 esp_learning 是否有)。
+- **TiKV OOM 缓解方案(待执行)**:node 30Gi,可提 tikv-aws limit 3Gi→5Gi(若 node headroom 允许),或 tikv.toml 加 `[storage.block-cache] capacity="1GB"` 限制 rocksdb block-cache。当前 tikv.toml 仅 max-open-files=256,无 block-cache 上限。
+- **决策**:TiKV OOM 未缓解 + esp.session_turns 表缺失,双重阻塞。先完成 Rust 部署,再解 OOM + 重建表,最后续灌。
+- **断点**:Redis `esp:ctx:seed:session_turns:shard:{0..15}` 各 ~189-191万 offset 仍在(总 ~30M committed),status=stopped@2026-08-02。但对应行已不存在,续灌需 reset 断点。
+
+### 下一步(恢复锚点)
+1. **media-learn-rs rebuild 镜像**(0.2.0 覆盖,Cargo.toml 已修 axum http1 feature)+ apply(可选,manifest replicas=0 P1 待命)。模式⑧ `tar cf - -C services esp-common-rs media-learn-rs | rdctl shell docker build -f media-learn-rs/Dockerfile -t esp/media-learn-rs:0.2.0 -`。
+2. **healthz 收尾**:media-learn-rs rebuild 后(若临时 scale=1 验证)healthz /actuator/health=200;3/4 Rust 已 ✅。
+3. D 种子:先解 TiKV OOM(tikv.toml block-cache 或 limit 调优)→ 核实 session_turns 目标 DB(esp 库仅 undo_log,需重建 esp.session_turns 表 schema.sql L34)→ 续灌。**当前 esp.session_turns 表缺失 + TiKV OOM 双阻塞,续灌前必解**。
+4. git commit + push(本次 Go+Rust 迁移 + manifest tag + esp-common-rs + health.rs + 4 Dockerfile 修复 + media-learn-rs Cargo.toml axum http1 修复)。模式⑩ `git -c http.version=HTTP/1.1 push`。
+5. PROGRESS/Redis 双轨落盘(本节 ✅,Redis 锚点见下)。
+
+---
 
 ## 会话22-5:push 闭环 + H5 部署 + 改动来源厘清 + 双轨落盘(2026-08-09,✅)
 
@@ -156,39 +229,39 @@ springdoc 2.6.0/2.8.13 的 `QuerydslPredicateOperationCustomizer` 引用 `org.sp
 
 ---
 
-## 下一步动作(恢复锚点,2026-08-09 会话22-5 后)
+## 下一步动作(恢复锚点,2026-08-10 会话22-6 后)
 
-债3/4 ✅闭环+push(15b5ffc)。C 前端 ✅(H5 已部署)。改动来源厘清 ✅。**当前推进债1+2 公共包抽取 + D 种子压测**。
+债1+2 Go 7/7 ✅(迁移+build+部署+healthz 验证)。Rust 4/4 代码迁移 ✅ + 镜像 build ✅(4/4 RC=0,160/160/164/150MB)。**当前:Rust 镜像 apply + 验证 → 解 TiKV OOM → D 种子 → commit/push**。
 
-### ⏳ 债1+2 公共包抽取(纯重构,行为不变红线)
-**Go(esp-common-go 骨架已完成,1/7)**:
-1. **先修隐患**:`services/esp-common-go/go.mod` 补 `require go.opentelemetry.io/otel`(tracing 包 import 但未声明,迁移前必补,否则编译失败)。
-2. 6 Go 服务迁移(gateway/course-path/reading/gamification/live-tutor/vocab-srs),按 listening-go 模式:go.mod 加 `require+replace esp/common-go`,main.go 改 import config/db/health。
-   - **gateway-go 特殊**:已有未落盘的 sessions/history 改动(已 commit);其 db 是自研 `db.Read`(读写分离+fallback),与 esp-common-go `db.MustConnectDB` 不同层次,不可直接替换,需评估保留自研 db 还是统一。
-3. 每服务 rebuild 镜像 bump 版本,验证 healthz + 核心接口不退化(listening-go 0.1.0→0.2.0)。
+### ⏳ Rust 镜像部署(镜像已 build ✅,可直接 apply)
+1. apply 4 Rust 服务 manifest(image tag 同步 0.2.0:32-batch2 pronunciation-rs 0.1.1→0.2.0 + assessment-rs 0.1.0→0.2.0;31-new media-learn-rs 0.1.0→0.2.0;esp-prod/llm-orchestrator-rs 0.1.0→0.2.0)。**注意 llm-orchestrator 线上已有 0.2.0(旧代码),manifest 落后写 0.1.0,需同步**。
+2. 验证:pronunciation-rs /healthz + /actuator/health/readiness;assessment/llm-orchestrator/media-learn 各自健康路径。
 
-**Rust(esp-common-rs 未建)**:
-4. 建 `services/esp-common-rs/` + root `Cargo.toml` [workspace](4 crate 共享依赖)。抽 db/redis/health/tracing_init;**不抽** error enum(改 HTTP body 契约)。
-5. 4 Rust 服务(pronunciation-rs/assessment-rs/reading?/media-learn-rs/llm-orchestrator-rs)迁移,改 Dockerfile build context(workspace 化),每服务 rebuild 验证。
-6. vocab-srs-go trace 统一(`v-`→OTel propagator)+ llm-orchestrator trace_id 透传统一:**单列评估下游依赖**后再改。
+### ⏳ 债1+2 收尾(已大幅推进)
+- Go 7/7 ✅。Rust 4/4 代码 ✅ + 镜像 build ✅(部署待)。
+- **gateway-go db**:自研 `db.Read`(读写分离+fallback)未替换 esp-common-go `db.MustConnectDB`(不同层次),保留自研。本次 gateway 迁移用了 esp-common-go 的 config/redisx(见 git diff main.go)。
+- **vocab-srs-go trace 统一 + llm-orchestrator trace_id 透传**:单列评估下游依赖后再改(本次未动)。
 
-### ⏳ D:种子续灌 + 压测摸底
-1. 确认 CPU headroom(会话22-5 观察:node CPU 46~65%,learning HPA 抖动,有 headroom 但需监控)。
-2. session_turns 16 分片续灌(目标 300M,当前 50.14M / 16.7%,断点续传,Redis `esp:ctx:seed:session_turns:shard:{0..15}` 存 offset);sessions 补齐 2.42M(当前 47.58M/50M=95.16% suspended@08-04)。
-3. locust 基线压测摸底(单节点铁律:压测机与被测同节点禁,重负载串行,CPU 监控)。
+### ⏳ D:种子续灌 + 压测摸底(TiKV OOM 前置阻塞)
+1. **先解 TiKV OOM**:tikv-aws restarts=11 OOMKilled(limit 3Gi)。评估 tikv.toml block-cache 上限 或 limit 提到 4-5Gi(node 30Gi 内存,node 当前 77% 用量,需先释放或确认 headroom)。
+2. **核实种子目标 DB**:脚本 `TIDB_DB=esp`,但 esp 库现只有 undo_log。历史 30M session_turns 疑在 esp_learning。续灌前必须确认表位置 + 现有行数(TiKV 高压下 COUNT 超时,需轻量查或等稳定)。
+3. session_turns 16 分片续灌(目标 300M,断点 ~30M / Redis `esp:ctx:seed:session_turns:shard:{0..15}`)+ sessions 补齐 + locust 基线压测(单节点铁律:压测机与被测同节点禁)。
 
-**其他主线(非阻塞)**:多级缓存(L1 Caffeine/cachetools/LRU + L2 Redis Cluster + Pulsar 广播失效 + 降级,已落 6 服务)、bff sentinel datasource empty 根因(SCA 版本/dataId)、Python 镜像 base 决策(bookworm 6 CRIT fix=N/A,待用户)、Java/Go/Rust 性能对比报告、Redis announce FQDN 持久化(P1)。
+### ⏳ git commit + push
+本次改动:Go 7 服务迁移(main.go/go.mod/Dockerfile/go.sum)+ esp-common-go/go.mod + Rust 4 服务迁移(main.rs/Cargo.toml/Dockerfile)+ esp-common-rs(新建 health.rs)+ manifest image tag(7 Go + 4 Rust)+ host ~/.cargo/config.toml(不进仓)。模式⑩ push。
 
-**单节点铁律**:重 mvn/docker build 必须与集群操作串行(esp-singlenode-host-cluster-contention);不碰 k3s 配置/restart/pkill/Factory Reset(esp-never-break-k3s);VM 重启/切驱动后必预置 pause 镜像(esp-pause-image-mirror-ironrule);压测机不能与被测同节点。
+**其他主线(非阻塞)**:多级缓存、bff sentinel datasource empty、Python 镜像 base、Java/Go/Rust 性能对比报告、Redis announce FQDN 持久化(P1)。
 
-## 关键部署状态(恢复锚点,2026-08-09 会话22-5 更新)
+**单节点铁律**:重 mvn/docker build 与集群操作串行;不碰 k3s 配置/restart/pkill;VM 重启后必预置 pause 镜像;压测机不能与被测同节点;**TiKV OOM 未解前不跑种子**。
 
-- **镜像**:bff-java **1.7.0**(springdoc+patched)、gateway-go 1.5.1(含 sessions/history)、learning-java **1.7.0**(springdoc)、teacher-java **1.7.0**(springdoc)、writing-py 1.6.1、emotion-svc 1.6.1、writing-coach 1.0.1、frontend-react 1.0.0、**frontend-h5 1.0.0**(会话22-5 部署)、course-path-go 0.1.0、pronunciation-rs 0.1.1、listening-go / assessment-rs / reading-go / gamification-go / live-tutor-go / media-learn-rs 0.1.0、llm-orchestrator-rs 0.1.0。
+## 关键部署状态(恢复锚点,2026-08-10 会话22-6 更新)
+
+- **镜像**:bff-java **1.7.0**、gateway-go **1.6.0**(会话22-6 esp-common-go 迁移)、learning-java **1.7.0**、teacher-java **1.7.0**、writing-py 1.6.1、emotion-svc 1.6.1、writing-coach 1.0.1、frontend-react 1.0.0、frontend-h5 1.0.0、**course-path-go 0.2.0、listening-go 0.2.0、reading-go 0.2.0、gamification-go 0.2.0、live-tutor-go 0.2.0、vocab-srs-go 0.2.0**(会话22-6 Go 7/7 迁移+部署)、**pronunciation-rs 0.2.0(160MB)、assessment-rs 0.2.0(160MB)、llm-orchestrator-rs 0.2.0(164MB)、media-learn-rs 0.2.0(150MB)**(会话22-6 Rust 4/4 迁移+镜像 build ✅,待 apply)。
 - **中间件**:nacos v2.4.3 / seata 2.2.0 / sentinel 1.8.9。
-- **NodePort**:gateway-go 30080、frontend-react 30090、**frontend-h5 30091**(会话22-5)。
-- **基础设施复用** ns `ekb-m2-aws-us-east-1`,ExternalName 短名 `tidb-primary`/`tidb-follower`/`redis-cluster`/`pulsar-broker`。Redis Cluster 实际 `redis-cluster-new-{0..5}.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379`(3主3从)。TiDB `tidb-primary:4000` root 无密码,11 DB/29 表。
-- **infra(B 批次后)**:tiflash v8.5.5 1/1 Running;tikv-aws Recreate 1/1 Running;tikv-azure/gcp Running(strategy=Recreate);redis-cluster-new 6/6 Running cluster_state:ok。
-- **ArgoCD**:app `esp-platform`(deploy/k8s,GitHub 私有仓,automated prune=false selfHeal=true ServerSideApply),ignoreDifferences 已加(commit 120c15f)。**会话22-5 状态**:sync=OutOfSync(仅 pulsar-bk/pulsar-zk/redis-cluster-new 3 sts,待 GitHub 网络稳定自愈)+ health=Degraded(ComparisonError repo-server 拉 GitHub 抖动,host curl=401 网络通,模式⑨勿重启)。esp-prod 全业务 deploy 实测 Running。
+- **NodePort**:gateway-go 30080、frontend-react 30090、frontend-h5 30091。
+- **基础设施复用** ns `ekb-m2-aws-us-east-1`,ExternalName 短名 `tidb-primary`/`tidb-follower`/`redis-cluster`/`pulsar-broker`。Redis Cluster 实际 `redis-cluster-new-{0..5}...:6379`(3主3从)。TiDB `tidb-primary:4000` root 无密码,**注意 esp 库现只有 undo_log(1 表);session_turns 种子目标 DB 待核实(疑 esp_learning)**。
+- **infra(会话22-6 观察)**:tiflash v8.5.5 Running;tikv-aws **OOMKilled restarts=11**(limit 3Gi,用量逼近,见 D 批次暂缓原因);tidb-cluster-tidb restarts=6("get timestamp too slow" PD 压力);redis-cluster-new 6/6 cluster_state:ok。**TiKV OOM 未解前不跑种子**。
+- **ArgoCD**:OutOfSync/Degraded(3 sts OOS + repo-server 拉 GitHub 抖动,模式⑨待自愈,非阻塞)。esp-prod 全业务 deploy 实测 Running(7 Go 服务 1/1)。
 
 ## 关键命令速查
 

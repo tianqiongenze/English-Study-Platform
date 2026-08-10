@@ -8,33 +8,29 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
+	"esp/common-go/config"
+	"esp/common-go/health"
+	"esp/common-go/redisx"
+	"esp/common-go/tracing"
 )
 
 const serviceName = "course-path-go"
 
 func main() {
-	port := getenv("PORT", "8093")
+	port := config.Getenv("PORT", "8093")
 	log.Printf("[%s] starting on :%s", serviceName, port)
 
 	// OTel:仅初始化 propagator(完整 exporter 待接入 esp-observability)
-	otel.SetTextMapPropagator(propagation.TraceContext{})
+	tracing.InitPropagator()
 
 	// Redis Cluster(路径状态缓存 esp:path:{user_id})
-	redisAddr := getenv("REDIS_CLUSTER", "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379")
-	rdb := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs:    []string{redisAddr},
-		PoolSize: 16,
-	})
+	rdb := redisx.MustNewCluster(config.Getenv("REDIS_CLUSTER", ""), serviceName)
 	_ = rdb // scaffold:路径缓存待实装
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/actuator/health", health)
+	mux.HandleFunc("/actuator/health", health.StdHealthz(serviceName))
 	mux.HandleFunc("/actuator/health/readiness", readiness)
 	mux.HandleFunc("/actuator/health/liveness", liveness)
 	mux.HandleFunc("/api/path/generate", generatePath)     // 首登生成路径(桩)
@@ -51,9 +47,6 @@ func main() {
 	}
 }
 
-func health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]any{"status": "UP", "service": serviceName})
-}
 func readiness(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, map[string]any{"status": "UP"})
 }
@@ -92,8 +85,6 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func getenv(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
+	// 已迁移至 esp/common-go/config.Getenv(会话22-3 债1+2)。保留空壳避免外部引用断裂。
+	return config.Getenv(k, d)
 }

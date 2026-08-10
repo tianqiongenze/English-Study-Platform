@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: esp-schema-init
+  namespace: esp-prod
+spec:
+  restartPolicy: Never
+  containers:
+  - name: init
+    image: python:3.12-slim
+    command: ["bash", "-lc"]
+    args:
+    - "pip install -q -i https://pypi.tuna.tsinghua.edu.cn/simple pymysql && python3 /scripts/apply.py"
+    volumeMounts:
+    - name: schema
+      mountPath: /schema
+    - name: scripts
+      mountPath: /scripts
+  volumes:
+  - name: schema
+    configMap:
+      name: esp-schema-sql
+  - name: scripts
+    configMap:
+      name: esp-apply-schema

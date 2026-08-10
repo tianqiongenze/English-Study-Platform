@@ -4,7 +4,39 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-10 会话22-6(债1+2 Go 全迁移 ✅ 7/7 + Rust 全迁移 ✅ 4/4 镜像 build ✅ + apply ✅ 3/4 healthz ✅,media-learn-rs 秒退根因已定位+修复待 rebuild)。主线 4 批次:**A ArgoCD ✅**;**B infra ✅**;**C 前端 ✅**;**D 种子续灌 ⏳(TiKV OOM 风险待解,见下)**;**债1+2 Go 7/7 迁移+部署 ✅、Rust 4/4 迁移+镜像 build+apply ✅(media-learn-rs 待 rebuild)**。Redis 锚点 `esp:ctx:hot:2026-08-10-session22-6-common-pkg-migration`。
+> 更新日期:2026-08-11 会话22-7(media-learn-rs rebuild ✅ 4/4 Rust 闭环 + TiKV block-cache apply ✅ + D 种子续灌启动 ⏳)。主线 4 批次:**A ArgoCD ✅**;**B infra ✅**;**C 前端 ✅**;**D 种子续灌 ⏳(seed-3b Job 运行中:users 1M ✅/scenarios 1万 ✅/kp 1万 ✅/sessions 50M 灌中;session_turns baseline 14M 待追加)**。Redis 锚点 `esp:ctx:hot:2026-08-11-session22-7-media-rebuild-seed-resume`。
+
+## 会话22-7:media-learn-rs rebuild 闭环 + TiKV block-cache apply + D 种子续灌启动(2026-08-11)
+
+用户指令"自动从 PROGRESS + Redis 恢复,完整完成后续所有任务"。本会话恢复会话22-6/22-7 被 k3s OOM 雪崩打断的 media-learn-rs rebuild + 推进 D 种子续灌。
+
+### ✅ media-learn-rs rebuild 4/4 Rust 闭环(根因:fingerprint 缓存命中 dummy main)
+- **根因(最终确认)**:之前坏镜像(0.2.0/0.2.1)binary 仅 445KB,`strings` 查 `esp_common` 符号=0、`axum::serve`=0 → build 时 cargo fingerprint 缓存命中 dummy `echo "fn main(){}" > src/main.rs` 预热层,真实 src COPY 后 cargo 认为无变化不重编(`Finished in 0.29s`)。binary 是 dummy main(空 binary),运行立即 exit 0(秒退)。axum http1 feature 是必要条件但非充分(之前误判为唯一根因)。
+- **修复(Dockerfile L24-26)**:`COPY media-learn-rs/src ./src` 后加 `RUN touch src/main.rs && cargo build --release`(touch 强制 fingerprint 失效,确保编译真实代码)。
+- **rebuild(复用 buildkit 缓存,不用 --no-cache 防再次 OOM)**:`tar --exclude='*/target' --exclude='*/.cargo' -cf - -C services esp-common-rs media-learn-rs | rdctl shell docker build -f media-learn-rs/Dockerfile -t esp/media-learn-rs:0.2.0 -`。RC=0,`#14 Compiling media-learn-rs + Finished release in 9.83s`(真实编译)。
+- **验证(镜像可用 ✅)**:新 0.2.0 image ID=459beaa7624a,binary md5=e8c4a2c8cc68ecf3a0a1677479814564(3.0MB,非 dummy 445KB)。`strings` 查 `esp_common`=20、`axum::serve`=1(含真实代码)。`docker run` 输出 `[media-learn-rs] tracing initialized` + `starting on :8095`,被 timeout SIGKILL(exit 137)→ 阻塞运行 ✅,非秒退。
+- **坑⑱(dummy main fingerprint 缓存命中)**:Dockerfile 哑编译预热层(`echo "fn main(){}" > src/main.rs && cargo build`)的 cargo fingerprint 在真实 src COPY 后仍命中(0.29s Finished),导致 binary 是 dummy 空程序。**解法**:COPY 真实 src 后 `touch src/main.rs` 强制 fingerprint 失效。此坑适用于所有用 dummy main 预热依赖层的 Rust Dockerfile。
+- **4/4 Rust 状态**:manifest 全 0.2.0。pronunciation-rs/assessment-rs/llm-orchestrator-rs/media-learn-rs deploy replicas=0(P1 待命,OOM 雪崩时全业务 scale 0 腾内存,未拉回)。镜像就绪,healthz 在会话22-6 已验证 3/4(media-learn-rs P1 replicas=0 待命)。
+
+### ✅ TiKV block-cache apply(防 OOM)
+- `07-tidb-tikv.yaml` 三 region tikv-config ConfigMap 加 `[storage.block-cache] capacity = "1GB"`(未提交 diff,本会话 apply)。apply RC=0,ConfigMap unchanged(已被会话22-7 雪崩前 apply 过)。tikv-aws pod(35m 前起)已挂载含 block-cache 的 config,内存 2.09G(limit 3Gi,block-cache 1G 已约束)。tikv-aws restart=0(雪崩后稳定 62m)。
+- **注**:tikv-azure/tikv-gcp deploy 在单节点 RD 仅 tikv-aws 1 副本(azure/gcp region 无节点不调度),非 bug。
+
+### ⏳ D 种子续灌启动(esp-seed-3b Job unsuspend)
+- **现状厘清(过时信息纠正)**:PROGRESS 会话22-6 记"esp.session_turns 表缺失"已过时 —— esp 库 22 表全在(esp-schema-init pod 51m 前 Completed 建表,21 stmts 2 warns)。session_turns baseline=14,131,178 行(之前分片灌的),sessions=0,users=0,learning_events=0。
+- **Redis 断点已清空**:`esp:ctx:seed:session_turns:shard:*` 全 6 节点 SCAN=0(雪崩/重建 cluster 时丢失)。`esp:ctx:seed-progress`/`esp:ctx:seed-status` 也无。→ 续灌从 baseline 重新起。
+- **seed_3b.py 定位(厘清)**:非"30亿总入口",是"全 12 表百万~亿级断点续灌入口"。TARGETS:users 1M/scenarios 1万/sessions 50M/session_turns 追加到 50M/kp 1万/user_mastery 5M/learning_events 100M/writing_tasks 20M/lesson_plans 1M/classes 50万/assignments 5M/submissions 10M。单进程串行,BATCH=5000,RobustCursor 重连重试。baseline 用 information_schema.TABLE_ROWS 估算。
+- **30亿 learning_events**:专用 `seed/seed_learning_events.py` 分片版(默认 target 3,000,000,000,16 分片),非 seed_3b。单节点现实不可行,按 README"如实记录已灌 N 行"。
+- **启动**:esp-seed-3b Job(原 suspend=true)patch suspend=false → pod esp-seed-3b-nc9l9 Running。baseline 正确识别 session_turns 14M。顺序灌:users(1M)✅ → scenarios(1万)✅ → kp(1万)✅ → sessions(50M)⏳灌中 → session_turns(+36M)→ user_mastery(5M)→ learning_events(100M)→ ... → submissions(10M)。
+- **坑⑲(seed-3b Redis 进度写入失败,非阻塞)**:seed_3b.py 用 redis-py ClusterClient 连 redis-cluster ExternalName → redis-cluster-new headless。CLUSTER SLOTS 返回节点地址为 pod 短名 `redis-cluster-new-2.redis-cluster-new`(无 ns 后缀),esp-prod ns 内解析失败 → `push_progress` warn `16020 redis-cluster-new-2.redis-cluster-new:6379`。**仅影响 Redis 进度记录,TiDB 灌种主路径不受影响**(RobustCursor 直连 tidb-primary)。断点续灌改用 information_schema.TABLE_ROWS baseline(seed_3b 自带),不依赖 Redis。后续若需 Redis 进度,需修 redis cluster nodes.conf 用 FQDN(关联 [[esp-redis-cluster-nodes-conf-stale-ip]])。
+- **单节点资源**:内存 24.3G/30G used,4.7G available。seed-3b 单 pod(cpu 500m-2,mem 512Mi-2Gi)+ TiKV/PD/TiDB + infra,够用。业务 deploy 全 scale 0(OOM 雪崩时腾内存),不拉回(省内存给种子),待 D 完成或下会话恢复。
+
+### 下一步(恢复锚点)
+1. **seed-3b 继续跑**(sessions 50M → session_turns +36M → ... → submissions 10M)。Monitor 跟踪表级进度。单进程串行,预估数小时。达合理停点(如 learning_events 100M 完成)记录进度。
+2. **learning_events 30亿**:seed-3b 完成 100M 后,评估是否启动 `seed_learning_events.py` 分片版(16 分片 × 1 worker,单节点 TiDB 止血配置)。单节点 30亿现实不可行,按 README 记录已灌量。
+3. **业务服务恢复**:D 种子完成后,scale 回 P0 服务(gateway-go/learning-java/bff-java/teacher-java/pronunciation-rs 等),验证 healthz。
+4. **PROGRESS/Redis 双轨落盘**:本节 ✅ PROGRESS;Redis 锚点待写(esp:ctx:hot:2026-08-11-session22-7-*)。
+5. **git commit + push**:未提交改动(07-tidb-tikv block-cache / media-learn-rs Dockerfile touch fix / Cargo.lock / _schema-init-pod.yaml / PROGRESS),模式⑩ push。
 
 ## 会话22-6:债1+2 公共包全迁移(Go 7/7 + Rust 4/4)+ 部署验证(2026-08-10,Go ✅ Rust build+apply ✅ healthz 3/4,media-learn-rs 秒退根因已修待 rebuild)
 
@@ -70,12 +102,23 @@
 - **决策**:TiKV OOM 未缓解 + esp.session_turns 表缺失,双重阻塞。先完成 Rust 部署,再解 OOM + 重建表,最后续灌。
 - **断点**:Redis `esp:ctx:seed:session_turns:shard:{0..15}` 各 ~189-191万 offset 仍在(总 ~30M committed),status=stopped@2026-08-02。但对应行已不存在,续灌需 reset 断点。
 
-### 下一步(恢复锚点)
-1. **media-learn-rs rebuild 镜像**(0.2.0 覆盖,Cargo.toml 已修 axum http1 feature)+ apply(可选,manifest replicas=0 P1 待命)。模式⑧ `tar cf - -C services esp-common-rs media-learn-rs | rdctl shell docker build -f media-learn-rs/Dockerfile -t esp/media-learn-rs:0.2.0 -`。
-2. **healthz 收尾**:media-learn-rs rebuild 后(若临时 scale=1 验证)healthz /actuator/health=200;3/4 Rust 已 ✅。
-3. D 种子:先解 TiKV OOM(tikv.toml block-cache 或 limit 调优)→ 核实 session_turns 目标 DB(esp 库仅 undo_log,需重建 esp.session_turns 表 schema.sql L34)→ 续灌。**当前 esp.session_turns 表缺失 + TiKV OOM 双阻塞,续灌前必解**。
-4. git commit + push(本次 Go+Rust 迁移 + manifest tag + esp-common-rs + health.rs + 4 Dockerfile 修复 + media-learn-rs Cargo.toml axum http1 修复)。模式⑩ `git -c http.version=HTTP/1.1 push`。
-5. PROGRESS/Redis 双轨落盘(本节 ✅,Redis 锚点见下)。
+### ✅ git commit + push(842351e,会话22-6)
+- **commit 842351e**:`feat(会话22-6): 债1+2 公共包全迁移 Go7/7 + Rust4/4 + 部署验证`,59 files / 12234 insertions。含:esp-common-go(5 包)+ esp-common-rs(4 模块+health.rs)+ 7 Go 服务迁移 + 4 Rust 服务迁移 + 4 Rust Dockerfile 修复(镜像源统一/WORKDIR 路径)+ media-learn-rs Cargo.toml axum http1 修复 + manifest image tag 同步(10-gateway/31-new/32-batch2/esp-prod/vocab-srs/llm-orchestrator)+ 各服务 go.mod/Cargo.toml + Dockerfile。
+- **push(模式⑩)**:`git -c http.version=HTTP/1.1 push origin master` 绕 HTTP/2 framing,`15b5ffc..842351e master -> master` ✅。origin/master HEAD=842351e 已确认。
+- **坑⑩(buildkit -f 路径)**:`tar cf - -C services ... | docker build -f services/media-learn-rs/Dockerfile` 失败 `open services/media-learn-rs/Dockerfile: no such file`。buildkit 的 `-f` 相对 build context(root=services/),应为 `-f media-learn-rs/Dockerfile`。修正后 build6 成功启动。
+- **坑⑪(buildkit 缓存掩盖 Cargo.toml fix)**:首次 rebuild 用 `--no-cache` 但 buildkit 仍命中旧 layer(md5 0.2.0==0.2.1 binary 一致)。根因:Dockerfile `COPY media-learn-rs/Cargo.toml ./` 不含 Cargo.lock,Cargo.toml features 改动不 bust 缓存。修复:Dockerfile L19 改 `COPY media-learn-rs/Cargo.toml Cargo.lock* ./`(Cargo.lock 变更触发缓存失效,与 pronunciation-rs Dockerfile 对齐)。
+- **坑⑫(tar 传 target/ 致 context 2.3G,buildkit 卡 "load remote build context")**:`tar cf - -C services esp-common-rs media-learn-rs` 把 `esp-common-rs/target`(838M)+ `media-learn-rs/target`(1.5G)=2.3G 传进 build context,buildkit `#1 load remote build context` 卡 14min+ 不动。修复:`tar --exclude=target` 排除两个 target 目录(context 降到 ~2MB),build7 立即进入编译阶段。**模式⑧ build context 必须排除 target 目录**。
+- **坑⑬(stage-1 apt-get 撞 deb.debian.org 网络抖动 exit 100)**:build7 `--no-cache` 重跑 stage-1 apt-get,deb.debian.org 在 RD VM 内 14min 才 Fetched 216kB 后 `Connection timed out [IP: 151.101.90.132 80]`,exit 100。其它 3 Rust 服务 apt 层有缓存未撞此问题。修复:Dockerfile stage-1 加 `sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g'` 换 USTC 镜像源(兼容 sources.list.d/debian.sources 与 sources.list)。
+- **坑⑭(Cargo.lock 未随 Cargo.toml features 更新,bust 缓存失效)**:改 `Cargo.toml` axum features 后 `Cargo.lock`(05:39)比 `Cargo.toml`(11:03)旧,features 改动未触发 lock 更新 → `COPY Cargo.toml Cargo.lock*` 的 lock 内容不变 → 坑⑪ 的 bust 缓存策略失效。修复:`cargo update -p axum` 重新生成 lock(3 insertions/3 deletions),配合 `--no-cache` 双保险确保 builder 用新 Cargo.toml(http1 feature)重编。
+- **坑⑮(buildkit --no-cache 仍用旧 builder 缓存,binary md5 不变)**:build8 `--no-cache` 日志显示 "Compiling media-learn-rs + Finished release",但镜像内 binary md5 仍为旧值 `69a7f71ba8c6fe5c3db24e62aeec8f0c`(秒退 exit 0)。本地 clean build 产物 md5=`0499532703e04c6ae3e9751614dca455`(darwin/arm64,RUNNING ✅)。诊断:build9 在 Dockerfile 加 `RUN grep "axum" Cargo.toml` 确认 build context 里 Cargo.toml **含 http1**(grep 输出 `axum = { version = "0.7", features = ["json", "tokio", "http1"] }`),且 `docker builder prune -af` 清了 buildkit 缓存后全量重下 axum v0.7.9。根因待 build9 完成确认(若仍秒退则根因非 http1)。
+- **坑⑯(RD VM 资源耗尽→Stopped,ssh reset + k3s 6443 refused)**:build9 全量编译(清缓存后重下所有依赖)+ 之前 dead 容器清理卡顿 + learning-java/bff-java CrashLoop(otel 连接超时连锁)把 RD VM 压垮。`rdctl shell` ssh `kex_exchange_identification: Connection reset`,`kubectl get nodes` `connection refused 127.0.0.1:6443`。进一步恶化:VM 状态变 **Stopped**(非仅资源耗尽,VM 崩溃停止)。**单节点铁律:不 restart k3s/pkill/Factory Reset**。执行 `rdctl start` 重启 VM(QEMU PID 61457 重启,668% CPU boot 中)。**VM 重启铁律:启动后必预置 pause 镜像(registry.k8s.io/pause:3.9),否则 sandbox 建不起来全集群瘫**。Monitor `brqsyy6tc` 探活 k3s Ready。
+
+### 坑⑰(k3s-server OOM 雪崩,会话22-7)— 单节点铁律再印证
+- **现象**:media-learn-rs `--no-cache` rebuild(cargo 全量编译 + apt + buildkit)叠加 TiKV OOM 重启 + 全量 pod 重拉,VM load 飙至 378,内存 27G/30G。k3s-server graceful shutdown(apiserver 6443 listener 消失)。
+- **根因**:单节点 VM 内 cargo 全量编译(无缓存)+ TiKV 3 副本 + 全量 esp-prod 业务 pod + observability 栈抢同一份 30G 内存/CPU。
+- **恢复(非我操作 k3s)**:k3s 由 RD supervise-daemon 管理,自动 `rc-service k3s start` → reload airgap images → k3s-server 重启 → 6443 恢复 → node Ready。**全程未碰 k3s 配置/restart/pkill(铁律遵守)**,只 kill 自己起的 cargo/docker build。业务 deploy 全 scale 0 腾内存(会话22-7 未拉回,本会话22-7 亦保持 0 省 内存给种子)。
+- **教训**:单节点 `--no-cache` 全量 Rust rebuild 是 OOM 雪崩触发器。后续 rebuild 优先复用 buildkit 缓存(不用 `--no-cache`),或先 scale down 非 P0 服务腾内存。关联 [[esp-singlenode-host-cluster-contention]] [[esp-never-break-k3s]]。
+- **坑⑩~⑯(buildkit 缓存/路径/apt 镜像源/Cargo.lock 一系列坑)**:会话22-6 rebuild 期踩的 buildkit `-f` context 相对路径、`--no-cache` 仍命中旧 builder 缓存、apt deb.debian.org 网络抖动 exit 100(改 USTC 镜像源)、Cargo.lock 未随 Cargo.toml features 更新致 bust 缓存失效、tar 传 target/ 致 context 2.3G 卡 buildkit(必排除 target)、RD VM 资源耗尽 Stopped。详见 archive(会话22-6 坑链)。**最终根因是坑⑱ fingerprint(见本会话22-7 节),非 http1。**
 
 ---
 

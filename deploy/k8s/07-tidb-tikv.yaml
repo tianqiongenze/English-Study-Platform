@@ -238,6 +238,8 @@ data:
     max-open-files = 256
     [server]
     status-port = 20180
+    [storage.block-cache]
+    capacity = "1GB"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -250,6 +252,8 @@ data:
     max-open-files = 256
     [server]
     status-port = 20180
+    [storage.block-cache]
+    capacity = "1GB"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -262,6 +266,8 @@ data:
     max-open-files = 256
     [server]
     status-port = 20180
+    [storage.block-cache]
+    capacity = "1GB"
 ---
 # ============ Services: TiKV ============
 apiVersion: v1

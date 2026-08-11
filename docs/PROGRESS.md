@@ -4,19 +4,20 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-11 会话22-8(D 种子补灌 v2 ⏳ session_turns 19M/50M,sessions 50M ✅ 补灌完成)。主线 4 批次:**A ArgoCD ✅**;**B infra ✅**;**C 前端 ✅**;**D 种子首轮 ✅ / 补灌 v2 ⏳**。seed-3b Job v2(带节流)`esp-seed-3b-6w5db` Running:✅ sessions 49.57M/50M(补灌完成,首轮 13.55M→50M);⏳ session_turns 18.97M/50M(+4.8M);⬜ learning_events 31.14M/100M(待补 +68.86M)。**坑㉑已修**:seed_3b.py 加 THROTTLE_SLEEP=0.3s/批 + 重试4→6次(退避5s),针对 TiKV 单节点 region/safe-ts gap + Information schema out of date。Redis 锚点 `esp:ctx:hot:2026-08-11-session22-8-seed-monitor`。会话22-7 锚点 `esp:ctx:hot:2026-08-11-session22-7-media-rebuild-seed-resume`。
+> 更新日期:2026-08-11 会话22-8(D 种子补灌 v2 ⏳ session_turns 33.6M/50M,sessions 50M ✅ 补灌完成)。主线 4 批次:**A ArgoCD ✅**;**B infra ✅**;**C 前端 ✅**;**D 种子首轮 ✅ / 补灌 v2 ⏳**。seed-3b Job v2(带节流)`esp-seed-3b-6w5db` Running(160m):✅ sessions 49.57M/50M(补灌完成);⏳ session_turns 33.6M/50M(+19.5M,缺 ~16.4M);⬜ learning_events 31.14M/100M(待补 +68.86M)。**坑㉑已修**:seed_3b.py 加 THROTTLE_SLEEP=0.3s/批 + 重试4→6次(退避5s),v2 全程无 ERR。Redis 锚点 `esp:ctx:hot:2026-08-11-session22-8-seed-monitor`。会话22-7 锚点 `esp:ctx:hot:2026-08-11-session22-7-media-rebuild-seed-resume`。git `9d90bdc` 已 push(c3be0a0..9d90bdc)。
 
 ## 会话22-8:D 种子补灌 v2(带节流防 ERR)+ 双轨落盘(2026-08-11,sessions ✅ 补完,session_turns ⏳)
 
 用户指令"自动从 PROGRESS + Redis 恢复,完整完成后续所有任务"+"立即落盘 PROGRESS + Redis 使上下文溢出后能完整恢复"+"完整完成后续所有任务(可并行则并行)"。本会话从会话22-7 恢复,监控 seed-3b 首轮完成→诊断补灌 ERR→修脚本加节流→v2 补灌进行中。
 
 ### 现状(补灌 v2 实时,2026-08-11 实查)
-- **Job v2 pod**:`esp-seed-3b-6w5db`(Job `esp-seed-3b` 重建)Running。Monitor `bzadt8nbt`(120s 轮询,persistent)。
+- **Job v2 pod**:`esp-seed-3b-6w5db`(Job `esp-seed-3b` 重建)Running,160m+。Monitor `bzadt8nbt`(120s 轮询,persistent)。
 - **3 表补灌进度**(information_schema 实查):
   - ✅ **sessions 49,565,000/50M** —— 首轮 13.55M → v2 delta +36.4M 补灌完成(节流后稳定无 ERR)。
-  - ⏳ **session_turns 18,969,685/50M** —— 首轮 14.13M → v2 delta +4.8M(进行中,缺 ~31M)。
-  - ⬜ **learning_events 31,140,000/100M** —— 排队待补(缺 ~68.86M)。
+  - ⏳ **session_turns 33,599,685/50M** —— 首轮 14.13M → v2 delta +19.5M(进行中,缺 ~16.4M)。
+  - ⬜ **learning_events 31,140,000/100M** —— 排队待补(缺 ~68.86M,最长表预估 ~10h+)。
 - **达标表(9,首轮已完成)**:users 1M / scenarios 1万 / kp 1万 / user_mastery 5.02M / writing_tasks 20M / lesson_plans 1.01M / classes 50万 / assignments 5.03M / submissions ~10M。
+- **v2 速率**:session_turns ~4万行/120s(~2万/min),节流后稳定。session_turns 剩 ~16.4M 预估 ~14h;learning_events +68.86M 预估 ~57h(最长表)。
 
 ### 坑㉑(TiKV 单节点 region 压力致补灌 ERR 中断)— 会话22-8 新增
 - **现象**:补灌 v1(无节流)在 learning_events 表 ERR 中断:`(8027, Information schema is out of date: schema failed to update in 1 lease)` + `(9005, Region is unavailable)`,RobustCursor 4 次重连仍失败,被 except 捕获跳过。final_counts: sessions 27.67M / session_turns 17.8M / learning_events 31.14M(均未达标)。

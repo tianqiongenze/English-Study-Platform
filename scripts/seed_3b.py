@@ -70,6 +70,9 @@ ORDER = ["users","scenarios","knowledge_points","sessions","session_turns",
          "classes","assignments","submissions"]
 
 BATCH = 5000  # 每批行数
+# 批间节流(坑⑳/坑㉑:TiKV 单节点 region/safe-ts gap 过大 + Information schema out of date 致 ERR 中断)。
+# 大表(learning_events 100M)批量写入压垮单 TiKV region 调度,间歇 sleep 让 PD/TiKV 追平 lease。
+THROTTLE_SLEEP = float(__import__('os').environ.get('SEED_THROTTLE', '0.3'))  # 每批后 sleep 秒,默认 0.3
 
 # ---------- 数据生成器(轻量,避免内存爆炸) ----------
 FIRST_NAMES = ["Alex","Sam","Jordan","Taylor","Morgan","Riley","Casey","Jamie","Avery","Quinn",
@@ -138,16 +141,20 @@ class RobustCursor:
         self.cur = self.c.cursor()
     def _with_retry(self, op, *args):
         last=None
-        for i in range(4):
+        for i in range(6):  # 坑㉑:4 次→6 次重试,退避加长(单 TiKV region 恢复慢)
             try:
                 return getattr(self.cur, op)(*args)
             except (pymysql.OperationalError, pymysql.InterfaceError) as e:
-                last=e; wait=3*(i+1)
+                last=e; wait=5*(i+1)
                 print(f"[warn] conn lost on {op} ({e!r}), reconnect retry {i+1}/4 after {wait}s", flush=True)
                 time.sleep(wait); self._reconnect()
         raise last
     def executemany(self, sql, batch):
-        return self._with_retry("executemany", sql, batch)
+        r=self._with_retry("executemany", sql, batch)
+        # 坑㉑:批后节流,给单 TiKV region/PD lease 追平时间,降低 schema-out-of-date/region-unavailable
+        if THROTTLE_SLEEP > 0:
+            time.sleep(THROTTLE_SLEEP)
+        return r
     def execute(self, sql, args=None):
         return self._with_retry("execute", sql, args)
     def fetchone(self):

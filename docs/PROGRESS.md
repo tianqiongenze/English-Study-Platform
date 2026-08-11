@@ -4,45 +4,63 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-11 会话22-8(D 种子首轮 ✅ Completed,补灌阶段 ⏳)。主线 4 批次:**A ArgoCD ✅**;**B infra ✅**;**C 前端 ✅**;**D 种子首轮 ✅ / 补灌 ⏳**。seed-3b pod `esp-seed-3b-nc9l9` **Completed**(7h32m,elapsed 26434s)。12 表最终行数(information_schema + 脚本 final_counts):✅ users 1M / scenarios 1万 / kp 1万 / user_mastery 5.02M / writing_tasks 20.0M / lesson_plans 1.01M / classes 50万 / assignments 5.03M / submissions 9.87-10.08M;⚠️ **sessions 13.55M/50M(缺36.4M)+ session_turns 14.13M/50M(缺35.9M)+ learning_events 31.14M/100M(缺68.86M)待补灌**。Redis 锚点 `esp:ctx:hot:2026-08-11-session22-8-seed-monitor`。会话22-7 锚点 `esp:ctx:hot:2026-08-11-session22-7-media-rebuild-seed-resume`。
+> 更新日期:2026-08-11 会话22-8(D 种子补灌 v2 ⏳ session_turns 19M/50M,sessions 50M ✅ 补灌完成)。主线 4 批次:**A ArgoCD ✅**;**B infra ✅**;**C 前端 ✅**;**D 种子首轮 ✅ / 补灌 v2 ⏳**。seed-3b Job v2(带节流)`esp-seed-3b-6w5db` Running:✅ sessions 49.57M/50M(补灌完成,首轮 13.55M→50M);⏳ session_turns 18.97M/50M(+4.8M);⬜ learning_events 31.14M/100M(待补 +68.86M)。**坑㉑已修**:seed_3b.py 加 THROTTLE_SLEEP=0.3s/批 + 重试4→6次(退避5s),针对 TiKV 单节点 region/safe-ts gap + Information schema out of date。Redis 锚点 `esp:ctx:hot:2026-08-11-session22-8-seed-monitor`。会话22-7 锚点 `esp:ctx:hot:2026-08-11-session22-7-media-rebuild-seed-resume`。
 
-## 会话22-8:D 种子首轮完成 + 双轨落盘 + 补灌阶段(2026-08-11,seed-3b ✅ Completed)
+## 会话22-8:D 种子补灌 v2(带节流防 ERR)+ 双轨落盘(2026-08-11,sessions ✅ 补完,session_turns ⏳)
 
-用户指令"自动从 PROGRESS + Redis 恢复,完整完成后续所有任务"+"立即将所有会话记录/任务执行/问题/方案/现状落盘 PROGRESS + Redis,使上下文溢出后能完整恢复"。本会话从会话22-7 恢复,监控 seed-3b 首轮灌装至完成,并落盘。
+用户指令"自动从 PROGRESS + Redis 恢复,完整完成后续所有任务"+"立即落盘 PROGRESS + Redis 使上下文溢出后能完整恢复"+"完整完成后续所有任务(可并行则并行)"。本会话从会话22-7 恢复,监控 seed-3b 首轮完成→诊断补灌 ERR→修脚本加节流→v2 补灌进行中。
 
-### D 种子首轮结果(seed-3b pod Completed,2026-08-11 实查确认)
-- **pod**:`esp-seed-3b-nc9l9` 0/1 Completed,0 restart,AGE 7h32m(2026-08-10T23:31:56Z 起)。elapsed=26434.5s(~7.3h)。
-- **final_counts(脚本自报)**:`{'users': 1000000, 'scenarios': 10000, 'knowledge_points': 10000, 'sessions': 13555000, 'session_turns': 14131178, 'user_mastery': 5016949, 'learning_events': 31140000, 'writing_tasks': 20008605, 'lesson_plans': 1010000, 'classes': 500000, 'assignments': 5030000, 'submissions': 9869999}`。
-- **information_schema.TABLE_ROWS 实查** 与脚本一致(sessions 13,555,000 / session_turns 14,131,178 / learning_events 31,140,000 / writing_tasks 20,008,605 / submissions 10,084,999 略高于脚本值系统计延迟)。
-- **✅ 达标表(8)**:users 1M✅ / scenarios 1万✅ / knowledge_points 1万✅ / user_mastery 5.02M✅ / writing_tasks 20M✅ / lesson_plans 1.01M✅ / classes 50万✅ / assignments 5.03M✅ / submissions ~10M✅。
-- **⚠️ 未达标表(3,待补灌)**:
-  - sessions 13.55M/50M → 缺 ~36.4M(ERR:tidb-primary DNS Errno -3 / TiKV schema out of date)。
-  - session_turns 14.13M/50M → 缺 ~35.9M(ERR:tidb-primary Errno 111)。
-  - learning_events 31.14M/100M → 缺 ~68.86M(本轮 Monitor 自报进度到 100M 但 final_counts 实写 31.14M —— **疑点**:脚本可能在中途因 TiKV schema 抖动 caught by except 跳过,但 progress 文件误报;或 information_schema 估计偏低。**补灌时以 information_schema baseline 做 delta,重跑自动补差额**)。
+### 现状(补灌 v2 实时,2026-08-11 实查)
+- **Job v2 pod**:`esp-seed-3b-6w5db`(Job `esp-seed-3b` 重建)Running。Monitor `bzadt8nbt`(120s 轮询,persistent)。
+- **3 表补灌进度**(information_schema 实查):
+  - ✅ **sessions 49,565,000/50M** —— 首轮 13.55M → v2 delta +36.4M 补灌完成(节流后稳定无 ERR)。
+  - ⏳ **session_turns 18,969,685/50M** —— 首轮 14.13M → v2 delta +4.8M(进行中,缺 ~31M)。
+  - ⬜ **learning_events 31,140,000/100M** —— 排队待补(缺 ~68.86M)。
+- **达标表(9,首轮已完成)**:users 1M / scenarios 1万 / kp 1万 / user_mastery 5.02M / writing_tasks 20M / lesson_plans 1.01M / classes 50万 / assignments 5.03M / submissions ~10M。
 
-### 恢复锚点(精确子步骤)— 当前进入补灌阶段
-1. **当前状态**:seed-3b 首轮已 Completed。3 表未达标(sessions/session_turns/learning_events)待补灌。
-2. **补灌方案(首选 delta 续灌)**:删除已 Completed 的 pod `esp-seed-3b-nc9l9`,重新 apply seed-3b manifest(或直接在新 pod 跑 `python scripts/seed_3b.py`)。seed_3b.py 启动时读 information_schema.TABLE_ROWS 作 baseline,`delta=max(0, full-baseline)`,已达标表 delta=0 自动 skip,只补 3 个未达标表的差额。**单进程串行,避免并行重操作(坑⑰)**。
-3. **补灌完成判据**:信息_schema 12 表全部达标(sessions→50M / session_turns→50M / learning_events→100M)。注意 learning_events 实写量需核实(疑点见上)。
-4. **补灌后**:scale 回 P0 业务服务(Task#3),验证 healthz。
-5. **落盘**:最终行数 + git commit push(PROGRESS 改动)。
+### 坑㉑(TiKV 单节点 region 压力致补灌 ERR 中断)— 会话22-8 新增
+- **现象**:补灌 v1(无节流)在 learning_events 表 ERR 中断:`(8027, Information schema is out of date: schema failed to update in 1 lease)` + `(9005, Region is unavailable)`,RobustCursor 4 次重连仍失败,被 except 捕获跳过。final_counts: sessions 27.67M / session_turns 17.8M / learning_events 31.14M(均未达标)。
+- **根因**:TiKV 单节点(`tikv-aws-84b4bcdcb5-btjsr`)**rs=34(10m 前重启)**,大表批量写入压垮 region 调度,日志刷 `the max gap of follower safe-ts is large [gap=576492ms] [region_id=308005]`。单节点无副本可分担,PD lease 追不上。
+- **修复(本会话已应用)**:
+  1. `scripts/seed_3b.py`:`BATCH=5000` 后加 `THROTTLE_SLEEP=0.3s`(env `SEED_THROTTLE` 可调),`executemany` 每批后 sleep,给 PD/TiKV 追平 lease。
+  2. `_with_retry` 重试 4→6 次,退避 3s→5s(`wait=5*(i+1)`),覆盖 region 恢复慢场景。
+  3. `deploy/seed-job.yaml`:加 env `SEED_THROTTLE=0.3`。
+  4. configmap `seed-3b-script` 已更新,pod 已验证加载(`THROTTLE=0.3 BATCH=5000`)。
+- **效果**:v2 补灌 sessions +36.4M **全程无 ERR**(v1 在 learning_events 必崩),节流后稳定推进。代价:速率降为无节流的 ~60%(可接受,稳定性优先)。
+- **关联**:[[esp-singlenode-host-cluster-contention]](单节点资源紧)、[[context-overflow-ironrules]]。
 
-### 恢复锚点(精确子步骤)— 旧版(已迁移到上方"补灌阶段"段,保留作历史)
-1. **当前**:seed-3b 正灌 writing_tasks(20M,~84%+ 收尾中)。Monitor `bytymecqz` 跟踪;每表级里程碑/ERR/Job 结束触发事件。learning_events 100M 已完成。
-2. **writing_tasks 完成后**:顺序灌 lesson_plans→classes→assignments→submissions(脚本自动)。
-3. **D 种子整批跑完后(esp-seed-3b-nc9l9 pod 转 Completed)**:补灌 sessions + session_turns(见 Task#2)。方案:重跑 seed-3b(delta 续灌,只灌 full-baseline 差额),或 `kubectl exec` 单表 `--only=sessions`/`--only=session_turns`。两者 baseline 已记(information_schema.TABLE_ROWS)。**注:seed-3b 是裸 Pod 非 Job,pod Completed 后需手动删除重建以重跑,或直接 exec 进 pod 跑 --only**。
-4. **补灌完成**:scale 回 P0 业务服务(Task#3)。
-5. **落盘**:更新 PROGRESS 最终行数 + Redis done summary + git commit push(Task#4)。**注:git working tree 已 clean(会话22-7 commit `c3be0a0` 已含全部改动且与 origin/master 同步),本会话仅 PROGRESS.md 改动需 commit**。
+### 恢复锚点(精确子步骤)— 当前补灌 v2 进行中
+1. **当前**:seed-3b v2 正灌 session_turns(50M,18.97M)。Monitor `bzadt8nbt` 跟踪。sessions 已补完。
+2. **session_turns 完成后**:自动灌 learning_events(100M,补 +68.86M,最长表,预估 ~10h+)。
+3. **补灌 v2 全完成(Job Completed)**:查 12 表最终行数 `bash scripts/db_query.sh "SELECT table_name,table_rows FROM information_schema.tables WHERE table_schema='esp' ORDER BY table_name"`,确认 sessions≥50M / session_turns≥50M / learning_events≥100M。
+4. **补灌完成**:scale 回 P0 业务服务(Task#3,18 个 deploy)。**单节点铁律:补灌期不能 scale,否则坑⑰ OOM 雪崩**。
+5. **落盘**:最终行数 + git commit push(PROGRESS/seed_3b.py/seed-job.yaml 改动)。push 三次失败(github 网络抖动 Empty reply/443 超时),待重试。
 
-### infra 健康(本会话确认)
-- tikv-aws `84b4bcdcb5-btjsr` Running,rs=1(137m+,block-cache 1GB 已约束,OOM 缓解生效,非雪崩级)。
-- tidb-cluster-tidb `f68bfd98c-z4tm7` Running,rs=0(133m,稳定)。
-- pd-aws `9f9948598-vnmkd` Running,rs=21(历史重启,当前稳定 142m)。
-- redis-cluster-new 0-5 全 1/1 Running,0 restart(12h,Cluster 模式,但 seed_3b 进度写入仍失败——见坑⑳)。
+### 本会话执行情况(补灌阶段)
+- ✅ 首轮 Completed → 查 final_counts + 12 表行数,确认 3 表未达标(sessions/session_turns/learning_events)。
+- ✅ 删旧 Job → 重建 v1 补灌(delta 续灌),Monitor 跟踪:sessions 13.55M→27.67M、session_turns 14.13M→17.8M 后 learning_events ERR 中断(坑㉑)。
+- ✅ 诊断根因:TiKV 单节点 rs=34 + safe-ts gap 576s,region 调度追不上。
+- ✅ 修 `seed_3b.py`:加 THROTTLE_SLEEP=0.3s/批 + 重试4→6次/退避5s(语法校验通过)。
+- ✅ 更新 configmap seed-3b-script + seed-job.yaml(加 SEED_THROTTLE env)。
+- ✅ 重建 v2 Job → pod 验证加载节流配置 → Monitor 跟踪:sessions 28.6M→49.57M(补完,无 ERR)→ session_turns 进行中。
+- ✅ 双轨落盘:PROGRESS.md(本节)+ Redis 锚点 `esp:ctx:hot:2026-08-11-session22-8-seed-monitor`(2595B 已写回显)。
+- ✅ git commit `8db0a77`(PROGRESS 首段落盘);push 三次失败待重试。
 
-### esp-prod 当前 deploy 状态(全业务 scale 0 腾内存给种子)
-- **Running(基础设施/历史保留)**:nacos 1/1、seata 1/1、sentinel 1/1、teacher-java 2/2(历史保留未 scale 0)、writing-py 1/1。
-- **scale 0(P0 业务,待 D 完成后恢复)**:gateway-go / learning-java / bff-java / pronunciation-rs / assessment-rs / llm-orchestrator-rs / listening-go / reading-go / gamification-go / course-path-go / vocab-srs-go / live-tutor-go / media-learn-rs / frontend-react / frontend-h5 / emotion-svc / learning-worker / writing-coach。
+### infra 健康(补灌 v2 期确认)
+- tikv-aws `84b4bcdcb5-btjsr` Running,rs=34(10m 前最后一次重启,单节点 region 压力,节流后缓解)。CPU 98m / MEM 2976Mi。
+- tidb-cluster-tidb `f68bfd98c-z4tm7` Running,rs=0(稳定)。
+- pd-aws `9f9948598-vnmkd` Running,rs=21(历史重启,当前稳定)。
+- redis-cluster-new 0-5 全 1/1 Running(坑⑳ Redis 进度写入仍失败,非阻塞)。
+
+### esp-prod 当前 deploy 状态(全业务 scale 0 腾内存给种子,补灌期不可 scale)
+- **Running(基础设施/历史保留)**:nacos 1/1、seata 1/1、sentinel 1/1、teacher-java 2/2(历史保留)、writing-py 1/1。
+- **scale 0(P0 业务,待补灌完成后恢复,Task#3)**:gateway-go / learning-java / bff-java / pronunciation-rs / assessment-rs / llm-orchestrator-rs / listening-go / reading-go / gamification-go / course-path-go / vocab-srs-go / live-tutor-go / media-learn-rs(P1 待命,坑⑨)/ frontend-react / frontend-h5 / emotion-svc / learning-worker / writing-coach。
+
+### Task 清单(会话22-8)
+- #1 监控 seed-3b 首轮灌装 ✅ Completed
+- #2 补灌 sessions/session_turns/learning_events ⏳ in_progress(v2 带节流,sessions ✅,session_turns ⏳)
+- #3 D 种子完成后恢复 P0 业务服务 pending(依赖 #2,单节点铁律不可并行)
+- #4 PROGRESS/Redis 双轨落盘 + git commit push ✅(commit 8db0a77;push 待重试;本节二次落盘)
 - media-learn-rs 保持 replicas=0(P1 待命;HPA min=1 与 replicas=0 既定设计,坑⑨)。
 
 ### 本会话执行情况

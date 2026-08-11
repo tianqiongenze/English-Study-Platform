@@ -24,6 +24,8 @@ spec:
           value: tidb-primary
         - name: REDIS_HOST
           value: redis-cluster
+        - name: SEED_THROTTLE
+          value: "0.3"
         resources:
           requests: {cpu: "500m", memory: "512Mi"}
           limits: {cpu: "2", memory: "2Gi"}

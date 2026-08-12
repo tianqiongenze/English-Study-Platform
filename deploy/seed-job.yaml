@@ -21,7 +21,7 @@ spec:
           python3 /scripts/seed_3b.py
         env:
         - name: TIDB_HOST
-          value: tidb-primary
+          value: tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local
         - name: REDIS_HOST
           value: redis-cluster
         - name: SEED_THROTTLE

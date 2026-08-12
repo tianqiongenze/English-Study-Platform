@@ -4,7 +4,7 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-11 会话22-8(D 种子补灌 v2 ⏳ session_turns 33.6M/50M,sessions 50M ✅ 补灌完成)。主线 4 批次:**A ArgoCD ✅**;**B infra ✅**;**C 前端 ✅**;**D 种子首轮 ✅ / 补灌 v2 ⏳**。seed-3b Job v2(带节流)`esp-seed-3b-6w5db` Running(160m):✅ sessions 49.57M/50M(补灌完成);⏳ session_turns 33.6M/50M(+19.5M,缺 ~16.4M);⬜ learning_events 31.14M/100M(待补 +68.86M)。**坑㉑已修**:seed_3b.py 加 THROTTLE_SLEEP=0.3s/批 + 重试4→6次(退避5s),v2 全程无 ERR。Redis 锚点 `esp:ctx:hot:2026-08-11-session22-8-seed-monitor`。会话22-7 锚点 `esp:ctx:hot:2026-08-11-session22-7-media-rebuild-seed-resume`。git `9d90bdc` 已 push(c3be0a0..9d90bdc)。
+> 更新日期:2026-08-11 会话22-8(D 种子补灌 v2 ✅ Completed,准备 v3 修 DNS)。主线 4 批次:**A ArgoCD ✅**;**B infra ✅**;**C 前端 ✅**;**D 种子首轮 ✅ / 补灌 v2 ✅ / v3 待启**。补灌 v2 Completed(14h,elapsed 17546s):✅ sessions 49.57M/50M;⚠️ session_turns 45.37M/50M(补+31.24M,缺 4.63M,ERR);⚠️ learning_events 31.14M/100M(**零进度**,ERR)。**坑㉒新发现**:tidb-primary 是 ExternalName,coredns 仅 1 副本 DNS 间歇失败(Errno -3)致 learning_events 刚启动即 ERR skip。**v3 修复**:seed-job.yaml `TIDB_HOST` 改 FQDN `tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local`(ClusterIP 10.43.147.131,绕过 ExternalName 一跳 CNAME)。Redis 锚点 `esp:ctx:hot:2026-08-11-session22-8-seed-monitor`(v4,3102B)。git `b5378de` 已 push(9d90bdc..b5378de)。
 
 ## 会话22-8:D 种子补灌 v2(带节流防 ERR)+ 双轨落盘(2026-08-11,sessions ✅ 补完,session_turns ⏳)
 

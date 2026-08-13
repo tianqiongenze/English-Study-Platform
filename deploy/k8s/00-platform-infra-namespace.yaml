@@ -1,0 +1,17 @@
+# platform-infra 命名空间 —— 局域网通用平台底座入口层
+#
+# 设计:基础设施(TiDB/Redis/Pulsar/Milvus/Neo4j)物理仍运行在 ekb-m2-aws-us-east-1
+# (单节点阶段迁移=重建风险高),platform-infra 仅作为"统一入口层":
+#   - 内部放 6 个 ExternalName 指向 ekb-m2 真实 svc(见 05b-platform-infra-externalnames.yaml)
+#   - 各业务租户(esp-prod 及未来其他项目)在自己的 ns 内建 ExternalName 指向 platform-infra
+#   - 实现"租户 → platform-infra 入口 → 底层组件"二跳解耦,组件迁移不影响租户配置
+#
+# 多节点移植时:把组件 operator/TidbCluster CR 等装到 platform-infra,入口层 ExternalName
+# 改指向本 ns 内 svc(一跳),租户侧零改动。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-infra
+  labels:
+    app.kubernetes.io/name: platform-infra
+    platform/infratype: shared-base

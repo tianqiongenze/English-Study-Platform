@@ -62,6 +62,7 @@ services/*/**/gateway-go
 # ---- 报告/日志(本地实跑产物,不入库)----
 report/security/
 report/scan/
+report/infra-smoke-*.log
 logs/*.log
 logs/*.out
 /tmp/
@@ -77,6 +78,7 @@ logs/*.out
 
 # ---- Claude / 临时 ----
 .claude/worktrees/
+.mcp.json
 $CLAUDE_JOB_DIR
 {{pkgetc}}/
 {{etc}}/

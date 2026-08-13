@@ -1,0 +1,76 @@
+# 平台底座入口层 —— platform-infra 内 6 组件统一 ExternalName
+#
+# 这些 ExternalName 是"全平台统一短名入口":各业务租户(esp-prod 及未来其他项目)
+# 在自己 ns 内建同名 ExternalName 指向这里的 FQDN(如 tidb.platform-infra.svc.cluster.local),
+# 而非直接指向 ekb-m2 底层 svc。组件底层迁移时只改本文件,租户零改动。
+#
+# 底层组件当前物理位置:ekb-m2-aws-us-east-1(单节点验证阶段)。
+# 多节点移植:把组件装到 platform-infra,此处 ExternalName 改指本 ns svc(一跳)。
+---
+# TiDB 写主(OLTP)—— 单节点阶段 tidb replicas=1,primary 与 follower 同 svc
+# 多节点目标:tidb replicas=2+,tidb-follower 指向独立 svc(见 docs/design/platform-infra-multitenant.md §C1)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tidb
+  namespace: platform-infra
+  labels: {platform/component: tidb, platform/role: primary}
+spec:
+  type: ExternalName
+  externalName: tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tidb-follower
+  namespace: platform-infra
+  labels: {platform/component: tidb, platform/role: follower}
+spec:
+  type: ExternalName
+  externalName: tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local  # 伪分离:单节点同 svc;多节点改独立 follower svc
+---
+# Redis Cluster(会话/缓存/限流/跨会话运行态)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+  namespace: platform-infra
+  labels: {platform/component: redis}
+spec:
+  type: ExternalName
+  externalName: redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+# Apache Pulsar(事件总线)—— broker 6650(Messaging)/ 8080(HTTP admin)
+apiVersion: v1
+kind: Service
+metadata:
+  name: pulsar
+  namespace: platform-infra
+  labels: {platform/component: pulsar}
+spec:
+  type: ExternalName
+  externalName: pulsar-broker.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+# Milvus 向量库(语义检索/向量化学习内容/错题相似推荐)
+# 阶段B 启用后可解析;启用前 scale=0,连接会超时(预期)
+apiVersion: v1
+kind: Service
+metadata:
+  name: milvus
+  namespace: platform-infra
+  labels: {platform/component: milvus}
+spec:
+  type: ExternalName
+  externalName: milvus.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+# Neo4j 图数据库(知识图谱/学习路径关系/能力图谱)
+# 阶段B 启用后可解析;启用前 scale=0,连接会超时(预期)
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  namespace: platform-infra
+  labels: {platform/component: neo4j}
+spec:
+  type: ExternalName
+  externalName: neo4j.ekb-m2-aws-us-east-1.svc.cluster.local

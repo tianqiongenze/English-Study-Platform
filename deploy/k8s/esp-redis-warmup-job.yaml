@@ -1,0 +1,36 @@
+# Redis Cluster warm-up Job: TiDB 热点数据 -> Redis esp:cache:*
+# 一次性 Job。连 tidb-primary(短名经 05-infra-reuse -> platform-infra -> ekb-m2 底层)
+# + redis-cluster FQDN(redis-warmup.py 内置 redis-cluster-new-0... FQDN startup node)。
+# 镜像 python:3.12-slim(与 seed-3b 同),pip 装 pymysql + redis。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: esp-redis-warmup
+  namespace: esp-prod
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: warmup
+        image: python:3.12-slim
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c"]
+        args:
+        - |
+          pip install --quiet pymysql redis -i https://pypi.tuna.tsinghua.edu.cn/simple 2>&1 | tail -3
+          python /scripts/redis-warmup.py
+        env:
+        - name: TIDB_HOST
+          value: tidb-primary
+        - name: REDIS_STARTUP
+          value: redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379
+        volumeMounts:
+        - name: script
+          mountPath: /scripts
+      volumes:
+      - name: script
+        configMap:
+          name: redis-warmup-script

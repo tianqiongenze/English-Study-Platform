@@ -1,8 +1,9 @@
-# 基础设施复用:通过 ExternalName 引用已运行在 ekb-m2-* 命名空间的 TiDB / Redis Cluster / Pulsar。
-# 这样 esp-prod 中的微服务可用统一短名(tidb-primary / redis-cluster / pulsar-broker)访问,
-# 而无需重新部署一套基础设施(符合"容器中已有则重用"的要求)。
+# 基础设施复用:ESP 租户通过 ExternalName 引用 platform-infra 平台底座入口层,
+# 入口层再指向底层 TiDB/Redis/Pulsar/Milvus/Neo4j(见 05b-platform-infra-externalnames.yaml)。
+# 二跳解耦:组件底层迁移只改 05b,ESP 侧零改动。多租户接入 SOP 见
+# docs/design/platform-infra-multitenant.md §4。
 ---
-# TiDB(读写分离:写主、读副本,均为同一 TiDB 集群;生产中可指向不同 TiDB 节点)
+# TiDB(读写分离:写主、读副本;单节点阶段同 svc 伪分离,多节点 scale tidb=2+ 后真分流)
 apiVersion: v1
 kind: Service
 metadata:
@@ -10,7 +11,7 @@ metadata:
   namespace: esp-prod
 spec:
   type: ExternalName
-  externalName: tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local
+  externalName: tidb.platform-infra.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service
@@ -19,9 +20,9 @@ metadata:
   namespace: esp-prod
 spec:
   type: ExternalName
-  externalName: tidb-cluster-tidb.ekb-m2-aws-us-east-1.svc.cluster.local
+  externalName: tidb-follower.platform-infra.svc.cluster.local
 ---
-# Redis Cluster(会话/缓存/限流)
+# Redis Cluster(会话/缓存/限流/跨会话运行态)
 apiVersion: v1
 kind: Service
 metadata:
@@ -29,7 +30,7 @@ metadata:
   namespace: esp-prod
 spec:
   type: ExternalName
-  externalName: redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local
+  externalName: redis-cluster.platform-infra.svc.cluster.local
 ---
 # Apache Pulsar(事件总线)
 apiVersion: v1
@@ -39,4 +40,24 @@ metadata:
   namespace: esp-prod
 spec:
   type: ExternalName
-  externalName: pulsar-broker.ekb-m2-aws-us-east-1.svc.cluster.local
+  externalName: pulsar.platform-infra.svc.cluster.local
+---
+# Milvus 向量库(阶段B 启用后接入;启用前 scale=0 连接超时为预期)
+apiVersion: v1
+kind: Service
+metadata:
+  name: milvus
+  namespace: esp-prod
+spec:
+  type: ExternalName
+  externalName: milvus.platform-infra.svc.cluster.local
+---
+# Neo4j 图数据库(阶段B 启用后接入;启用前 scale=0 连接超时为预期)
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  namespace: esp-prod
+spec:
+  type: ExternalName
+  externalName: neo4j.platform-infra.svc.cluster.local

@@ -141,12 +141,13 @@ class RobustCursor:
         self.cur = self.c.cursor()
     def _with_retry(self, op, *args):
         last=None
-        for i in range(6):  # 坑㉑:4 次→6 次重试,退避加长(单 TiKV region 恢复慢)
+        MAX_RETRY = int(os.environ.get('SEED_MAX_RETRY', '10'))  # 坑㉑(第3次复发=v4):6→10 次,单 TiKV region 恢复更慢时兜底
+        for i in range(MAX_RETRY):  # 坑㉑:4→6→10 次重试,退避加长(单节点 region 压力反复 ERR)
             try:
                 return getattr(self.cur, op)(*args)
             except (pymysql.OperationalError, pymysql.InterfaceError) as e:
                 last=e; wait=5*(i+1)
-                print(f"[warn] conn lost on {op} ({e!r}), reconnect retry {i+1}/4 after {wait}s", flush=True)
+                print(f"[warn] conn lost on {op} ({e!r}), reconnect retry {i+1}/{MAX_RETRY} after {wait}s", flush=True)
                 time.sleep(wait); self._reconnect()
         raise last
     def executemany(self, sql, batch):

@@ -35,9 +35,15 @@ spec:
         startupProbe:   {httpGet: {path: /actuator/health/readiness, port: 8081}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 10}   # 最多等 600s 启动(TiDB 高负载下慢启动保护);用 readiness group 端点
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8081}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 10}   # period 放宽到 30s 减少 kubelet 探针 CLOSE_WAIT 堆积(单节点 VM 通病诱因)
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8081}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 15}    # timeout 15s 容忍单节点 VM GC 抖动,acceptor hang 时自愈重启
+        # N-2 preStop graceful shutdown(optimization-plan C-3):Disruptor RingBuffer drain + Pulsar consumer unsubscribe,
+        # 配合 terminationGracePeriodSeconds=45 给 in-flight 事件落库,避免 rollout 丢字段。
+        lifecycle:
+          preStop:
+            exec: {command: ["sh","-c","sleep 15"]}
         resources:
           requests: {cpu: "200m", memory: 512Mi}
           limits: {cpu: "1", memory: 1536Mi}
+      terminationGracePeriodSeconds: 45
 ---
 apiVersion: v1
 kind: Service

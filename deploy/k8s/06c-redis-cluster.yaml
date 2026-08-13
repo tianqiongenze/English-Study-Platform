@@ -73,7 +73,7 @@ spec:
         - --cluster-node-timeout
         - "5000"
         - --cluster-announce-hostname
-        - "$(POD_NAME).redis-cluster-new"
+        - "$(POD_NAME).redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local"
         - --cluster-preferred-endpoint-type
         - hostname
         - --maxmemory

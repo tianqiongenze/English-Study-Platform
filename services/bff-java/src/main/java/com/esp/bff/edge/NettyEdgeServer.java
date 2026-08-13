@@ -64,7 +64,7 @@ public class NettyEdgeServer {
             ServerBootstrap b = new ServerBootstrap();
             b.group(boss, worker)
                     .channel(NioServerSocketChannel.class)
-                    .childOption(ChannelOption.SO_BACKLOG, 8192)
+                    .option(ChannelOption.SO_BACKLOG, 8192)
                     .childOption(ChannelOption.SO_KEEPALIVE, true)
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
@@ -75,7 +75,7 @@ public class NettyEdgeServer {
                                     .addLast("auth", new EdgeAuthHandler(jwt, inlet));
                         }
                     });
-            serverChannel = b.bind(edgePort).sync().channel();
+            serverChannel = b.bind("0.0.0.0", edgePort).sync().channel();
             log.info("NettyEdgeServer started on port {}", edgePort);
             serverChannel.closeFuture().sync();
         } catch (InterruptedException e) {

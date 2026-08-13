@@ -1,10 +1,10 @@
 package com.esp.learning.disruptor;
 
 import com.esp.cache.CacheService;
-import com.esp.learning.domain.LearningEventEntity;
-import com.esp.learning.repository.LearningEventRepository;
+import com.esp.learning.disruptor.LearningEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -15,7 +15,11 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * 默认消费者:批量落库 TiDB learning_events(写主库)。
  * 真实环境可叠加 Pulsar 发布触发算法;此处聚焦落库。
- * id 由 TiDB AUTO_RANDOM 生成,故设为 null。
+ *
+ * <p>坑㉙-修复:learning_events.id 为 TiDB AUTO_RANDOM,Hibernate persist() 要求应用分配
+ * 非空主键,setId(null) 必抛 "ids for this class must be manually assigned before persist"。
+ * 改用 JdbcTemplate 原生 INSERT 且**不含 id 列**,让 TiDB AUTO_RANDOM 自动生成随机 id
+ * (与种子灌入 100M 行方式一致)。批量逐行 batchUpdate 降低往返开销。
  *
  * <p>落库成功后失效 learning:agg:users 聚合缓存(事件驱动失效,ADR-多级缓存)。
  */
@@ -23,7 +27,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class DbLearningEventConsumer implements LearningEventConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(DbLearningEventConsumer.class);
-    private final LearningEventRepository repo;
+    private final JdbcTemplate writeJdbc;
     private final CacheService cacheService;
     private final AtomicLong consumed = new AtomicLong();
 
@@ -31,26 +35,29 @@ public class DbLearningEventConsumer implements LearningEventConsumer {
     private static final String CACHE_AGG = "learning:agg";
     private static final String AGG_KEY = "learning:agg:users";
 
-    public DbLearningEventConsumer(LearningEventRepository repo, CacheService cacheService) {
-        this.repo = repo;
+    /** 不含 id 列,由 TiDB AUTO_RANDOM 自动生成。 */
+    private static final String INSERT_SQL =
+            "INSERT INTO learning_events (user_id, event_type, payload, created_at) VALUES (?,?,?,?)";
+
+    public DbLearningEventConsumer(JdbcTemplate writeJdbc, CacheService cacheService) {
+        this.writeJdbc = writeJdbc;
         this.cacheService = cacheService;
     }
 
     @Override
     public void consume(LearningEvent[] events, int offset, int length) {
-        List<LearningEventEntity> batch = new ArrayList<>(length);
+        List<Object[]> batchArgs = new ArrayList<>(length);
         for (int i = 0; i < length; i++) {
             LearningEvent e = events[offset + i];
-            LearningEventEntity ent = new LearningEventEntity();
-            ent.setId(null); // AUTO_RANDOM
-            ent.setUserId(e.getUserId());
-            ent.setEventType(e.getEventType());
-            ent.setPayload(e.getPayload());
-            ent.setCreatedAt(Instant.ofEpochMilli(e.getCreatedAt()));
-            batch.add(ent);
+            batchArgs.add(new Object[]{
+                    e.getUserId(),
+                    e.getEventType(),
+                    e.getPayload(),
+                    Instant.ofEpochMilli(e.getCreatedAt())
+            });
         }
         try {
-            repo.saveAll(batch);
+            writeJdbc.batchUpdate(INSERT_SQL, batchArgs);
             consumed.addAndGet(length);
             // 落库成功后失效聚合缓存(删 L2 + 删 L1 + Pulsar 广播 + 延迟双删)
             cacheService.evict(CACHE_AGG, AGG_KEY);

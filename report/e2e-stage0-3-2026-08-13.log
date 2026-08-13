@@ -1,0 +1,71 @@
+=== ESP 阶段0-3 端到端测试 2026-08-13T23:06:23 ===
+接入方式: kubectl port-forward(host kubectl 可达,NodePort 192.168.5.15 路由不通,走 pf)
+
+### 阶段1 健康冒烟(host -> pf) ###
+(eval):9: command not found: curl
+(eval):10: command not found: head
+(eval):10: command not found: tr
+[bff] http= body=
+(eval):9: command not found: curl
+(eval):10: command not found: head
+(eval):10: command not found: tr
+[learning] http= body=
+(eval):9: command not found: curl
+(eval):10: command not found: head
+(eval):10: command not found: tr
+[teacher] http= body=
+(eval):9: command not found: curl
+(eval):10: command not found: tr
+(eval):10: command not found: head
+[writing-py] http= body=
+(eval):9: command not found: curl
+(eval):10: command not found: tr
+(eval):10: command not found: head
+[emotion] http= body=
+(eval):9: command not found: curl
+(eval):10: command not found: head
+(eval):10: command not found: tr
+[writing-coach] http= body=
+(eval):9: command not found: curl
+(eval):10: command not found: head
+(eval):10: command not found: tr
+[gateway] http= body=
+
+### 阶段2 SEC-2 过期JWT 应401 ###
+(eval):17: command not found: curl
+(eval):18: command not found: head
+(eval):18: command not found: tr
+SEC-2 http= body=
+
+### 阶段2 SEC-5 JWKS endpoint RS256 ###
+(eval):22: command not found: curl
+(eval):23: command not found: head
+(eval):23: command not found: tr
+SEC-5 http= body=
+
+### 注册测试账号 A/B(BCrypt 密码) ###
+(eval):27: command not found: curl
+(eval):28: command not found: tail
+(eval):29: command not found: curl
+(eval):30: command not found: tail
+
+### 登录拿 tokenA/tokenB ###
+(eval):34: command not found: curl
+(eval):36: command not found: curl
+tokenA len=0 tokenB len=0
+tokenA head=...
+
+### /api/auth/me 鉴权闭环(带 tokenA 应200) ###
+(eval):43: command not found: curl
+(eval):44: command not found: head
+(eval):44: command not found: tr
+auth/me http= body=
+
+### SEC-3 X-User-Id 伪造剥离(带 tokenA + 伪造 X-User-Id:999999) ###
+(eval):48: command not found: curl
+(eval):49: command not found: head
+(eval):49: command not found: tr
+SEC-3 http= body=
+
+(eval):51: command not found: date
+=== 测试结束  ===

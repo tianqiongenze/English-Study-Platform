@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ESP Home-Tutor | 统一入口</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #6366f1;
+      --accent2: #06b6d4;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(ellipse at top, #1e293b 0%, var(--bg) 70%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    header {
+      width: 100%;
+      padding: 2rem 1rem 1rem;
+      text-align: center;
+    }
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p { color: var(--muted); margin-top: 0.4rem; font-size: 0.95rem; }
+    .status-bar {
+      display: inline-flex;
+      gap: 1rem;
+      margin-top: 0.9rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .status-bar .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+    .dot.ok { background: var(--ok); }
+    .dot.err { background: var(--err); }
+    .dot.pend { background: var(--warn); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.2rem;
+      max-width: 1000px;
+      width: 100%;
+      padding: 1.5rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      padding: 1.5rem;
+      text-align: center;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .card:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: 0 12px 32px rgba(99,102,241,0.18); }
+    .card .icon { font-size: 2.4rem; margin-bottom: 0.6rem; }
+    .card h3 { font-size: 1.15rem; margin-bottom: 0.3rem; }
+    .card .desc { color: var(--muted); font-size: 0.82rem; margin-bottom: 1rem; min-height: 2.4em; }
+    .card a.btn, .card button.btn {
+      display: inline-block;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      color: #fff;
+      text-decoration: none;
+      padding: 0.6rem 1.4rem;
+      border-radius: 999px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .card a.btn:hover, .card button.btn:hover { opacity: 0.88; }
+    .qrcode { margin: 0.8rem 0; width: 128px; height: 128px; background: #fff; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+    .tag { font-size: 0.7rem; color: var(--muted); margin-top: 0.5rem; }
+    footer { color: var(--muted); font-size: 0.75rem; padding: 1.5rem; text-align: center; }
+    footer code { background: rgba(255,255,255,0.08); padding: 0.1rem 0.4rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ESP Home-Tutor 统一入口</h1>
+    <p>AI 英语教育平台 · 多端访问 Portal · Web / H5 / 小程序</p>
+    <div class="status-bar" id="status">
+      <span><span class="dot pend"></span>检测后端连通性中…</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Web 端 -->
+    <div class="card">
+      <div class="icon">🖥️</div>
+      <h3>Web 端 (React)</h3>
+      <p class="desc">桌面浏览器全功能版,口语+写作+学习路径+数字人</p>
+      <a class="btn" href="/web/" target="_blank">打开 Web 端</a>
+      <div class="tag">frontend-react · nginx 静态</div>
+    </div>
+
+    <!-- H5 端 -->
+    <div class="card">
+      <div class="icon">📱</div>
+      <h3>H5 端 (移动 Web)</h3>
+      <p class="desc">移动浏览器竖屏版,适配手机浏览器/微信内打开</p>
+      <a class="btn" href="/h5/" target="_blank">打开 H5 端</a>
+      <div class="tag">frontend-h5 · nginx 静态</div>
+    </div>
+
+    <!-- 小程序 -->
+    <div class="card">
+      <div class="icon">💚</div>
+      <h3>微信小程序</h3>
+      <p class="desc">微信扫码体验(需微信开发者工具导入 frontend-miniprogram)</p>
+      <div class="qrcode" id="qr"></div>
+      <div class="tag">frontend-miniprogram · 源码导入</div>
+    </div>
+
+    <!-- API 健康检查 -->
+    <div class="card">
+      <div class="icon">🔌</div>
+      <h3>后端 API 诊断</h3>
+      <p class="desc">BFF 鉴权 + 网关 + 边缘服务健康探测</p>
+      <button class="btn" onclick="probeAll()">运行诊断</button>
+      <div class="tag">/api/actuator/health + gateway</div>
+    </div>
+  </div>
+
+  <footer>
+    ESP Portal · NodePort <code>30070</code> · 集群内 traefik 反代 · <span id="host"></span>
+  </footer>
+
+  <script>
+    // 探测后端连通性
+    async function probe(url) {
+      try {
+        const t0 = performance.now();
+        const r = await fetch(url, { method: 'GET', cache: 'no-store', signal: AbortSignal.timeout(4000) });
+        const ms = Math.round(performance.now() - t0);
+        return { ok: r.ok, status: r.status, ms };
+      } catch (e) {
+        return { ok: false, status: 0, ms: 0, err: String(e).slice(0, 40) };
+      }
+    }
+
+    async function probeAll() {
+      const bar = document.getElementById('status');
+      bar.innerHTML = '<span><span class="dot pend"></span>探测中…</span>';
+      const targets = [
+        { name: 'BFF(8090)', url: '/api/auth/health' },
+        { name: '网关(80)', url: '/api/scenarios' },
+      ];
+      const results = [];
+      for (const t of targets) {
+        const res = await probe(t.url);
+        const cls = res.ok ? 'ok' : (res.status === 0 ? 'err' : 'pend');
+        results.push(`<span><span class="dot ${cls}"></span>${t.name}: ${res.status || 'N/A'} ${res.ok ? res.ms + 'ms' : ''}</span>`);
+      }
+      bar.innerHTML = results.join('');
+    }
+
+    // 启动时自动探测一次
+    probeAll();
+
+    // 小程序二维码:无网络依赖,本地生成一个占位二维码提示(用 SVG data URL 模拟)
+    // 真实部署可替换为实际小程序码 PNG 路径。
+    document.getElementById('qr').innerHTML =
+      '<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">' +
+      '<rect width="120" height="120" fill="#fff"/>' +
+      '<g fill="#0f172a">' +
+      '<rect x="10" y="10" width="30" height="30"/><rect x="18" y="18" width="14" height="14" fill="#fff"/><rect x="22" y="22" width="6" height="6" fill="#0f172a"/>' +
+      '<rect x="80" y="10" width="30" height="30"/><rect x="88" y="18" width="14" height="14" fill="#fff"/><rect x="92" y="22" width="6" height="6" fill="#0f172a"/>' +
+      '<rect x="10" y="80" width="30" height="30"/><rect x="18" y="88" width="14" height="14" fill="#fff"/><rect x="22" y="92" width="6" height="6" fill="#0f172a"/>' +
+      '<rect x="48" y="10" width="6" height="6"/><rect x="60" y="18" width="6" height="6"/><rect x="54" y="30" width="6" height="6"/>' +
+      '<rect x="48" y="48" width="6" height="6"/><rect x="60" y="54" width="12" height="6"/><rect x="48" y="66" width="6" height="6"/>' +
+      '<rect x="66" y="66" width="6" height="6"/><rect x="80" y="54" width="6" height="6"/><rect x="92" y="60" width="6" height="6"/>' +
+      '<rect x="84" y="72" width="6" height="6"/><rect x="60" y="80" width="6" height="6"/><rect x="72" y="88" width="6" height="6"/>' +
+      '<rect x="96" y="84" width="6" height="6"/><rect x="54" y="96" width="6" height="6"/><rect x="78" y="96" width="6" height="6"/>' +
+      '</g><text x="60" y="116" font-size="7" text-anchor="middle" fill="#94a3b8">miniprogram</text></svg>';
+
+    document.getElementById('host').textContent = location.host;
+  </script>
+</body>
+</html>

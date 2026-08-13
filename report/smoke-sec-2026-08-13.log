@@ -1,0 +1,262 @@
+=== ESP Smoke + SEC Test Thu Aug 13 23:00:19 CST 2026 ===
+
+### Phase 1: Health smoke (cluster-internal, bypass Ingress) ###
+
+--- http://gateway-go:80/healthz ---
+
+RC=0
+--- http://bff-java:8090/actuator/health ---
+wget: download timed out
+command terminated with exit code 1
+
+RC=0
+--- http://learning-java:80/actuator/health ---
+wget: download timed out
+command terminated with exit code 1
+
+RC=0
+--- http://teacher-java:80/actuator/health ---
+wget: download timed out
+command terminated with exit code 1
+
+RC=0
+--- http://writing-py:80/health ---
+wget: server returned error: HTTP/1.1 404 Not Found
+command terminated with exit code 1
+
+RC=0
+--- http://emotion-svc:80/health ---
+wget: server returned error: HTTP/1.1 404 Not Found
+command terminated with exit code 1
+
+RC=0
+--- http://writing-coach:80/health ---
+wget: server returned error: HTTP/1.1 404 Not Found
+command terminated with exit code 1
+
+RC=0
+Phase1 done
+
+### Phase 1b: Retry with correct endpoints + longer timeout ###
+- Python services use /healthz (not /health)
+- Java services: /actuator/health (may need 8s timeout for JVM warmup under load)
+
+--- http://gateway-go:80/healthz (T) ---
+
+wget_rc=0
+--- http://: (T) ---
+
+wget_rc=0
+--- http://: (T) ---
+
+wget_rc=0
+--- http://: (T) ---
+
+wget_rc=0
+--- http://: (T) ---
+
+wget_rc=0
+--- http://: (T) ---
+
+wget_rc=0
+--- http://: (T) ---
+
+wget_rc=0
+Phase1b done
+
+### Phase 1b: Retry with correct endpoints + longer timeout ###
+
+--- gateway-go:80/healthz (T3) ---
+(eval):6: no such file or directory: /usr/bin/kubectl
+
+rc=0
+--- bff-java:8090/actuator/health (T8) ---
+(eval):9: no such file or directory: /usr/bin/kubectl
+
+rc=0
+--- learning-java:80/actuator/health (T8) ---
+(eval):12: no such file or directory: /usr/bin/kubectl
+
+rc=0
+--- teacher-java:80/actuator/health (T8) ---
+(eval):15: no such file or directory: /usr/bin/kubectl
+
+rc=0
+--- writing-py:80/healthz (T3) ---
+(eval):18: no such file or directory: /usr/bin/kubectl
+
+rc=0
+--- emotion-svc:80/healthz (T3) ---
+(eval):21: no such file or directory: /usr/bin/kubectl
+
+rc=0
+--- writing-coach:80/healthz (T3) ---
+(eval):24: no such file or directory: /usr/bin/kubectl
+
+rc=0
+
+Phase1b done
+
+### Phase 1b: Retry with correct endpoints ###
+
+--- gateway-go:80/healthz (T3) ---
+
+rc=0
+--- bff-java:8090/actuator/health (T8) ---
+{"components":{"db":{"components":{"readDataSource":{"details":{"database":"MySQL","validationQuery":"isValid()"},"status":"UP"},"routingDataSource":{"components":{"READ":{"details":{"database":"MySQL","validationQuery":"isValid()"},"status":"UP"},"W
+rc=0
+--- learning-java:80/actuator/health (T8) ---
+{"groups":["liveness","readiness"],"status":"UP"}
+rc=0
+--- teacher-java:80/actuator/health (T8) ---
+{"components":{"db":{"components":{"readDataSource":{"details":{"database":"MySQL","validationQuery":"isValid()"},"status":"UP"},"routingDataSource":{"components":{"READ":{"details":{"database":"MySQL","validationQuery":"isValid()"},"status":"UP"},"W
+rc=0
+--- writing-py:80/healthz (T3) ---
+{"status":"ok"}
+rc=0
+--- emotion-svc:80/healthz (T3) ---
+{"status":"ok"}
+rc=0
+--- writing-coach:80/healthz (T3) ---
+{"status":"ok"}
+rc=0
+
+Phase1b done
+
+--- gateway-go:80/healthz recheck ---
+  HTTP/1.1 200 OK
+  Date: Thu, 13 Aug 2026 15:04:02 GMT
+  Content-Length: 0
+  Connection: close
+  
+
+--- gateway-go localhost:8080/healthz (in-pod) ---
+
+rc=0
+
+### Phase 2: Security Tests (via NodePort from Mac host) ###
+
+--- SEC-5: GET /.well-known/jwks.json via localhost:30009 ---
+HTTP=200
+{"keys":[{"kty":"RSA","e":"AQAB","kid":"esp-rs256-1","n":"ymeC-5iZGHIgwSxPgmr3OFZsj71vIRhBhF2fkxySNbhk2x-rShs6VYFZQ4OTGSQr6-RdgnmWectDtGJmzFi80lSSA8d0LsqE8YwJ9aN5nnH48s9dGN0bygg_9EP9is3SHpgmwIwfpofxrxWmYpv_w0Evy-cAKVFWI_Cp094R9AjQLjtEpp6nP5qYDh9fAZGsiNNcOk0_1rIRGdE5er5kOtDNl2hFhOzHPEv62AoywtK9ksncmi
+
+--- SEC-2: Expired JWT -> /api/auth/me via localhost:30009 ---
+HTTP=404
+{"timestamp":"2026-08-13T15:05:24.330Z","status":404,"error":"Not Found","path":"/api/auth/me"}
+
+--- SEC-1: No token -> protected endpoint (learning via gateway 30080) ---
+HTTP=404
+404 page not found
+
+
+--- SEC-3: Register test user via /api/auth/register ---
+HTTP=200
+{"token":"eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiI4MzU4NjgwOTA4NDAwNjc5MTExIiwiZW1haWwiOiJzbW9rZXRlc3RAZXNwLnRlc3QiLCJuYW1lIjoiU21va2VUZXN0ZXIiLCJyb2xlIjoibGVhcm5lciIsImlhdCI6MTc4NjYzMzUyNSwiZXhwIjoxNzg2NjM3MTI1fQ.jPJr1583YXb0ExwgNfWKLhBXMW3uyUffFHoQVHeaZlOe7PdXzs9wwugZeW1A2jLOGlWt9kfcZ1JTwlsQXsJcYbkS0DhTKZ
+
+--- SEC-4: Login via /api/auth/login ---
+HTTP=200
+{"token":"eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiI4MzU4NjgwOTA4NDAwNjc5MTExIiwiZW1haWwiOiJzbW9rZXRlc3RAZXNwLnRlc3QiLCJuYW1lIjoiU21va2VUZXN0ZXIiLCJyb2xlIjoibGVhcm5lciIsImlhdCI6MTc4NjYzMzUyOCwiZXhwIjoxNzg2NjM3MTI4fQ.rxXhEeX1J3xKiKKoIMYsGUYAUjmVMGbHhCtiRPeK34pdNats3Xf5B3gTx1VGATaOAbxXHLMubayZ5VUMhk9mAUy8Q0Iqju
+
+--- SEC-2b: Valid JWT -> protected endpoint (learning mastery via gateway 30080) ---
+HTTP=404
+404 page not found
+
+
+Phase2 done
+
+### Phase 2b: Refined SEC tests with correct routes ###
+
+--- SEC-2: Expired JWT -> /api/learning/review via edge NodePort 30010 ---
+HTTP=000
+
+
+--- SEC-1: No token -> /api/learning/review via edge 30010 ---
+HTTP=000
+
+
+--- SEC-2b: Valid JWT -> /api/learning/review via edge 30010 ---
+HTTP=000
+
+
+--- Gateway-go route test: GET /api/scenarios via 30080 (no auth, gateway has no JWT) ---
+HTTP=200
+[{"code":"SC_cus3obcvx6","title":"Airport Check-in","system_prompt":"You are an English tutor.dfb0dbn4cxv7x86kggvm","difficulty":4},{"code":"SC_87mjguimki","title":"Daily Conversation","system_prompt"
+
+Phase2b done
+
+--- Debug: bff-java-np service details ---
+      {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"labels":{"app":"bff-java"},"name":"bff-java-np","namespace":"esp-prod"},"spec":{"ports":[{"name":"http","nodePort":30009,"port":8090,"targetPort":8090},{"name":"edge","nodePort":30010,"port":9090,"targetPort":9090}],"selector":{"app":"bff-java"},"type":"NodePort"}}
+  name: bff-java-np
+  ports:
+  - name: http
+    nodePort: 30009
+    port: 8090
+    targetPort: 8090
+  - name: edge
+    nodePort: 30010
+    port: 9090
+    targetPort: 9090
+
+
+--- Debug: edge port 9090 listening check (in-pod) ---
+EDGE_NO_HEALTHZ
+
+
+--- SEC-2 (in-pod edge): Expired JWT -> localhost:9090/api/learning/review ---
+
+
+--- SEC-1 (in-pod edge): No token -> localhost:9090/api/learning/review ---
+--2026-08-13 15:10:35--  http://localhost:9090/api/learning/review?limit=5
+Resolving localhost (localhost)... ::1, 127.0.0.1
+Connecting to localhost (localhost)|::1|:9090... connected.
+HTTP request sent, awaiting response... 
+  HTTP/1.1 401 Unauthorized
+
+
+--- SEC-2b (in-pod edge): Valid JWT -> localhost:9090/api/learning/review ---
+--2026-08-13 15:10:35--  http://localhost:9090/api/learning/review?limit=5
+Resolving localhost (localhost)... ::1, 127.0.0.1
+Connecting to localhost (localhost)|::1|:9090... connected.
+HTTP request sent, awaiting response... Read error (Connection timed out) in headers.
+Retrying.
+
+--2026-08-13 15:10:41--  (try: 2)  http://localhost:9090/api/learning/review?limit=5
+Connecting to localhost (localhost)|::1|:9090... connected.
+HTTP request sent, awaiting response... Read error (Connection timed out) in headers.
+Retrying.
+
+
+Debug done
+
+### Phase 2c: SEC tests via in-pod edge (localhost:9090) ###
+
+--- SEC-2: Expired JWT -> edge localhost:9090/api/learning/review ---
+--2026-08-13 15:11:23--  http://localhost:9090/api/learning/review?limit=5
+Resolving localhost (localhost)... ::1, 127.0.0.1
+Connecting to localhost (localhost)|::1|:9090... connected.
+HTTP request sent, awaiting response... 
+  HTTP/1.1 401 Unauthorized
+  content-type: text/plain
+
+Username/Password Authentication Failed.
+
+
+--- SEC-1: No token -> edge localhost:9090/api/learning/review = 401 (confirmed in Phase2b) ---
+HTTP/1.1 401 Unauthorized
+
+--- SEC-5: JWKS via NodePort 30009 = HTTP 200, contains "keys" array (confirmed in Phase2) ---
+
+--- SEC-3: Register via NodePort 30009 = HTTP 200, token issued (confirmed in Phase2) ---
+--- SEC-4: Login via NodePort 30009 = HTTP 200, token issued (confirmed in Phase2) ---
+
+--- SEC-2b: Valid JWT -> edge localhost:9090/api/learning/review = TIMEOUT (upstream proxy hang) ---
+
+
+Phase2c done
+
+### Findings ###
+1. Edge server (Netty 9090) binds to ::1 (IPv6 loopback only), NodePort 30010 unreachable from host
+2. Edge server has no /healthz route
+3. Valid JWT -> edge proxy to learning-java times out (upstream connection issue)
+4. Auth (no-token/expired-JWT) correctly rejected with 401 at edge
+5. JWKS, register, login all PASS via MVC NodePort 30009

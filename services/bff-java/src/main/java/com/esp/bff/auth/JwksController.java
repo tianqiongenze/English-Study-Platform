@@ -1,5 +1,6 @@
 package com.esp.bff.auth;
 
+import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import org.springframework.http.MediaType;
@@ -31,6 +32,7 @@ public class JwksController {
     public ResponseEntity<String> jwks() {
         RSAPublicKey pub = (RSAPublicKey) jwtService.getPublicKey();
         RSAKey rsaKey = new RSAKey.Builder(pub)
+                .algorithm(JWSAlgorithm.RS256)
                 .keyID(KID)
                 .build();
         JWKSet jwkSet = new JWKSet(rsaKey);

@@ -1,0 +1,43 @@
+# frontend-portal: 统一多端入口(Web/H5/小程序)。
+# 解决问题:ESP 之前无统一 portal,frontend-react/h5 独立 ClusterIP,esp-ingress 仅 API+WS 且 traefik LB(192.168.5.15)Mac 不可达。
+# 方案:单个 nginx 容器托管门户 index.html,反代 /web→frontend-react、/h5→frontend-h5、/api+/ws→traefik,
+#       通过 NodePort 30070 对 Mac host 暴露(绕过不可达的 traefik LB)。参照 education-platform 的 portal 模式。
+# 端口隔离:避开 education-platform 的 *.edu.com host 与 NodePort;30070 在 ESP 300xx 段内且未占用。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-portal
+  namespace: esp-prod
+  labels: {app: frontend-portal}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: frontend-portal}}
+  template:
+    metadata: {labels: {app: frontend-portal}}
+    spec:
+      containers:
+      - name: frontend-portal
+        image: esp/frontend-portal:1.1.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 80}]
+        readinessProbe: {httpGet: {path: /, port: 80}, periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 3}
+        livenessProbe:  {httpGet: {path: /, port: 80}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 5}
+        resources:
+          requests: {cpu: "30m", memory: 24Mi}
+          limits: {cpu: "100m", memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: frontend-portal, namespace: esp-prod}
+spec:
+  selector: {app: frontend-portal}
+  ports: [{port: 80, targetPort: 80}]
+---
+# NodePort 30070:Mac host 浏览器访问 http://localhost:30070 即统一 portal
+apiVersion: v1
+kind: Service
+metadata: {name: frontend-portal-np, namespace: esp-prod}
+spec:
+  type: NodePort
+  selector: {app: frontend-portal}
+  ports: [{port: 80, targetPort: 80, nodePort: 30070}]

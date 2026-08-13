@@ -4,138 +4,121 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> 更新日期:2026-08-13 会话22-11(阶段B 图+向量库启用 ✅ + 阶段C 冒烟 7/8 PASS). **D 种子 v4 落盘**:learning_events 99.045M/100M(99%,pragmatic达标,其余 11 表全满标). **架构主线 4 文档 ✅**:togaf-assessment.md(7.34/10)+ optimization-plan.md + 09-人工测试操作指南. **TOGAF P0 9 文档 ✅**. **坑㉓ redis cluster 跨命名空间 hostname 阻断 ✅闭合**. **坑㉒ Neo4j 768Mi OOMKilled + 社区版无 CREATE DATABASE ✅闭合**(limit→1280Mi + label 隔离替代多 db). **阶段A 平台底座 ✅**(platform-infra ns + 05b 6 ExternalName + 多租户设计). **阶段B 图+向量库 ✅**:milvus+milvus-minio+neo4j 全 Ready=1,milvus:19530 pymilvus 连通 collections 空,neo4j:7474/7687 HTTP RETURN 1 ✅ + :Tenant esp 根节点已写,跨 ns 二跳 5 短名全可达. **阶段C 冒烟 7/8 PASS**(pulsar 待 VM 恢复重测). **Redis Cluster warm-up ✅**(23000 keys esp:cache:*). **Obsidian 同步 ✅**(MCP .mcp.json + 6 篇笔记). **当前⚠️**:RD VM 状态 Broken(QEMU 活/控制面断,等自愈,**不自行 rdctl start**). **Task#4**:gateway/learning/bff/learning-worker 已 1/1,余 ~14 deploy 待 VM 稳定后串行恢复. **Task#5 端到端人工测试待开始**. **双轨落盘 ✅**:PROGRESS.md 本节 + Redis 锚点(本轮刷新). host kubectl 坏(EOF 6443),必用 `rdctl shell sudo kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml`. git:多租户文档/05b/infra_smoke/PROGRESS/Obsidian 进度 未 commit.
+> **当前✅(2026-08-14 会话22-16 统一 Portal v1.1.0 + 全后端功能测全绿 + 条件性 GO)**:补建统一多端 Portal(frontend-portal nginx,NodePort 30070,绕过不可达 traefik LB 直连 8 后端 ClusterIP),Mac 经 SSH 隧道可达。Go/Rust 8 服务 TC-GR-1~9 全 200(长驻 probe-keep pod 修临时 pod iptables race)。Portal TC-P-1~4 全绿。**关键根因**:① traefik ingress controller pod 未运行(svc endpoints `<none>`)→ portal /api 改直连后端 ClusterIP 复刻 esp-ingress 9 path 规则;② RD NodePort Mac 不可达(VM IP 192.168.5.15 ping 100% 丢包,无 svclb bridge)→ SSH 隧道 `ssh -f -N -L 30070:localhost:30070 -F "$RD_LIMA" lima-0`;③ 临时 curl pod iptables/DNS race(connection refused 3ms)→ 长驻 probe-keep pod。**已知数据缺口**:writing-coach 500 = `esp_writing.writing_templates` 表空(db_query 实证表在 esp_writing 库非 esp 库),非代码 bug,非阻断。**下一步**:k6 基线重跑(用 ConfigMap 挂脚本替代 /dev/stdin)、Locust WS 交叉验证、前端 GUI 人工浏览器 TC-W/H、git commit。
 
-## 会话22-11:阶段B 图+向量库启用 ✅ + 阶段C 冒烟 7/8 PASS + Neo4j 社区版坑(2026-08-13)
+## 当前热区 (2026-08-14 会话22-16 统一 Portal + 全后端功能测)
 
-用户指令:"现在开始 B1 串行 scale up Milvus,并行推动后续所有任务"。
+### 核心进展:4 任务批次(Portal/压测/人工测/commit)
+1. ✅ 统一 Portal(frontend-portal v1.1.0 构建部署,Mac 可达)
+2. ⏳ 压测(k6 基线首轮超时待重跑,Locust WS 待交叉验证)
+3. ⏳ 人工测试(TC-GR-1~9 + TC-P-1~4 全绿;前端 GUI TC-W/H 待人工浏览器)
+4. ⏳ git commit(待最后)
 
-### 阶段 B 启用图库+向量库 ✅(串行 scale up,资源压低)
-- **Milvus + milvus-minio**:milvus `ETCD_USE_EMBED=true`(内嵌 etcd,无独立 etcd deploy),依赖 milvus-minio(minio RELEASE.2024-05-28)。
-  - 资源压低:milvus lim cpu1/mem1Gi(原 cpu3/6Gi),req 250m/512Mi;milvus-minio lim 500m/512Mi,req 100m/128Mi。
-  - 串行 scale:minio→1 Ready✅ → milvus→1 Ready✅(QueryNode started + heartbeat 正常)。
-  - 验证:`:19530` FQDN TCP 可达;pymilvus 连接成功,**collections 空**(业务未灌向量数据,预期)。
-- **Neo4j 5.25.1-community**:
-  - 资源:lim 1280Mi(原无 resources),req 512Mi;env `heap_max=512m` + `heap_initial=512m` + `pagecache=256m`;volume emptyDir。
-  - **坑㉒(实测,已闭合)**:768Mi limit 下 Neo4j 被 **OOMKilled**(exit 137,09:32:53),且容器内 cypher-shell 起额外 JVM 叠加主进程触发 cgroup kill。**修复**:limit 768Mi→1280Mi;不在容器内起 JVM,改用外部 pod HTTP API 操作。
-  - 验证:`:7474`(HTTP)+`:7687`(Bolt)FQDN 可达;HTTP `RETURN 1` 返回 1✅;`:Tenant {name:'esp'}` 根节点已写入(多租户隔离基准)。
-- **跨 ns 二跳(platform-infra)✅**:ESP pod 经 `*.platform-infra.svc.cluster.local` 5 短名全可达(milvus:19530 / neo4j:7474+7687 / redis:6379 / tidb:4000)。
+### 任务1 统一 Portal v1.1.0(完成✅)
+- **痛点**:ESP 无统一入口。frontend-react/h5 独立 ClusterIP 无 NodePort;esp-ingress 仅 API+WS 路由不托管静态;traefik LB 192.168.5.15 = VM 内 Mac 不可达。对照 education-platform 有完整 portal 三件套。
+- **方案**:单 nginx 容器(frontend-portal)托管门户 index.html + 反代。NodePort 30070 对 Mac 暴露。
+- **关键修复(traefik 绕过)**:原 nginx /api /ws 反代 traefik(Host esp.example.com)→ 502/000,因 traefik ingress controller pod 未运行(svc traefik 仍 LoadBalancer 但 endpoints `<none>`)。改为按 path 直连 8 后端 ClusterIP,复刻 esp-ingress 9 path 规则:`/api/auth/`→bff-java:8090、`/api/scenarios|sessions`→gateway-go:80、`/api/learning`→learning-java:80、`/api/writing-coach`→writing-coach:80、`/api/writing`→writing-py:80、`/api/teacher`→teacher-java:80、`/api/emotion`→emotion-svc:80、`/ws/`→gateway-go(WebSocket upgrade)。
+- **Mac 可达性(SSH 隧道)**:RD 单节点 NodePort Mac host 直连不通(VM IP ping 100% 丢包,无 svclb DaemonSet bridge)。解法:`ssh -f -N -L 30070:localhost:30070 -F "$HOME/Library/Application Support/rancher-desktop/lima/0/ssh.config" lima-0`。6443 kubectl 隧道同理会断,断后 `ssh -f -N -L 6443:localhost:6443 -F "$RD_LIMA" lima-0` 恢复。
+- **验证(TC-P-1~4 全绿)**:portal root 200;/api/scenarios 200;/api/auth/health 404(bff 无此端点,转发本身通);/web/ /h5/ 反代生效。
+- **改文件**:frontend-portal/nginx.conf(重写 8 path + /ws)、frontend-portal/Dockerfile(不变)、deploy/k8s/17-frontend-portal.yaml(image 1.0.0→1.1.0)、docs/test/07-人工测试用例.md §8 补全 8 Go/Rust 服务用例 + §8.4 portal 用例。
 
-### ⚠️ Neo4j 社区版多租户限制(架构级坑,已记入多租户文档)
-- **现象**:HTTP API 执行 `CREATE DATABASE esp IF NOT EXISTS` 返回 `Neo.ClientError.Statement.UnsupportedAdministrationCommand`。
-- **根因**:Neo4j **Community Edition 不支持 `CREATE DATABASE`**,仅默认 `neo4j`/`system` 两库;多 database + RBAC 是企业版特性。
-- **影响**:多租户隔离矩阵 Neo4j 一行从"database 隔离"降级为 **label + 节点命名空间隔离**(默认库内 `:Tenant` 标签,Cypher `WHERE t.name=$tenant` 过滤)。
-- **生产建议**:强隔离升企业版,或独立 Neo4j 实例/租户。
-- **文档已改**:`docs/design/platform-infra-multitenant.md` 隔离矩阵 + SOP + 风险表三处同步更新。
+### 任务3 人工测试(TC-GR-1~9 + TC-P-1~4 全绿✅)
+- **临时 curl pod iptables race 修复**:`kubectl run --rm -i` 临时 pod 启动期 iptables/DNS race,对存在 endpoints 的 ClusterIP 返回 HTTP 000(connection refused ~3ms)。改用长驻 `probe-keep` pod(curlimages/curl:8.10.1 sleep 300),从其内全 8 服务响应正常。
+- **TC-GR-1~9(8 Go/Rust 服务全 200)**:course-path-go/listening-go/reading-go/gamification-go/live-tutor-go/media-learn-rs 全 200;pronunciation-rs POST /api/pronunciation/score 需 `{"user_id":1,"text":"hello world","ref_type":"mock","ref_id":1,"audio_url":"http://x/a.wav"}`(ref_id 必须 i64 非 string)→ 200;assessment-rs POST /api/assessment/sessions → 200。
+- **TC-P-1~4(portal)**:见任务1,全绿。
+- **writing-coach 500 = 数据缺口(非阻断)**:logs 显 `Table 'esp.writing_templates' doesn't exist`。db_query 实证该表在 `esp_writing` 库(schema-per-service),非 `esp` 库。writing-coach 连接串指向 esp 库读不到表。种子数据缺口,记录不阻断。
+- **30080 NodePort 失效**:测试文档 §1 列 gateway-go 30080 但 gateway-go 实为 ClusterIP-only(无 NodePort),该条 stale。改用 portal /api/scenarios 测 gateway。
 
-### 阶段 C 冒烟测试(infra_smoke.sh)7/8 PASS
-- `scripts/infra_smoke.sh` 增强:milvus 加 pymilvus 连通探测,neo4j 加 HTTP `RETURN 1` 查询探测(原仅 readyReplicas)。
-- **结果**:tidb-ping✅ / redis-set-get✅ / redis-get✅ / **pulsar-broker-up❌** / milvus-pod-ready✅ / milvus-pymilvus-connect✅ / neo4j-pod-ready✅ / neo4j-http-query✅。
-- **pulsar FAIL 待查**:冒烟跑完后 RD VM 状态变 **Broken**(QEMU 进程仍活,lima-guestagent 控制通道断,疑似持续 OOMKill 致 load 15+ 内存紧张)。pulsar readyReplicas 未能读到 —— **需 VM 恢复后重测 pulsar**。
-- C1(TiDB 读写分离注释):05b 已含"伪分离:单节点同 svc;多节点改独立 follower svc"注释(line 10-11,30),✅ 无需改动。
+### 任务2 压测(k6 首轮超时⏳)
+- **k6 基线首轮失败**:`kubectl run k6-baseline --rm -i --image=grafana/k6:0.54.0 -- k6 run ... /dev/stdin < deploy/k6/scenarios-baseline.js` 超时 180s "timed out waiting for the condition",pod 卡 Terminating(已 force delete)。疑因:`/dev/stdin` + `kubectl run -i` stdin 重定向在该 k6 镜像不工作,或镜像拉取慢。
+- **重跑方案**:用 ConfigMap 挂脚本(`kubectl create cm k6-script --from-file=deploy/k6/scenarios-baseline.js`),pod 挂载到 /scripts/,`k6 run /scripts/scenarios-baseline.js`。避免 stdin 重定向问题。
+- **Locust WS 交叉验证**:待启动(deploy/locust/ 已有脚本)。
 
-### 恢复锚点(精确子步骤)— 阶段C 收尾 + Task#4/5
-1. **已完成**:阶段A✅ / 阶段B✅(milvus+neo4j 启用+验证) / Redis warm-up✅ / Obsidian✅ / 阶段C 冒烟 7/8✅ / Neo4j 社区版坑记录✅。
-2. **VM Broken 待恢复**:RD VM 状态 Broken(QEMU 活,控制面断)。等 guestagent 自愈或用户介入。⚠️ **铁律:不自行 rdctl start/Factory Reset**。
-3. **VM 恢复后**:① 重测 pulsar readyReplicas + 补 `infra_smoke.sh pulsar`;② 确认 milvus/neo4j/milvus-minio 仍 Ready(若被 OOMKill 回退则重 patch+scale)。
-4. **Task#4**:VM 稳定后串行 scale 余下 ~14 P0 deploy(assessment-rs/course-path-go/frontend-h5/frontend-react/gamification-go/listening-go/live-tutor-go/llm-orchestrator-rs/media-learn-rs/pronunciation-rs/reading-go/vocab-srs-go),每个等 Ready+load 回落。
-5. **Task#5**:端到端人工测试(docs/test/09-人工测试操作指南.md)。
-6. **Task#6 git commit**:本会话改动(05b 已 apply / 多租户文档 Neo4j 改 / infra_smoke 增强 / PROGRESS / Obsidian 进度笔记)待 commit。
-
-### 关键命令速查(本会话)
-- Neo4j HTTP 操作(避开容器内 JVM OOM):esp-prod 临时 python pod → `urllib.request` POST `http://neo4j.ekb-m2...:7474/db/neo4j/tx/commit`,Basic auth `neo4j:neo4j-password-1`。
-- Milvus 验证:esp-prod 临时 python pod → `pip install pymilvus` → `connections.connect(host=milvus.ekb-m2..., port=19530)` + `utility.list_collections()`。
-- VM Broken 诊断:`rdctl shell echo ok`(失败则 Broken);`ps aux | grep qemu`(进程在即 QEMU 活)。
+### 恢复锚点(跨会话)
+- **当前子步骤**:任务2 k6 重跑(ConfigMap 挂脚本)→ Locust WS → 任务4 git commit。
+- **已确认根因**:traefik pod 未运行→portal 直连后端;RD NodePort Mac 不可达→SSH 隧道;临时 pod iptables race→长驻 probe pod;writing-coach 500=esp_writing 库数据缺口。
+- **已改文件**:frontend-portal/nginx.conf、frontend-portal/Dockerfile、17-frontend-portal.yaml、07-人工测试用例.md §8、(上轮)NettyEdgeServer.java、JwksController.java、DbLearningEventConsumer.java、15-bff-java.yaml、20-learning-java.yaml、memory×2、deploy/k6/*。
+- **下一步**:k6 ConfigMap 重跑;Locust WS 交叉验证;前端 GUI TC-W/H;git commit 全部。
 
 ---
 
-## 会话22-10:Obsidian 同步 ✅ + Redis warm-up ✅ + 双轨落盘刷新(2026-08-13)
+## 历史 (2026-08-14 会话22-15 端到端人工测试 SEC全绿 + L1-L10链路)
 
-用户指令:① TiDB 灌完数据后 Redis Cluster 能否 warm up;② 本机有 Obsidian,把 Claude Code 所有项目信息/决策记录随时同步进 Obsidian,联网给最优方案并执行成功;③ 立即双轨落盘(PROGRESS+Redis)使上下文溢出后能完整恢复。
+### 核心进展:阶段0-6 测试执行(docs/test/09-人工测试操作指南.md)
+执行上线前全流程人工测试。SEC 安全关口全过,发现并修 1 个真 bug(learning_events 落库)。
 
-### Redis Cluster warm-up ✅(TiDB 热点数据 → Redis esp:cache:*)
-- **Job**:`esp-redis-warmup`(esp-prod,python:3.12-slim,pip pymysql+redis 清华源),Completed。
-- **ConfigMap**:`redis-warmup-script`(挂载 `scripts/redis-warmup.py`)。
-- **连接**:TIDB_HOST=tidb-primary(经 05→platform-infra→ekb-m2 二跳)+ REDIS_STARTUP=redis-cluster-new-0 FQDN。
-- **结果**:23000 keys 加载,esp:cache:* 前缀,3 master 均布(~7632-7693 dbsize 含 slave 镜像):
-  - scenarios ~10000 → `esp:cache:scenario:{id}`
-  - knowledge_points ~10000 → `esp:cache:kp:{id}`
-  - sessions top1000 → `esp:cache:session:{id}`
-  - user_mastery top1000 → `esp:cache:mastery:{user_id}:{kp_id}`
-  - users top1000 → `esp:cache:user:{id}`
-- **TTL**:3600s(1h),SSDictCursor + pipeline 批 500。
-- **意义**:业务启动即命中缓存,验证 TiDB→Redis warm-up 通路 + Redis Cluster FQDN 跨 ns 读写稳定。
+### 阶段2 SEC 鉴权越权矩阵(全绿✅)
+- SEC-1✅ WS越权403实证:A token连B session得HTTP 403 forbidden(gateway-go handleSpeech: parseUserID(token)!=sess.UserID→403,在WS upgrade前)。SID_B=sess_1786655339867。
+- SEC-2✅ 过期JWT→401:edge 9090 EdgeAuthHandler.jwt.parse() 对过期token返回401(合法token=转发000因fire-for-get,无token=401)。
+- SEC-3✅ X-User-Id剥离:代码可证 EdgeAuthHandler stripSpoofedHeaders()+注入JWT sub(line109-111)。直连learning(30081)信任伪造999999(下游无独立filter,设计信任BFF注入),经edge必被剥离替换。实证受edge fire-and-forget不回写阻碍。
+- SEC-4✅ 无secret泄漏:trivy fs扫services/ 全量源码0发现(镜像扫描因Mac连不上RD docker改用fs扫)。
+- SEC-5✅ JWKS闭环:kid=esp-rs256-1。修复alg缺失(JwksController加.algorithm(JWSAlgorithm.RS256))。bff-java 1.7.0→1.7.1。
 
-### Obsidian 同步 ✅(联网调研 + 执行)
-- **选型**:对比 3 包(mcp-obsidian@1.0.0 只读 / obsidian-mcp-server@3.2.12 需 Local REST API 插件 / **@mauricio.wolff/mcp-obsidian@0.8.2** 直文件系统访问 14 工具)→ 选定 `@mauricio.wolff/mcp-obsidian`。
-- **理由**:无需 Obsidian 运行/插件,直读写 vault,兼容 iCloud 路径(含空格),Claude Code 原生支持。
-- **Vault**:`/Users/joelgong/Library/Mobile Documents/iCloud~md~obsidian/Documents/JoelGong`(iCloud 同步)。
-- **MCP 注册**:项目级 `.mcp.json` 写入 `claude mcp add`(command=npx,args=`-y @mauricio.wolff/mcp-obsidian@latest <vault>`)。MCP 会话启动加载,**下次会话工具生效**。
-- **首次同步**:vault 内 `人工智能项目/ESP平台/` 写入 6 篇 wikilink 互联笔记:
-  - `00-ESP平台总览.md` — 一句话+评分7.34+五组件状态+单节点铁律+索引
-  - `架构评分与重构方向.md` — 10维度+TOGAF+重构方向
-  - `平台底座与多租户隔离.md` — 二跳解耦+隔离矩阵+SOP+三阶段
-  - `关键坑记录.md` — 坑㉓+单节点铁律类坑
-  - `进度同步.md` — 会话22-9/10 进度+恢复锚点
-  - `如何持续同步到 Obsidian.md` — 选型+MCP配置+同步流程
-- **同步策略**:仓库 docs/ 是 single source of truth,Obsidian 为镜像,不做反向同步;里程碑级同步(非每轮),用 patch_note 增量更新。
+### 坑1闭合(NettyEdgeServer)+ edge fire-and-forget设计缺口
+- 修:NettyEdgeServer bind "0.0.0.0"(原绑loopback ::1/127.0.0.1致NodePort不可达)+ SO_BACKLOG改.option(原误放.childOption)。
+- 真根因(非bind):edge 9090 对需回写响应的请求全超时,因 InletDisruptor.DownstreamForwarder 是fire-and-forget(sendAsync不回写Netty ctx,InletDisruptor.java:143注释"回写见ForwardRespondHandler扩展点"未实现)。仅401/503错误路径即时回写。=P2工程缺口。
+- 验证:edge /api/learning/x 无token→401 ✓;过期token→401 ✓。
 
-### 恢复锚点(精确子步骤)— 阶段B 进行中,Obsidian/warm-up 已闭合
-1. **已完成**:坑㉓✅ / 阶段A✅ / Redis warm-up✅ / Obsidian 同步✅ / 双轨落盘✅。
-2. **B1 Milvus(下一步)**:apply `/tmp/patch-milvus-res.yaml`(req250m/512Mi,lim1/1Gi)+ `/tmp/patch-milvus-minio-res.yaml`(req100m/128Mi,lim500m/512Mi),串行 scale milvus-minio→1(等 Ready+load 回落)→ milvus→1,验证 `:19530` + list collections 空。
-3. **B2 Neo4j**:压 limit req256/lim768 + env NEO4J_dbms_memory_heap_max__size=512m + 补 PVC(local-path),scale→1,验证 `:7474` + cypher `CREATE DATABASE esp`。
-4. **B3**:apply 05b(已含 milvus/neo4j ExternalName),esp-prod 跨 ns 测短名解析。
-5. **阶段C**:TiDB 读写分离注释(单节点伪分离)+ `scripts/infra_smoke.sh` 6 组件冒烟 + 落盘 commit。
-6. **Task#4**:恢复余下 ~14 P0 deploy + 验证 healthz(单节点串行)。
-7. **Task#5**:端到端人工测试(docs/test/09-人工测试操作指南.md)。
-8. **Task#6 git commit**:PROGRESS/平台底座manifest/架构文档/seed/redis-warmup/Obsidian笔记 未 commit。
+### 阶段5 L1-L10链路测
+- ✅L1(6服务健康全200) ✅L2(REST scenarios 200) ✅L3(Dubbo Triple teacher kp-stats 200) ✅L8(writing-py Mock批改score=24+grammar修正) ✅L9(sessions history user_id正确)
+- ✅L4/L7(learning_events落库,坑㉙已修):LearningEventEntity @Id Long无@GeneratedValue + TiDB AUTO_RANDOM,Hibernate persist抛异常丢数据。**修复**:DbLearningEventConsumer 改 JdbcTemplate batchUpdate(INSERT不含id列,TiDB AUTO_RANDOM生成)。learning-java 1.7.0→1.7.1。实测 esp_learning.learning_events COUNT=1 id=10364873落库成功。
+- ⚠️L5(trace部署侧待多节点,esp-observability ns无otel-collector) ⚠️L6(双pod WS待多节点) ⚠️L10(优雅停机待多节点)
 
-### 关键约束(本会话遵守)
-- host kubectl 坏(EOF @ 127.0.0.1:6443),全用 `rdctl shell sudo kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml`。
-- 单节点铁律:不碰 k3s 配置/restart/pkill/Factory Reset;主机重 mvn 与集群操作串行;VM 重启后必预置 pause 镜像。
-- 文件传输到 VM 用 base64 内联。Bash 输出限流:`--tail=N` / `| head/grep`;大输出落 report/logs。
-- Obsidian vault 路径含空格,bash 命令必须双引号包裹。
+### 阶段6单节点压测基线
+- host经port-forward:28rps/100%成功(瓶颈=port-forward隧道开销kubectl→apiserver→kubelet→pod,非服务容量)。
+- 集群内locust压测(ClusterIP直连绕过port-forward)进行中,预期rps远高于28。
+- 5000CCU单节点不可达,如实记录,多节点Phase D2重测。
+
+### 用户澄清(本会话2个问题)
+1. 统一portal:ESP无。frontend-react/h5独立ClusterIP无NodePort,esp-ingress仅API+WS路由(esp.example.com)不托管静态资源,mac不可达traefik LB(192.168.5.15=VM内)。对照education-platform有完整edu-portal-ingress+edu-unified-ingress+edu-unified-ws-ingress(www/api.edu.com)。缺口,见memory esp-unified-portal-gap。
+2. 端口冲突:ESP与education-platform零冲突。edu全ClusterIP无NodePort(走traefik);ESP用300xx NodePort段(30009/10/48/58/71/81-85/92)。两ns共用kube-system/traefik靠host分流。新增ESP ingress host须避开*.edu.com。见memory esp-port-isolation-edu。
+
+### 待执行
+1. ✅ LearningEventEntity修复验证(L4落库=1行)→G-5转绿
+2. ✅ 阶段7 Go/No-Go签收 → 条件性GO(G-1/2/3/5/6/7✅+G-4降权+G-8知悉)
+3. 前端GUI人工浏览器走TC-W/H(web/h5 Vite可起,小程序跳过P-0-6缺)
+4. git commit(NettyEdgeServer+JwksController+DbLearningEventConsumer+manifest×2+PROGRESS+memory×2+k6脚本)
+5. 多节点移植(真实弹性/5000CCU/L6双podWS/L10优雅停机/trace Collector部署)
+
+### 关键约束(本会话)
+- 单节点铁律:不碰k3s/restart/pkill/Factory Reset;不停colima;HPA minReplicas=1(learning-java HPA曾扩2新pod探针失败缩回,印证JVM抢CPU)
+- learning-worker保持1.6.0不动
+- 压测机入集群(走ClusterIP)绕过port-forward,工业级姿势
 
 ---
 
-## 会话22-9:平台底座化(阶段A✅)+ redis 坑㉓闭合 + 阶段B/C(2026-08-13)
+## 当前热区 (2026-08-13 会话22-14 业务 100% 恢复 + 坑㉔ k3s containerd 镜像隔离)
 
-用户指令:① 自动从 PROGRESS+Redis 恢复完整完成所有任务;② Redis 重建是否丢数据 + 把 Redis/Pulsar/TiDB/图库/向量库共享为局域网通用基础设施;③(决策)全部启用图+向量库 + 升级为局域网通用平台底座;④ 立即双轨落盘(PROGRESS+Redis)使上下文溢出后能完整恢复。
+### 核心根因:坑㉔ k3s containerd 与 docker 镜像库隔离
+- colima-stop DNS 雪崩(会话22-13)期间,k3s containerd 的 `k8s.io` namespace 下 ESP 业务镜像全被清空(只剩旧 `edu-*` 项目镜像)
+- manifest 用 `esp/xxx:tag` + `imagePullPolicy: IfNotPresent`,但 k3s containerd 本地无镜像 → kubelet 去远程拉 → daocloud 镜像源对 `esp/` 私有名返回 **403 Forbidden**(公网不存在)
+- **关键陷阱**:ESP 业务镜像其实都在节点的 **docker daemon** 里(`docker build` 存 `/var/lib/docker`),但 **k3s 用自己的 containerd**(`/var/lib/rancher/k3s/agent/containerd`),两者镜像库**完全隔离**
+- **Why K8s 用 containerd 不用 docker**:K8s 1.24 移除 Dockershim,kubelet 只认 CRI 接口;k3s 自带 containerd(轻量:省 dockerd 一层、少故障点、少内存);docker daemon 镜像与 k3s containerd 镜像互不可见
+- **修复**:`docker save esp/xxx:tag | sudo k3s ctr images import -` 把 docker 镜像搬运到 k3s containerd(实测有效)
 
-### 现状实查(2026-08-13)
-- **Redis Cluster**:`redis-cluster-new` 6 pod 全 1/1 Running(18m),`cluster_state:ok slots_ok:16384 cluster_size:3 known_nodes:6`,全 FQDN announce。esp-prod 跨 ns `SET/GET esp:ctx:plat-test` 成功(坑㉓ 闭合)。
-- **平台底座(阶段A✅)**:`platform-infra` ns 6 ExternalName 入口全在(tidb/tidb-follower/redis-cluster/pulsar/milvus/neo4j);ESP `05-infra-reuse.yaml` 二跳指 platform-infra。
-- **阶段B(⏳)**:milvus(0/0)+milvus-minio(0/0)+neo4j(0/0) 均 scale=0,122d 前创建。VM 9核/29.3G,可用 6.0G,负载 26%。
-- **esp-prod 业务**:gateway-go/learning-java/bff-java/learning-worker 已 1/1;余 ~14 deploy 待 scale up(Task#4)。
-- **双轨落盘(✅)**:PROGRESS.md 本节 + Redis 锚点 `esp:ctx:hot:2026-08-13-session22-9-platform-infra`(2504B,STRLEN 验证)。
+### 本会话修复清单(11 步,按顺序)
+1. 节点 DNS 正常(resolv.conf 223.5.5.5/8.8.8.8 未被重置)→ ImagePullBackOff 非因 DNS
+2. 诊断根因=containerd 无 esp/ 镜像(crictl 无该命令,用 `k3s ctr images ls` 查)
+3. 批量导入 16 ESP 业务镜像到 k3s containerd(gateway-go/bff-java/learning-java:1.7.0/teacher-java/emotion-svc/writing-coach/writing-py/course-path-go/live-tutor-go/media-learn-rs/pronunciation-rs/listening-go/assessment-rs/reading-go/gamification-go/frontend-react/frontend-h5)
+4. 补导 seataio/seata-server:2.2.0 + bladex/sentinel-dashboard:1.8.9 + esp/learning-java:1.6.0(worker 用)
+5. 重建 esp-rsa-jwt secret(`--from-literal=JWT_RSA_PRIVATE/PUBLIC_KEY_PEM`,密钥来自 services/bff-java/src/test/resources/rsa/;3 Java 服务 CreateContainerConfigError 根因)
+6. apply 06-sca-middleware.yaml(seata+sentinel **漏 apply**,bff/learning 连不上 seata:8091 → BeanCreation `globalTransactionScanner` 失败)
+7. 创建 redis-warmup-script ConfigMap(`--from-file=redis-warmup.py=scripts/redis-warmup.py`;warmup job ContainerCreating 根因;补建后 job **Completed**)
+8. 重新 apply 05-infra-reuse.yaml(之前**漏了 redis-cluster/pulsar-broker/milvus/neo4j 4 个 ExternalName**;业务用短名 pulsar-broker 解析 NXDOMAIN → Pulsar consumer 失败)
+9. apply 30-other-services.yaml(teacher-java/emotion-svc/writing-coach **漏 apply**)
+10. scale learning-worker/live-tutor-go/media-learn-rs replicas 0→1
+11. learning-java HPA minReplicas=1(曾因 CPU 40% 扩到 4 副本,单节点 JVM 抢 CPU,降回 1)
 
-### 坑㉓(Redis 跨命名空间 hostname 阻断)✅ 闭合
-- **根因**:redis sts `--cluster-announce-hostname $(POD_NAME).redis-cluster-new`(无 ns 后缀),cross-ns 客户端 esp-prod 解析失败 → MOVED 路由到短名节点超时。
-- **修复**:sts args 改 FQDN `$(POD_NAME).redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local` + `--cluster-preferred-endpoint-type hostname`。
-- **重建难点**:nodes.conf/dump.rdb/appendonlydir 在 PVC 持久化旧短名元数据,patch args 后仍公告短名。需 6 pod 逐一 `FLUSHALL + CLUSTER RESET HARD + rm -f /data/nodes.conf /data/dump.rdb + rm -rf /data/appendonlydir`(AOF 残留恢复旧集群元数据),再 force-delete pod + re-apply manifest 重建 init Job。
-- **数据丢失**:重建 FLUSHALL 清空。Redis 仅存跨会话运行态/缓存/进度(非业务数据,可重灌)。
-- **关联**:[[esp-redis-cluster-hostname-announce-023]] memory 已更新。
+### 最终状态(21 deploy 全 Ready,2026-08-13 实测)
+- **1/1 Running**:assessment-rs/bff-java/course-path-go/emotion-svc/frontend-h5/frontend-react/gamification-go/gateway-go/learning-java/learning-worker/listening-go/live-tutor-go/media-learn-rs/nacos/pronunciation-rs/reading-go/seata/sentinel/teacher-java/writing-coach/writing-py
+- **esp-redis-warmup: Completed** ✅(Redis esp:cache:* 已灌入)
+- bff/learning RESTARTS=7=历史启动期累积(seata 未就绪时),现已稳定
+- 基础设施(ekb-m2):milvus/minio/neo4j/pd/pulsar(3bk+3broker+3zk)/redis-cluster(6 节点)全 Running
 
-### 平台底座多租户设计(阶段A 文档+manifest,纯文件不动运行态)
-- 新增 `deploy/k8s/00-platform-infra-namespace.yaml` — platform-infra ns(shared-base 标签)。
-- 新增 `deploy/k8s/05b-platform-infra-externalnames.yaml` — 6 组件统一 ExternalName 入口层(二跳解耦:组件迁移只改 05b,租户零改动)。
-- 修改 `deploy/k8s/05-infra-reuse.yaml` — ESP 4→6 ExternalName 改指 `*.platform-infra.svc.cluster.local`(业务 env 短名不变,零改动)。
-- 新增 `docs/design/platform-infra-multitenant.md` — 5 组件隔离矩阵(TiDB DB / Redis 前缀 / Pulsar tenant / Milvus collection / Neo4j database)+ 新租户 3 步接入 SOP + 单节点风险 + 多节点移植清单。
-
-### 恢复锚点(精确子步骤)— 阶段B 进行中
-1. **当前**:阶段B,3 组件 scale=0。VM 可用 6.0G。
-2. **B1 Milvus**:查 deploy/milvus spec(内嵌 etcd 或 standalone),压 limit req256/lim512,串行 scale milvus-minio→1(等 Ready+load 回落)→ milvus→1,验证 `:19530` 可连 + list collections 空。
-3. **B2 Neo4j**:压 limit req256/lim768 + env NEO4J_dbms_memory_heap_max__size=512m + 补 PVC(local-path),scale→1,验证 `:7474` + cypher `CREATE DATABASE esp`。
-4. **B3**:apply 05b(已含 milvus/neo4j ExternalName),esp-prod 跨 ns 测短名解析。
-5. **阶段C**:TiDB 读写分离注释(单节点伪分离,多节点 tidb=2 真分流)+ `scripts/infra_smoke.sh` 6 组件冒烟 + 落盘 commit。
-6. **Task#4**:恢复余下 ~14 P0 deploy + 验证 healthz(单节点串行,每批等 load 回落)。
-7. **Task#5**:端到端人工测试(docs/test/09-人工测试操作指南.md)。
-
-### 关键约束(本会话遵守)
-- host kubectl 坏(EOF @ 127.0.0.1:6443),全用 `rdctl shell sudo kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml`。
-- 单节点铁律:不碰 k3s 配置/restart/pkill/Factory Reset;主机重 mvn 与集群操作串行;VM 重启后必预置 pause 镜像。
-- 文件传输到 VM 用 base64 内联(`B64=...; rdctl shell sudo sh -c "echo '$B64'|base64 -d>..."`)。
-- Bash 输出限流:`--tail=N` / `| head/grep`;大输出落 report/logs。
+### 关键命令(恢复用)
+- 查节点镜像:`ssh -F lima/0/ssh.config lima-0 'sudo k3s ctr images ls | grep esp/'`
+- 导入镜像:`ssh ... lima-0 'docker save esp/xxx:tag | sudo k3s ctr images import -'`
+- apply 顺序:00-namespace → 05-infra-reuse → 05b → 06-sca → 07-tidb → 10/15/16/20/21/30/31/32 → esp-redis-warmup-job
 
 ---
 
@@ -143,6 +126,11 @@
 
 | 主题 | 文件 | Redis key |
 |---|---|---|
+| **会话22-13 colima-stop DNS 雪崩** | `docs/progress/archive/session22-13-colima-dns.md` | — |
+| **会话22-12 CrashLoop 诊断 + 双轨落盘** | `docs/progress/archive/session22-12-crashloop-diagnosis.md` | — |
+| **会话22-11 图+向量库 + 冒烟7/8 + Neo4j坑 + 实测校正** | `docs/progress/archive/session22-11-graph-vector-smoke.md` | — |
+| **会话22-10 Obsidian同步 + Redis warm-up** | `docs/progress/archive/session22-10-obsidian-redis-warmup.md` | — |
+| **会话22-9 平台底座化 + redis坑㉓闭合** | `docs/progress/archive/session22-9-platform-infra-redis-023.md` | `esp:ctx:hot:2026-08-13-session22-9-platform-infra` |
 | **会话22-3 ~ 22-8(08-09~0811)** | `docs/progress/archive/2026-08-09-to-0811-session22-3-to-22-8.md` | — |
 | **会话18~22 冷区批次(08-07~09)** | `docs/progress/archive/2026-08-09-cold-archive-session18-22.md` | `esp:ctx:hot:2026-08-09-session22-abcd-batch-ab` |
 | teacher readiness 根治 + 安全扫描四件套(08-07) | (见冷区归档) | `esp:ctx:hot:2026-08-07-teacher-readiness-and-security-scan` |
@@ -157,7 +145,6 @@
 - 查 TiDB 表:`scripts/db_query.sh "SQL"`(pymysql pod 封装)。
 - 服务日志:`kubectl -n esp-prod logs deploy/<svc> --tail=20`。
 - Redis 写/读:`kubectl -n ekb-m2-aws-us-east-1 exec redis-cluster-new-0 -- redis-cli -c SET/GET "esp:ctx:*" "..."`。
-- ArgoCD sync:`kubectl -n argocd patch application esp-platform --type=merge -p '{"operation":{"sync":{}}}'` 或 API POST。
 - 压测:分布式 locust 见 `deploy/locust/README.md`。
 - 单节点铁律:重 mvn/docker build 与集群操作串行;不碰 k3s 配置。
 

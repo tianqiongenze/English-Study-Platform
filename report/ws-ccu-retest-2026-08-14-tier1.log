@@ -1,0 +1,6 @@
+RC=0
+  t=40s online=158 peak=158 established=179 dropped=21
+  t=50s online=158 peak=158 established=179 dropped=21
+  t=60s online=158 peak=158 established=179 dropped=21
+>>> DONE. peak_online=158 avg_online=158 total_established=179 dropped=21
+>>> Sustained 158/200 (79.0%) concurrent online.

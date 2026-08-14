@@ -23,6 +23,7 @@ import hmac
 import json
 import os
 import random
+import subprocess
 import time
 
 from locust import HttpUser, between, events, task
@@ -51,24 +52,44 @@ _JWT_SECRET = os.environ.get("ESP_JWT_SECRET", "").encode()
 _JWT_TTL = 3600  # 1h,与 BFF 对齐
 
 
+def _rs256_sign_openssl(signing_input: bytes, pem: str) -> bytes:
+    """openssl dgst -sha256 -sign 兜底签 RS256(无 cryptography 时)。"""
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as kf:
+        kf.write(pem)
+        key_path = kf.name
+    try:
+        out = subprocess.run(
+            ["openssl", "dgst", "-sha256", "-sign", key_path],
+            input=signing_input, capture_output=True, check=True)
+        return out.stdout
+    finally:
+        os.unlink(key_path)
+
+
 def mint_jwt(sub: str) -> str:
     """签 JWT(sub=userID)。
 
-    优先 RS256(与 gateway-go/bff 一致,env JWT_RSA_PRIVATE_KEY_PEM 注入 PKCS8 PEM 私钥)。
-    私钥缺失且 _HAS_CRYPTO=False 时,退回 HS256(ESP_JWT_SECRET);两者皆空返回空串(端点将 401,暴露配置问题)。
+    优先 RS256(与 gateway-go/bff 一致,env JWT_RSA_PRIVATE_KEY_PEM 注入 PKCS8 PEM 私钥):
+      1) cryptography 库(首选);
+      2) openssl CLI 兜底(locust 镜像无 cryptography 时)。
+    私钥缺失时退回 HS256(ESP_JWT_SECRET);两者皆空返回空串(端点将 401,暴露配置问题)。
     """
     now = int(time.time())
     payload = {"sub": sub, "iat": now, "exp": now + _JWT_TTL}
     p = _b64url(json.dumps(payload, separators=(",", ":")).encode())
-    if _RSA_PRIVATE_KEY_PEM and _HAS_CRYPTO:
-        h = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode())
-        key = serialization.load_pem_private_key(_RSA_PRIVATE_KEY_PEM.encode(), password=None)
-        sig = key.sign(h + b"." + p, padding.PKCS1v15(), hashes.SHA256())
-        return (h + b"." + p + b"." + _b64url(sig)).decode()
+    h = _b64url(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode())
+    signing_input = h + b"." + p
+    if _RSA_PRIVATE_KEY_PEM:
+        if _HAS_CRYPTO:
+            key = serialization.load_pem_private_key(_RSA_PRIVATE_KEY_PEM.encode(), password=None)
+            sig = key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
+        else:
+            sig = _rs256_sign_openssl(signing_input, _RSA_PRIVATE_KEY_PEM)
+        return (signing_input + b"." + _b64url(sig)).decode()
     if _JWT_SECRET:
-        h = _b64url(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
-        sig = hmac.new(_JWT_SECRET, h + b"." + p, hashlib.sha256).digest()
-        return (h + b"." + p + b"." + _b64url(sig)).decode()
+        sig = hmac.new(_JWT_SECRET, signing_input, hashlib.sha256).digest()
+        return (signing_input + b"." + _b64url(sig)).decode()
     return ""
 
 

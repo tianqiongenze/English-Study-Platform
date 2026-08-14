@@ -1,4 +1,9 @@
-# Ingress (Traefik): 统一入口,WS/会话路由到 gateway-go,REST 按前缀路由到各服务。
+# Ingress (Traefik): 统一入口。
+# P0-3 IDOR 收敛(2026-08-14):所有 /api/** 业务流量收敛经 bff-java(单一鉴权入口)。
+#   原 ingress 直连各后端(learning/writing-coach/writing-py/teacher/emotion),后端无鉴权,
+#   公网可裸调 /api/emotion/recent/{user_id} 等越权接口。收敛后 bff EdgeAuthHandler 统一校验 JWT
+#   并注入可信 X-User-Id/X-Role,后端只认 bff 注入的 header。
+# WS 旁路 bff:浏览器 WS 不能设 Authorization header,走 gateway-go ?token= 自鉴权(见 main.go handleSpeech)。
 # Traefik 自动支持 WebSocket 长连接(无需额外注解)。
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -14,30 +19,33 @@ spec:
   - host: esp.example.com
     http:
       paths:
+      # /api/auth/** 由 BFF 自身 AuthController 处理(签发 JWT)
       - path: /api/auth
         pathType: Prefix
         backend: {service: {name: bff-java, port: {number: 8090}}}
+      # WS 旁路 bff:gateway-go 用 ?token= 自鉴权(防越权连他人会话)
       - path: /ws/
         pathType: Prefix
         backend: {service: {name: gateway-go, port: {number: 80}}}
+      # P0-3:其余所有 /api/** 收敛经 bff(鉴权 + 注入 X-User-Id/X-Role),bff RouteTable 再按前缀转发下游
       - path: /api/scenarios
         pathType: Prefix
-        backend: {service: {name: gateway-go, port: {number: 80}}}
+        backend: {service: {name: bff-java, port: {number: 8090}}}
       - path: /api/sessions
         pathType: Prefix
-        backend: {service: {name: gateway-go, port: {number: 80}}}
+        backend: {service: {name: bff-java, port: {number: 8090}}}
       - path: /api/learning
         pathType: Prefix
-        backend: {service: {name: learning-java, port: {number: 80}}}
+        backend: {service: {name: bff-java, port: {number: 8090}}}
       - path: /api/writing-coach
         pathType: Prefix
-        backend: {service: {name: writing-coach, port: {number: 80}}}
+        backend: {service: {name: bff-java, port: {number: 8090}}}
       - path: /api/writing
         pathType: Prefix
-        backend: {service: {name: writing-py, port: {number: 80}}}
+        backend: {service: {name: bff-java, port: {number: 8090}}}
       - path: /api/teacher
         pathType: Prefix
-        backend: {service: {name: teacher-java, port: {number: 80}}}
+        backend: {service: {name: bff-java, port: {number: 8090}}}
       - path: /api/emotion
         pathType: Prefix
-        backend: {service: {name: emotion-svc, port: {number: 80}}}
+        backend: {service: {name: bff-java, port: {number: 8090}}}

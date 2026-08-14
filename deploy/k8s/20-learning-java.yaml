@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: learning-java
-        image: esp/learning-java:1.7.1
+        image: esp/learning-java:1.7.2   # P0-2 接 JwtValidator+Filter 鉴权
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
         env:
@@ -31,7 +31,7 @@ spec:
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
         - {name: OTEL_METRICS_EXPORTER, value: "none"}
         envFrom:
-        - secretRef: {name: esp-rsa-jwt}
+        - secretRef: {name: esp-rsa-jwt-verify}   # P0-1 私钥收敛:仅校验,只注入公钥
         startupProbe:   {httpGet: {path: /actuator/health/readiness, port: 8081}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 10}   # 最多等 600s 启动(TiDB 高负载下慢启动保护);用 readiness group 端点
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8081}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 10}   # period 放宽到 30s 减少 kubelet 探针 CLOSE_WAIT 堆积(单节点 VM 通病诱因)
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8081}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 15}    # timeout 15s 容忍单节点 VM GC 抖动,acceptor hang 时自愈重启

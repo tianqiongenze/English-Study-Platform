@@ -105,3 +105,8 @@ esp:
     service-url: ${PULSAR_URL:pulsar://pulsar-broker:6650}
     topic: ${PULSAR_CACHE_TOPIC:esp-cache-invalidate}
     consumer-enabled: ${PULSAR_CONSUMER_ENABLED:true}
+
+# ADR-12 JWT 校验(D2 修复):RS256 公钥验 BFF 签发的 JWT。envFrom secret esp-rsa-jwt 注入。
+jwt:
+  rsa:
+    public-key-pem: ${JWT_RSA_PUBLIC_KEY_PEM:}

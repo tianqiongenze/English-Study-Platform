@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: gateway-go
-        image: esp/gateway-go:1.6.0
+        image: esp/gateway-go:1.6.2   # P0-3 IDOR 修复:移除 history 的 query user_id 回落
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8080}]
         env:
@@ -31,7 +31,7 @@ spec:
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "otel-collector.esp-observability.svc.cluster.local:4317"}
         - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
         envFrom:
-        - secretRef: {name: esp-rsa-jwt}
+        - secretRef: {name: esp-rsa-jwt-verify}   # P0-1 私钥收敛:仅校验,只注入公钥(防任一服务 RCE 伪造 admin JWT)
         # N-1 探针三分离(optimization-plan C-2):startupProbe 给 WS/gateway 慢启动 5min 宽容,
         # 防冷启动期 liveness 误杀(坑⑮);liveness/readiness 保持宽容(timeout≥3s period≥15s failureThreshold≥5)。
         startupProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 30}

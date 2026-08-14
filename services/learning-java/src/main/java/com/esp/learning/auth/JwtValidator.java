@@ -22,7 +22,12 @@ public class JwtValidator {
     private final PublicKey publicKey;
 
     public JwtValidator(@Value("${jwt.rsa.public-key-pem:}") String publicKeyPem) {
-        this.publicKey = parsePublicKey(publicKeyPem);
+        this.publicKey = publicKeyPem == null || publicKeyPem.isBlank() ? null : parsePublicKey(publicKeyPem);
+    }
+
+    /** 鉴权是否启用(公钥已注入才启用)。P0-2:公钥未注入时放行(本地/测试无密钥环境避免启动即 401 全挂)。 */
+    public boolean enabled() {
+        return publicKey != null;
     }
 
     /** 解析并校验 JWT(RS256,公钥验)。校验失败抛 JwtException。 */

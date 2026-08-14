@@ -1,6 +1,7 @@
 # emotion-svc: Litestar + Granian (ADR-09)
 # build context = 项目根目录(esp-cache-py 在 services/esp-cache-py,作为公共多级缓存包安装)
-FROM python:3.13-slim-bookworm
+# 基镜像用 python:3.13-slim(默认即 Debian12 bookworm,等价 3.13-slim-bookworm 但本环境 docker.1ms.run 镜像源对 -bookworm tag 返回 403,3.13-slim 可正常解析)
+FROM python:3.13-slim
 # 安全基线升级:Debian12 bookworm perl-base 已修(对比 trixie 5.40.1-6 的 4 CRIT)。apt upgrade 补 util-linux/ncurses 等
 # 注:deb.debian.org 在本环境不可达,改用 USTC 镜像
 RUN sed -i 's|http://deb.debian.org/debian|http://mirrors.ustc.edu.cn/debian|g; s|http://deb.debian.org/debian-security|http://mirrors.ustc.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null \

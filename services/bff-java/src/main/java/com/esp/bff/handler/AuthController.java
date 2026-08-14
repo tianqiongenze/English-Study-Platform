@@ -59,7 +59,8 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "email and password required"));
         }
         String name = Objects.toString(body.get("name"), email.split("@")[0]);
-        String role = Objects.toString(body.getOrDefault("role", "learner"));
+        // P0-4 权限提升修复:服务端强制 learner,忽略请求体 role。teacher/admin 仅后台运营开通,用户不可自注册高权角色。
+        String role = "learner";
         String hash = encoder.encode(password);
         try {
             jdbc.update("INSERT INTO users (role,name,email,pwd_hash) VALUES (?,?,?,?)", role, name, email, hash);

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import threading
 import time
@@ -163,7 +164,10 @@ def main():
     print(f">>> DONE. peak_online={peak} avg_online={avg:.0f} "
           f"total_established={stats.established} dropped={stats.dropped}")
     print(f">>> Sustained {peak}/{args.users} ({100*peak/args.users:.1f}%) concurrent online.")
-    with open("report/ccu5000_ws_result.json", "w") as f:
+    # /locust 是 ConfigMap 只读挂载,report/ 子目录无法创建;写 /report(emptyDir 可写)。
+    out_dir = "/report" if os.path.isdir("/report") else "report"
+    os.makedirs(out_dir, exist_ok=True)
+    with open(f"{out_dir}/ccu5000_ws_result.json", "w") as f:
         json.dump({"target_users": args.users, "peak_online": peak,
                    "avg_online": avg, "established": stats.established,
                    "dropped": stats.dropped,

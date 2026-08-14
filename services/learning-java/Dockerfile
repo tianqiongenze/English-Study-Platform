@@ -1,5 +1,5 @@
 # learning-java: Spring Boot 3 fat-jar, JRE 21
-FROM eclipse-temurin:21-jre-noble
+FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY target/learning-java-1.0.0.jar /app/app.jar
 

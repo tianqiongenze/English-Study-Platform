@@ -4,6 +4,7 @@ import com.esp.api.dubbo.KpStat;
 import com.esp.api.dubbo.LearningRpcService;
 import com.esp.teacher.service.LessonPlanGenerator;
 import com.esp.teacher.service.TeacherService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.dubbo.rpc.RpcException;
 import org.slf4j.Logger;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/teacher")
@@ -62,9 +64,17 @@ public class TeacherController {
         return ResponseEntity.ok(Map.of("finalized", submissionId));
     }
 
-    /** FR-4 学情分析:经 Dubbo Triple 调 learning-java 拉取用户各知识点掌握统计(RPC 失败降级 503)。 */
+    /** FR-4 学情分析:经 Dubbo Triple 调 learning-java 拉取用户各知识点掌握统计(RPC 失败降级 503)。
+     *  P0-3 IDOR 修复:learner 只能查自己的 kp-stats,teacher/admin 角色可查任意学生。 */
     @GetMapping("/{userId}/kp-stats")
-    public ResponseEntity<?> kpStats(@PathVariable("userId") Long userId) {
+    public ResponseEntity<?> kpStats(@PathVariable("userId") Long userId, HttpServletRequest req) {
+        String role = Objects.toString(req.getAttribute("role"), "learner");
+        if (!("teacher".equals(role) || "admin".equals(role))) {
+            Object sub = req.getAttribute("userId");
+            if (sub == null || !String.valueOf(userId).equals(sub.toString())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "forbidden"));
+            }
+        }
         try {
             List<KpStat> stats = learningRpc.userStats(userId);
             return ResponseEntity.ok(stats);

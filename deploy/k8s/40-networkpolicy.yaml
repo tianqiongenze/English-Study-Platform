@@ -1,11 +1,21 @@
-# NetworkPolicy — 网络分段(架构评分 P0:缺 NetworkPolicy)。
+# NetworkPolicy — 网络分段(P0-6 收窄,2026-08-14)。
 #
-# 策略:default-deny ingress + 允许 esp-prod 命名空间内 Pod 互通(命名空间级隔离)。
-# 外部流量仅经 gateway-go NodePort 进入;内部服务间默认信任,跨命名空间(如 ekb-m2 基础设施)
-# 走 ExternalName/K8s DNS,不受本策略限制(NetworkPolicy 仅管控同 namespace pod)。
+# 背景:坑㉕ 修复时曾把 esp-allow-internal patch 为 namespaceSelector:{} 放行所有 namespace,
+#   导致跨项目(如 education-platform)pod 可达 esp-prod 任意服务。本次收窄为精确白名单。
 #
-# 注意:单节点 Rancher Desktop 的 CNI 不一定强制 NetworkPolicy;多节点环境(Calico/Cilium)生效。
-# 生产零信任可细化为逐服务白名单(gateway→bff→各服务),本清单提供基线隔离 + 可移植性。
+# 策略:
+#   1. esp-default-deny-ingress:全 pod 默认拒绝 ingress(零信任基线)。
+#   2. esp-allow-internal:分三类放行——
+#      a) 同命名空间(esp-prod)pod 互通(服务间内部信任);
+#      b) traefik 入口控制器(kube-system ns)可达 esp-prod 业务 pod 的 80/8090/9090(ingress 转发);
+#      c) 节点本机/NodePort 流量(kube-proxy DNAT,源 IP 为节点 IP 或 VM bridge)进 gateway 8080 / bff 8090/9090 / 前端 80。
+#   3. 不再用 namespaceSelector:{} 全放行——只显式放行 kube-system(traefik 所在)。
+#
+# 跨命名空间基础设施(TiDB/Redis/Pulsar 等)走 ExternalName/K8s DNS,NetworkPolicy 仅管控同 ns pod,
+# 故基础设施可达性不受本策略影响。
+#
+# 注意:单节点 Rancher Desktop 的 CNI(k3s 默认 flannel)对 NetworkPolicy 支持有限(无 Calico/Cilium 强制),
+#   本清单主要保证:多节点移植时策略可立即生效 + 声明意图(可移植性)。
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -27,13 +37,42 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # 允许 esp-prod 内部 Pod 互相访问(服务网格内部信任)
+    # a) 同命名空间(esp-prod)pod 互通(服务网格内部信任)
     - from:
         - podSelector: {}
-    # 允许节点本机/NodePort 流量进入 gateway(NodePort 由 kube-proxy 在节点转发)
+    # b) traefik 入口(kube-system ns)可达业务端口 80/8090/9090
+    #    P0-6 收窄:从 namespaceSelector:{} 改为精确匹配 kube-system(traefik 所在),
+    #    避免放行所有跨项目 ns。
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 8090
+        - protocol: TCP
+          port: 9090
+    # c) 节点本机/NodePort 流量进入(NodePort 由 kube-proxy 在节点 DNAT 转发,源 IP 为节点 IP)
+    #    gateway 8080(WS)/ bff 8090+9090 / 前端 80 / nacos 8848 / sentinel 8858 / seata 7091+8091
     - from:
         - ipBlock:
             cidr: 0.0.0.0/0
       ports:
         - protocol: TCP
           port: 8080
+        - protocol: TCP
+          port: 8090
+        - protocol: TCP
+          port: 9090
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 8848
+        - protocol: TCP
+          port: 8858
+        - protocol: TCP
+          port: 7091
+        - protocol: TCP
+          port: 8091

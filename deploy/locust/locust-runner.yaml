@@ -1,9 +1,9 @@
 # Locust 压测 runner(单进程,集群内运行,绕过 Mac→pypi 不可达)。
-# Mac 与集群均无法连 pypi.org,故用预装 locust 的官方镜像 locustio/locust。
+# locustio/locust:2.31.5 无法从所有 docker mirror 拉取(403),改用自建 esp-locust:2.46
+#   (FROM python:3.12-slim + pip install locust websocket-client,见 Dockerfile.locust)。
 # 入口走集群内 Traefik service(traefik.kube-system:80)+ Host 头,不经外部 NodePort。
 # JWT:RS256 私钥从 esp-rsa-jwt 注入(与 gateway-go/bff 共享密钥对),locustfile mint_jwt 用 RS256 签。
 #   兼容:若 RS256 私钥缺失,退回 ESP_JWT_SECRET 走 HS256(仅排查用)。
-#   注:locustio/locust:2.31.5 预装 cryptography,RS256 可用。
 #
 # 前置(ConfigMap 挂脚本,由文件生成,非手写):
 #   kubectl -n esp-prod create configmap locust-scripts \
@@ -20,7 +20,7 @@ spec:
   restartPolicy: Never
   containers:
     - name: locust
-      image: locustio/locust:2.31.5
+      image: esp-locust:2.46
       imagePullPolicy: IfNotPresent
       command: ["sleep", "7200"]      # 保持运行,exec 进去手动跑 locust(可观察+可控终止)
       env:

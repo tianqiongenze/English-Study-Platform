@@ -1,0 +1,25 @@
+{
+  "test": "WS CCU retest after bff-java 1->2 core patch",
+  "date": "2026-08-14",
+  "baseline_before_patch": "~62 concurrent (1 core)",
+  "bff_java_limits_cpu": 2,
+  "bff_java_restarts_during_test": 0,
+  "node_mem_pct_peak": 75,
+  "tiers": {
+    "tier1_200u_5rate": {
+      "target_users": 200, "spawn_rate": 5, "duration_s": 60,
+      "peak_online": 158, "avg_online": 158,
+      "total_established": 179, "dropped": 21,
+      "sustain_pct": 79.0,
+      "bff_cpu_peak_m": 668, "bff_cpu_steady_m": 67
+    },
+    "tier2_500u_10rate": {
+      "target_users": 500, "spawn_rate": 10, "duration_s": 90,
+      "peak_online": 372, "avg_online": 372,
+      "total_established": 436, "dropped": 64,
+      "sustain_pct": 74.4,
+      "bff_cpu_peak_m": 1317, "bff_cpu_steady_m": 68
+    }
+  },
+  "verdict": "2-core patch lifted WS CCU ceiling from ~62 to >=372 sustained (peak concurrent); CPU not saturated at 2-core limit (peak ~1.3 core during dense connect burst), bottleneck appears elsewhere (BFF register/session rate / thread model), not raw CPU."
+}

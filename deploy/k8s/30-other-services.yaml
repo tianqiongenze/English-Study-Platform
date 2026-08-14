@@ -49,7 +49,7 @@ spec:
     spec:
       containers:
       - name: teacher-java
-        image: esp/teacher-java:1.7.0
+        image: esp/teacher-java:1.7.2   # P0-3 IDOR 修复:kp-stats 归属校验
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8083}]
         env:
@@ -64,6 +64,10 @@ spec:
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
         - {name: OTEL_METRICS_EXPORTER, value: "none"}
+        # ADR-12 JWT 公钥(D2 修复):envFrom 注入 JWT_RSA_PUBLIC_KEY_PEM,供 JwtValidator 校验 BFF 签发的 RS256 JWT
+        # P0-1 私钥收敛:改用 esp-rsa-jwt-verify(仅公钥),teacher 不再持有签发私钥
+        envFrom:
+        - secretRef: {name: esp-rsa-jwt-verify}
         startupProbe:   {httpGet: {path: /actuator/health/readiness, port: 8083}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 10}   # httpGet 探针:Jetty acceptor hang 时 TCP 握手通但应用层死(tcpSocket 假 Ready 根因),改 httpGet 让 acceptor hang 被探针识破。
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8083}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 5}   # period 放宽到 30s 减少 kubelet 探针 CLOSE_WAIT 堆积(单节点 VM 通病诱因)
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8083}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 15}  # 恢复 liveness:acceptor hang 时 HTTP 超时→kubelet 自愈重启,根治"假 Running 不响应"。timeout 15s 容忍单节点 VM GC 抖动
@@ -85,7 +89,7 @@ spec:
     spec:
       containers:
       - name: emotion-svc
-        image: esp/emotion-svc:1.5.0
+        image: esp/emotion-svc:1.6.2   # P0-3 IDOR 修复:sense/recent 用可信 X-User-Id
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8084}]
         env:
@@ -122,7 +126,7 @@ spec:
     spec:
       containers:
       - name: writing-coach
-        image: esp/writing-coach:1.0.1
+        image: esp/writing-coach:1.1.0   # P0-3 IDOR 修复:assess/plan/progress 用可信 X-User-Id
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8085}]
         env:

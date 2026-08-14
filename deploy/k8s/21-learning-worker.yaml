@@ -46,7 +46,7 @@ spec:
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
         - {name: OTEL_METRICS_EXPORTER, value: "none"}
         envFrom:
-        - secretRef: {name: esp-rsa-jwt}
+        - secretRef: {name: esp-rsa-jwt-verify}   # P0-1 私钥收敛:仅校验,只注入公钥
         # worker 无 HTTP 业务端口,actuator 健康探针仍走 8081(Spring management 默认同端口)
         startupProbe:   {httpGet: {path: /actuator/health, port: 8081}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 3}
         readinessProbe: {httpGet: {path: /actuator/health, port: 8081}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}

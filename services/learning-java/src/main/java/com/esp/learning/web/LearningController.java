@@ -1,6 +1,7 @@
 package com.esp.learning.web;
 
 import com.esp.learning.service.LearningService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,12 +18,20 @@ public class LearningController {
         this.learningService = learningService;
     }
 
-    /** FR-2.4 学情事件入口(异步,202)。P1-6 断点3:优先读 X-User-Id header。 */
+    /** 从 JWT 边缘校验注入的 attribute 取真实 userId(P0-2:不再信任 X-User-Id header/body user_id,防伪造越权)。 */
+    private long userIdFrom(HttpServletRequest req) {
+        Object attr = req.getAttribute("userId");
+        if (attr == null) return 0L;
+        try { return Long.parseLong(attr.toString()); } catch (NumberFormatException e) { return 0L; }
+    }
+
+    /** FR-2.4 学情事件入口(异步,202)。P0-2:userId 取自 JWT,不再信任 X-User-Id header。 */
     @PostMapping("/event")
     public ResponseEntity<Map<String, Object>> reportEvent(
-            @RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+            HttpServletRequest req,
             @RequestBody Map<String, Object> body) {
-        long userId = headerUserId != null ? headerUserId : toLong(body.getOrDefault("user_id", 1), 1L);
+        long userId = userIdFrom(req);
+        if (userId == 0) return ResponseEntity.status(401).body(Map.of("accepted", false));
         String type = (String) body.getOrDefault("event_type", "answer");
         String payload = body.containsKey("payload") ? body.get("payload").toString() : "{}";
         boolean ok = learningService.reportEvent(userId, type, payload);
@@ -30,12 +39,13 @@ public class LearningController {
         return ResponseEntity.status(status).body(Map.of("accepted", ok));
     }
 
-    /** FR-2.1 初测基线。P1-6 断点3:优先读 X-User-Id header。 */
+    /** FR-2.1 初测基线。P0-2:userId 取自 JWT。 */
     @PostMapping("/placement")
     public ResponseEntity<Map<String, Object>> placement(
-            @RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+            HttpServletRequest req,
             @RequestBody Map<String, Object> body) {
-        long userId = headerUserId != null ? headerUserId : toLong(body.getOrDefault("user_id", 1), 1L);
+        long userId = userIdFrom(req);
+        if (userId == 0) return ResponseEntity.status(401).body(Map.of("error", "unauthorized"));
         @SuppressWarnings("unchecked")
         List<Object> kpIdsRaw = (List<Object>) body.getOrDefault("kp_ids", List.of());
         List<Long> kpIds = kpIdsRaw.stream().map(o -> toLong(o, 0L)).toList();
@@ -44,25 +54,23 @@ public class LearningController {
         return ResponseEntity.ok(Map.of("initialized", kpIds.size()));
     }
 
-    /** FR-2.3 今日复习清单。P1-6 断点3:优先读 X-User-Id header。 */
+    /** FR-2.3 今日复习清单。P0-2:userId 取自 JWT,移除 query user_id 回落(防查他人)。 */
     @GetMapping("/review")
-    public ResponseEntity<?> dueReview(
-            @RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
-            @RequestParam(value = "user_id", required = false) Long paramUserId) {
-        long userId = headerUserId != null ? headerUserId : (paramUserId != null ? paramUserId : 1L);
+    public ResponseEntity<?> dueReview(HttpServletRequest req) {
+        long userId = userIdFrom(req);
+        if (userId == 0) return ResponseEntity.status(401).body(Map.of("error", "unauthorized"));
         return ResponseEntity.ok(learningService.dueReview(userId));
     }
 
-    /** FR-2.1 薄弱知识点。P1-6 断点3:优先读 X-User-Id header。 */
+    /** FR-2.1 薄弱知识点。P0-2:userId 取自 JWT,移除 query user_id 回落(防查他人)。 */
     @GetMapping("/mastery/weak")
-    public ResponseEntity<?> weakest(
-            @RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
-            @RequestParam(value = "user_id", required = false) Long paramUserId) {
-        long userId = headerUserId != null ? headerUserId : (paramUserId != null ? paramUserId : 1L);
+    public ResponseEntity<?> weakest(HttpServletRequest req) {
+        long userId = userIdFrom(req);
+        if (userId == 0) return ResponseEntity.status(401).body(Map.of("error", "unauthorized"));
         return ResponseEntity.ok(learningService.weakestPoints(userId));
     }
 
-    /** FR-2.2 动态难度。 */
+    /** FR-2.2 动态难度(纯计算,鉴权已由 Filter 保证,无 userId 依赖)。 */
     @PostMapping("/difficulty")
     public ResponseEntity<?> difficulty(@RequestBody Map<String, Object> body) {
         int current = toInt(body.getOrDefault("current", 3), 3);

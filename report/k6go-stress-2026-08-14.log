@@ -1,0 +1,45 @@
+2026-08-14 11:30:07 ===== 100VUS ramp20 steady60 =====
+
+=== k6go baseline 结果 ===
+VUS=100 ramp=20s steady=60s
+scenarios 请求总数: 54193
+scenarios 200: 53111  错误: 1082  login失败: 0
+平均耗时: 19.83 ms
+吞吐: 903.2 rps
+成功率: 98.00%
+--- monitor 100VUS end ---
+NAME                   CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)   
+lima-rancher-desktop   6537m        72%      22318Mi         74%         
+cluster_state:ok
+2026-08-14 11:31:36 ===== 200VUS ramp40 steady60 (峰值) =====
+
+=== k6go baseline 结果 ===
+VUS=200 ramp=40s steady=60s
+scenarios 请求总数: 74068
+scenarios 200: 67097  错误: 6971  login失败: 0
+平均耗时: 88.58 ms
+吞吐: 1234.5 rps
+成功率: 90.59%
+--- monitor 200VUS end ---
+NAME                   CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)   
+lima-rancher-desktop   2602m        28%      22595Mi         75%         
+Found 2 pods, using pod/gateway-go-6776999796-xzjnf
+{"time":"2026-08-14T03:33:43.586152179Z","level":"INFO","msg":"traces export: exporter export timeout: rpc error: code = Unavailable desc = name resolver error: produced zero addresses"}
+{"time":"2026-08-14T03:33:53.590456017Z","level":"INFO","msg":"traces export: exporter export timeout: rpc error: code = Unavailable desc = name resolver error: produced zero addresses"}
+{"time":"2026-08-14T03:34:03.59251823Z","level":"INFO","msg":"traces export: exporter export timeout: rpc error: code = Unavailable desc = name resolver error: produced zero addresses"}
+{"time":"2026-08-14T03:34:13.594303902Z","level":"INFO","msg":"traces export: exporter export timeout: rpc error: code = Unavailable desc = name resolver error: produced zero addresses"}
+{"time":"2026-08-14T03:34:23.603483906Z","level":"INFO","msg":"traces export: exporter export timeout: rpc error: code = Unavailable desc = name resolver error: produced zero addresses"}
+cluster_state:ok
+2026-08-14 11:34:50 ===== 200VUS ramp40 steady30 (复测验证) =====
+
+=== k6go baseline 结果 ===
+VUS=200 ramp=40s steady=30s
+scenarios 请求总数: 41767
+scenarios 200: 41745  错误: 22  login失败: 0
+平均耗时: 74.72 ms
+吞吐: 1392.2 rps
+成功率: 99.95%
+--- monitor 200VUS复测 end ---
+NAME                   CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)   
+lima-rancher-desktop   4578m        50%      22762Mi         75%         
+cluster_state:ok

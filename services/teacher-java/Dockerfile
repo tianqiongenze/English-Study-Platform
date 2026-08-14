@@ -1,5 +1,6 @@
-# teacher-java: Spring Boot 3 fat-jar, JRE 21
-FROM eclipse-temurin:21-jre-noble
+# teacher-java: Spring Boot fat-jar, JRE 21
+# noble 基础镜像在当前 RD registry-mirror 拉取 403,改用 alpine(Temurin 原生 musl 构建,Spring Boot fat-jar + otel agent 正常)
+FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY target/teacher-java-1.0.0.jar /app/app.jar
 

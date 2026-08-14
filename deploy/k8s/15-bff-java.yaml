@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: bff-java
-        image: esp/bff-java:1.7.1
+        image: esp/bff-java:1.7.2   # P0-4 register 锁 role(强制 learner)
         imagePullPolicy: IfNotPresent
         ports:
         - {containerPort: 8090,  name: mvc}
@@ -39,7 +39,7 @@ spec:
         - {name: OTEL_METRICS_EXPORTER, value: "none"}
         - {name: OTEL_LOGS_EXPORTER, value: "none"}
         envFrom:
-        - secretRef: {name: esp-rsa-jwt}
+        - secretRef: {name: esp-rsa-jwt-sign}   # P0-1 私钥收敛:BFF 是唯一签发方,持有私钥(RS256 sign)
         startupProbe:   {httpGet: {path: /actuator/health/liveness, port: 8090}, initialDelaySeconds: 30, periodSeconds: 10, failureThreshold: 120, timeoutSeconds: 5}   # 1230s 慢启动保护(RS256+Nacos+Seata+Dubbo 注册慢)
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8090}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8090}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}

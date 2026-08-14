@@ -2,6 +2,9 @@
 # 人工测试用 NodePort:让 Mac host 能直连各服务(单节点 Rancher Desktop)。
 # Traefik Ingress 需 Host header(esp.example.com),NodePort 更直观,适合人工测试。
 # 所有 NodePort 范围 30000-32767。
+# P0-5 NodePort 收敛(2026-08-14):删除业务服务(learning/teacher/writing-py/emotion/writing-coach)对外 NodePort,
+#   只保留必须对外暴露的:gateway-go 30080(WS/主入口)、bff 30009/30010(边缘)、前端 30090/30091/30070、调试 nacos/sentinel/seata。
+#   业务服务改走内部 ClusterIP svc(20/30 yaml 已定义),公网仅 traefik ingress 暴露。
 apiVersion: v1
 kind: Service
 metadata:
@@ -23,90 +26,15 @@ spec:
     targetPort: 9090
     nodePort: 30010   # bff Netty edge 9090
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: learning-java-np
-  namespace: esp-prod
-  labels:
-    app: learning-java
-spec:
-  type: NodePort
-  selector:
-    app: learning-java
-  ports:
-  - name: http
-    port: 80
-    targetPort: 8081
-    nodePort: 30081
+# P0-5 收敛:learning-java 对外 NodePort 已删除(改走 ClusterIP svc learning-java + traefik ingress)。
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: teacher-java-np
-  namespace: esp-prod
-  labels:
-    app: teacher-java
-spec:
-  type: NodePort
-  selector:
-    app: teacher-java
-  ports:
-  - name: http
-    port: 80
-    targetPort: 8083
-    nodePort: 30083
+# P0-5 收敛:teacher-java 对外 NodePort 已删除(改走 ClusterIP svc teacher-java + traefik ingress)。
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: writing-py-np
-  namespace: esp-prod
-  labels:
-    app: writing-py
-spec:
-  type: NodePort
-  selector:
-    app: writing-py
-  ports:
-  - name: http
-    port: 80
-    targetPort: 8082
-    nodePort: 30082
+# P0-5 收敛:writing-py 对外 NodePort 已删除(改走 ClusterIP svc writing-py + traefik ingress)。
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: emotion-svc-np
-  namespace: esp-prod
-  labels:
-    app: emotion-svc
-spec:
-  type: NodePort
-  selector:
-    app: emotion-svc
-  ports:
-  - name: http
-    port: 80
-    targetPort: 8084
-    nodePort: 30084
+# P0-5 收敛:emotion-svc 对外 NodePort 已删除(改走 ClusterIP svc emotion-svc + traefik ingress)。
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: writing-coach-np
-  namespace: esp-prod
-  labels:
-    app: writing-coach
-spec:
-  type: NodePort
-  selector:
-    app: writing-coach
-  ports:
-  - name: http
-    port: 80
-    targetPort: 8085
-    nodePort: 30085
+# P0-5 收敛:writing-coach 对外 NodePort 已删除(改走 ClusterIP svc writing-coach + traefik ingress)。
 ---
 apiVersion: v1
 kind: Service

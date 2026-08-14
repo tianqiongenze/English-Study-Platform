@@ -3,8 +3,66 @@
 > **本文件只放当前任务热区**(已确认根因/当前子步骤/下一步/恢复锚点),硬上限 ~300 行。
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
->
-> **当前✅(2026-08-14 会话22-20 Redis Cluster warm-up 完成 + TiFlash 诊断 + TiKV健康)**:① **Redis Cluster warm-up 已完成**✅:Job `esp-redis-warmup` Completed,`=== WARMUP DONE total_rows=23000 total_set=23000 elapsed=1.5s ===`,5 表全量灌入 esp:cache:* 前缀(scenarios 1万/knowledge_points 1万/sessions top1000/user_mastery top1000/users top1000)。**键数验证(单节点 scan,Cluster 分片故单节点只见部分)**:redis-cluster-new-0 上 scan 得 7631 键(scenario 3317/kp 3324/session 340/mastery 315/user 335),总数对齐 3 主节点分片 ≈23000。TTL 1h。② **TiKV 3/3 Up 健康**✅(跨 aws/azure/gcp 三区域,v8.5.7,PD /stores 注册 3 个 tikv store,行存引擎完全正常)。③ **TiFlash ⚠️ 重建后仍未注册 PD(根因坐实)**:delete pod 触发重建后,新 pod 1/1 Running 但**TiFlash server 只监听 9000(CH TCP)+8234(内部),缺 8123(http)/20170(raft proxy)/20292(status)** → raft proxy 子进程未拉起 → 未向 PD 注册 store → 无法作列存引擎。PD /stores 仍只 3 个 tikv store,无 tiflash。PD 连通正常(三区域 PD 2379 均 200),config.toml 的 `pd_endpoints` 正确。**根因判断**:TiFlash v8.5.5 raft proxy 启动失败(proxy 未 fork/监听 20170),可能为单节点跨 region raft 选举/版本/资源问题,stdout 无日志无法深挖。**影响**:ESP 业务无 TiFlash 列存依赖(无物化视图/OLAP 加速路径走 TiFlash),业务面暂不受影响;列存引擎能力缺失。**处置(已向用户报告)**:业务无依赖,标记已知缺陷,等后续多节点移植时重建 TiFlash(单节点资源+跨 region raft 单实例先天不健康)。④ **Obsidian 日志同步进行中**(subagent esp-doc 后台跑,向 `/Users/joelgong/IdeaProjects/flink-learning/books/ESP-英语教育平台/` 同步 9 篇经验日志:总览/架构设计/ADR/平台底座/测试体系/踩坑集/上下文工程铁律/部署运维/Redis warm-up)。⑤ **git commit 待做**(17 文件改动:前端三端 vite base+basename 根治白屏 + portal nginx /api/actuator + infra_smoke.sh sts 修正 + PROGRESS.md)。**遗留**:前端浏览器 GUI 人工 TC-W/H(隧道 http://localhost:30070 就绪,全路由 200,待用户点开确认渲染)。
+
+## 当前✅(2026-08-14 会话22-22 P0 第一波安全红线 6 项全部修复验证✅)
+
+**第一波 P0(安全红线,6 项)全部构建+部署+回归验证通过✅**。综合架构评分 5.9/10 的最大短板(安全封控 3.5/10)闭合。6 服务镜像全部 build 成功并滚动上线,6 点验证清单全绿。
+
+### P0 6 项验收(实测)
+- **P0-1 私钥收敛✅**:`esp-rsa-jwt` 拆为 `esp-rsa-jwt-sign`(PRIVATE+PUBLIC,仅 bff-java envFrom)+ `esp-rsa-jwt-verify`(仅 PUBLIC,gateway/learning/teacher envFrom)。实测:gateway/learning/teacher `PRIVATE=[]` `PUB=[SET]`,bff `PRIV=[SET] PUB=[SET]`。任一服务 RCE 无法伪造 admin JWT。
+- **P0-2 learning-java 鉴权✅**:新建 `auth/JwtValidator.java`+`auth/JwtAuthFilter.java`(@Order HIGHEST_PRECEDENCE,白名单 /actuator/、/healthz、/v3/api-docs),公钥注入后无 Bearer JWT 一律 401。实测:无 token `/api/learning/review`→**401**;带 token→**200**。
+- **P0-3 IDOR 越权✅**:gateway-go 移除 history 的 `?user_id=` query 回落(userID 必须来自 JWT);teacher/emotion/writing-coach 用可信 X-User-Id 校验归属。实测:A 的 token 查 `user_id=999`→**返回 A 自己数据 `user_id=2017612633063053831`**(query 被忽略,不越权)。
+- **P0-4 register 锁 role✅**:`AuthController.java:62` 服务端强制 `role="learner"`,忽略请求体。实测:POST register `{"role":"admin"}`→返回 `role:"learner"`。
+- **P0-5 NodePort 收敛✅**:learning/teacher/emotion/writing-coach/writing-py 全 ClusterIP。NodePort 仅保留 gateway-go:30080、bff:30009/30010、frontend:30090/30091/30070、调试 nacos:30048/sentinel:30058/seata:30071。
+- **P0-6 NetworkPolicy 收窄✅**:`esp-allow-internal` 三段:①同 ns podSelector:{};②kube-system namespaceSelector(traefik ingress);③ipBlock 0.0.0.0/0 限 NodePort 端口(8080/8090/9090/80/8848/8858/7091/8091)。实测:ekb-m2 ns(milvus pod)curl esp-prod learning-java→**http_code=000 rc=7 拒绝**(对照组同 ns gateway-go→200)。
+
+### 镜像 tag(本会话 build)
+- gateway-go:1.6.2(P0-3)、bff-java:1.7.2(P0-4)、learning-java:1.7.2(P0-2)、teacher-java:1.7.2(P0-3)、emotion-svc:1.6.2(P0-3)、writing-coach:1.1.0(P0-3)。
+- Dockerfile 基镜像修正:emotion-svc `python:3.13-slim-bookworm`→`python:3.13-slim`;learning-java/bff-java `eclipse-temurin:21-jre-noble`→`21-jre-alpine`(docker.1ms.run 镜像 noble/bookworm tag 403)。
+
+### 关键坑(P0 期间踩的)
+- **坑㉖(22-22)secret 占位 manifest 覆盖**:误 `kubectl apply -f 00b-rsa-jwt-secrets-split.yaml`(stringData 空占位)→ 覆盖已灌入的真实 PEM → gateway/bff CrashLoopBackOff(`JWT_RSA_PUBLIC_KEY_PEM env not set`)。修复:从旧 `esp-rsa-jwt` secret 提取真实 PEM 重建 sign/verify,再 rollout restart。教训:**声明式 manifest 含空 stringData 不得 apply 到已有真实值的 secret**;真实密钥只用 `kubectl create secret --from-literal` 灌入。
+
+### 恢复锚点(跨会话必读)
+- **当前子步骤**:P0 第一波 6 项全部修复+验证✅。6 服务 pod 全 Running 1/1。下一步=git commit(任务#51)+ 评估第二波 P1。
+- **已改文件**:① 6 Dockerfile/源码(鉴权/IDOR/role锁)+ 6 deploy yaml(tag+envFrom);② 新增 `00b-rsa-jwt-secrets-split.yaml`(声明式,勿 apply 到已有 secret);③ `40-ingress.yaml`(/api/** 走 bff:8090);④ `40-networkpolicy.yaml`(esp-allow-internal 收窄)。
+- **下一步**:① git commit 本会话改动(任务#51 pending);② 第二波 P1(限流/幂等/JWT加固/outbox/拆learning-worker/缓存指标);③ 第三波 P2(DDD/gateway瘦身/读写异步化/缓存防护/前端monorepo/目录重组/工程化)。
+- **Redis 锚点**:`esp:ctx:hot:refactor-p0`(待写)。
+
+---
+
+## 历史 (2026-08-14 会话22-21 k6+Locust 混合压测第二轮 + 三大根因闭合 + 双轨落盘)
+
+**k6+Locust 混合压测第二轮数据已齐**(report/ 4 份);**三大根因全部诊断闭合**(traefik 502 坑㉕ / bff-java probe / learning/event 背压);**用户双轨落盘指令执行中**(本文件 + Redis Cluster)。详细记录见 `docs/progress/archive/session22-21-loadtest-traefik502-launch.md`。
+
+### 压测结果(实测落 report/)
+- **k6go**:50VUS 529rps/1.61ms;100VUS 903rps/98%/19.83ms;200VUS 1392rps/99.95%/74.72ms。
+- **Locust 200VUS 混合**(坑㉕ 修复后有效):140430 reqs / avg 780rps / agg **P95=95ms P99=150ms**。非 learning 端点**全绿**(scenarios P95=90ms / teacher-analytics 110ms / sessions 140ms / lesson-plan 96ms / **writing/grade 24rps P95=95ms** ✅G-04 P95 达标)。
+- **WS CCU(ccu5000_ws.py)**:**~62 并发 WS 是单节点可持续上限**(500 用户 peak=63,200 用户 peak=62);瓶颈=bff-java register CPU 1001m @1 核饱和,**已扩 2 核待重测**;gateway-go WS 层无限流。
+
+### 三大根因(全闭合)
+1. **坑㉕(22-18/21)traefik 502 拦截所有非 8080 后端【已修复✅】**:NetworkPolicy `esp-allow-internal` 的 ingress 只放 `podSelector:{}`(同 ns)+ `ipBlock 0.0.0.0/0 port 8080`,叠加 default-deny → 跨 ns(traefik)ingress 除 8080 外全 DENY。gateway-go 监听 8080 命中例外→通;learning(8081)/writing(8082)/teacher(8083)/emotion(8084)/bff(8090)不命中→502。**修复**:patch 新增 `from: namespaceSelector:{}`(允许所有 ns ingress)。apiVersion 必须 `networking.k8s.io/v1`。
+2. **bff-java restart loop【已修复✅】**:probe timeoutSeconds=3s 太短(SB4 慢启动+GC pause)。patch liveness 10s/10fail/20period、readiness 10s/10fail、CPU limit 1→**2 核**。rollout 成功。
+3. **learning/event 503 `{"accepted":false}`【已诊断✅,设计背压非 bug】**:Disruptor RingBuffer(65536)满时 `tryPublishEvent` 返 false → `PublishResult.DROPPED` → 503。**保护网关延迟,设计如此**。低并发(traefik LB burst50)50/50=202 正常;200VU ~760ev/s 持续负载才背压。消费端 DbLearningEventConsumer batchUpdate INSERT learning_events。**路由陷阱**:gateway-go 无 /api/learning 路由(仅 scenarios/sessions/ws),走 traefik ingress→learning-java:80。
+
+### 缺陷与上线阻断判定(D1-D8)
+- **D1 gateway-go handleScenarios 无鉴权** — 高,**已修复✅**(2026-08-14):main.go:127 补 `userID==0→401` 拦截;镜像 esp/gateway-go:1.6.1 部署,验证 无token=401/有token=200。
+- **D2 teacher-java 无 Spring Security** — 高,**代码已改,构建部署中**(2026-08-14):加 jjwt 依赖 + JwtValidator + JwtAuthFilter(公钥未注入放行/已注入白名单外无Bearer返401)+ deployment envFrom esp-rsa-jwt。
+- D5 learning initMastery @Version 乐观锁 — 中,功能缺陷非阻断。
+- **D6 writing_templates 表缺失** — 中,**已修复✅**(2026-08-14):补建 esp.writing_templates(AUTO_RANDOM PK + idx_category_diff)。
+- learning/event 503 背压 / WS ~62 上限 — 设计行为/单节点约束,非阻断。
+
+### 恢复锚点(跨会话必读)
+- **当前子步骤**:P0 上线阻断项(D1/D2/D6)**全部修复验证✅**;上线就绪报告已写(report/launch-readiness-2026-08-14.md,综合判定=可灰度/内部测试,生产待多节点容量验证)。k6+Locust 压测数据齐,三根因闭合。
+- **已改文件**:① gateway-go main.go:127(D1 鉴权)+ Dockerfile 无变;② teacher-java pom.xml(jjwt 依赖)+ JwtValidator.java + JwtAuthFilter.java + application.yml(jwt 段)+ Dockerfile(alpine)+ 30-other-services.yaml(envFrom esp-rsa-jwt + tag 1.7.1);③ 10-gateway-go.yaml(tag 1.6.1);④ TiDB esp.writing_templates 补建(D6);⑤ ccu5000_ws.py(/report 写路径修复)。
+- **下一步**:① git commit(本会话改动);② (可选)WS CCU 重测(bff-java 已 2 核);③ (可选)多节点容量验证 G-01/G-06;④ plan indexed-honking-spring(平台底座)——用户未指示前不启动。
+- **Redis 锚点**:`esp:ctx:hot:2026-08-14-session22-21-loadtest-launch`。
+
+---
+
+## 历史 (2026-08-14 会话22-20 Redis Cluster warm-up + TiKV/TiFlash 诊断)
+
+> **当前✅(2026-08-14 会话22-20 Redis Cluster warm-up 完成 + TiFlash 诊断 + TiKV健康)**:① **Redis Cluster warm-up 已完成**✅:Job `esp-redis-warmup` Completed,`=== WARMUP DONE total_rows=23000 total_set=23000 elapsed=1.5s ===`,5 表全量灌入 esp:cache:* 前缀(scenarios 1万/knowledge_points 1万/sessions top1000/user_mastery top1000/users top1000)。**键数验证(单节点 scan,Cluster 分片故单节点只见部分)**:redis-cluster-new-0 上 scan 得 7631 键(scenario 3317/kp 3324/session 340/mastery 315/user 335),总数对齐 3 主节点分片 ≈23000。TTL 1h。② **TiKV 3/3 Up 健康**✅(跨 aws/azure/gcp 三区域,v8.5.7,PD /stores 注册 3 个 tikv store,行存引擎完全正常)。③ **TiFlash ⚠️ 重建后仍未注册 PD(根因坐实)**:delete pod 触发重建后,新 pod 1/1 Running 但**TiFlash server 只监听 9000(CH TCP)+8234(内部),缺 8123(http)/20170(raft proxy)/20292(status)** → raft proxy 子进程未拉起 → 未向 PD 注册 store → 无法作列存引擎。PD /stores 仍只 3 个 tikv store,无 tiflash。PD 连通正常(三区域 PD 2379 均 200),config.toml 的 `pd_endpoints` 正确。**根因判断**:TiFlash v8.5.5 raft proxy 启动失败(proxy 未 fork/监听 20170),可能为单节点跨 region raft 选举/版本/资源问题,stdout 无日志无法深挖。**影响**:ESP 业务无 TiFlash 列存依赖(无物化视图/OLAP 加速路径走 TiFlash),业务面暂不受影响;列存引擎能力缺失。**处置(已向用户报告)**:业务无依赖,标记已知缺陷,等后续多节点移植时重建 TiFlash(单节点资源+跨 region raft 单实例先天不健康)。④ **Obsidian 日志同步进行中**(subagent esp-doc 后台跑,向 `/Users/joelgong/IdeaProjects/flink-learning/books/ESP-英语教育平台/` 同步 9 篇经验日志:总览/架构设计/ADR/平台底座/测试体系/踩坑集/上下文工程铁律/部署运维/Redis warm-up)。⑤ **git commit 待做**(17 文件改动:前端三端 vite base+basename 根治白屏 + portal nginx /api/actuator + infra_smoke.sh sts 修正 + PROGRESS.md)。**遗留**:前端浏览器 GUI 人工 TC-W/H(隧道 http://localhost:30070 就绪,全路由 200,待用户点开确认渲染)。⑥ **Task#40 测试用例审查补全已完成**(subagent esp-doc):07 新增 TC-W-8~19(12 条后端端点)+TC-W-FL-1(Web 全链路)+TC-H-1~7(7 条 H5 独立用例)+TC-H-FL-1(H5 全链路)+TC-GR-1~27(原 9 条扩至 27 条,覆盖 8 服务全端点)+TC-E2E-1~11(11 条跨服务业务流)+SEC-6~8(3 条安全补充)+TC-M 无环境标注;09 补 portal 隧道命令+访问地址(/web/auth/login、/h5/login)+H5 用例同步+小程序无环境标注;07 前置环境补 portal 隧道+21 deploy 清单。覆盖缺口:后端全功能用例齐✅、前端 GUI 用例齐✅、跨服务链路用例齐✅。
 
 ## 当前热区 (2026-08-14 会话22-20 Redis warm-up + TiFlash 诊断)
 
@@ -197,6 +255,7 @@
 
 | 主题 | 文件 | Redis key |
 |---|---|---|
+| **会话22-21 k6+Locust 混合压测第二轮 + traefik 502 坑㉕ + 三根因闭合** | `docs/progress/archive/session22-21-loadtest-traefik502-launch.md` | `esp:ctx:hot:2026-08-14-session22-21-loadtest-launch` |
 | **会话22-13 colima-stop DNS 雪崩** | `docs/progress/archive/session22-13-colima-dns.md` | — |
 | **会话22-12 CrashLoop 诊断 + 双轨落盘** | `docs/progress/archive/session22-12-crashloop-diagnosis.md` | — |
 | **会话22-11 图+向量库 + 冒烟7/8 + Neo4j坑 + 实测校正** | `docs/progress/archive/session22-11-graph-vector-smoke.md` | — |

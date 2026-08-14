@@ -1,0 +1,7 @@
+RC=0
+  t=60s online=372 peak=372 established=436 dropped=64
+  t=70s online=372 peak=372 established=436 dropped=64
+  t=80s online=372 peak=372 established=436 dropped=64
+  t=90s online=372 peak=372 established=436 dropped=64
+>>> DONE. peak_online=372 avg_online=372 total_established=436 dropped=64
+>>> Sustained 372/500 (74.4%) concurrent online.

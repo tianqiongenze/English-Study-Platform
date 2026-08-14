@@ -125,7 +125,12 @@ func main() {
 }
 
 func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
-	gwlog.AppLog("INFO", "api.scenarios.list", s.userIDFromRequest(r), nil, r.Context())
+	userID := s.userIDFromRequest(r)
+	if userID == 0 {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	gwlog.AppLog("INFO", "api.scenarios.list", userID, nil, r.Context())
 	writeJSON(w, s.scenarios.List())
 }
 
@@ -163,16 +168,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"session_id": sess.ID, "scenario": sc})
 }
 
-// handleListSessionHistory 按 user_id 列出会话历史(GET /api/sessions/history?user_id=&limit=)。
-// userID 优先取 BFF 注入的 X-User-Id,缺省取 query user_id(便于 Swagger 在线测试)。
+// handleListSessionHistory 列出当前用户会话历史(GET /api/sessions/history?limit=)。
+// P0-3 IDOR 修复:userID 必须来自 JWT(BFF 注入 X-User-Id),移除 query user_id 回落(原"便于 Swagger 测试"导致可查任意用户历史)。
 func (s *Server) handleListSessionHistory(w http.ResponseWriter, r *http.Request) {
 	userID := s.userIDFromRequest(r)
-	if userID == 0 {
-		// 允许 query 传 user_id(在线测试便利),生产由 BFF X-User-Id 鉴权
-		if uid := r.URL.Query().Get("user_id"); uid != "" {
-			fmt.Sscanf(uid, "%d", &userID)
-		}
-	}
 	if userID == 0 {
 		http.Error(w, "unauthorized", 401)
 		return

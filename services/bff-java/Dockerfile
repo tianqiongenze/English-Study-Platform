@@ -1,5 +1,5 @@
 # BFF Java: prebuilt fat-jar, JRE 21 (same pattern as learning-java)
-FROM eclipse-temurin:21-jre-noble
+FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY target/bff-java-1.0.0.jar /app/app.jar
 COPY otel-agent.jar /app/otel-agent.jar

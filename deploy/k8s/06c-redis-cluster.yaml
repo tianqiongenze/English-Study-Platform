@@ -42,6 +42,8 @@ kind: StatefulSet
 metadata:
   name: redis-cluster-new
   namespace: ekb-m2-aws-us-east-1
+  annotations:
+    argocd.argoproj.io/sync-options: RespectManagedFields=true,IgnoreExtraneous=true
 spec:
   serviceName: redis-cluster-new
   replicas: 6  # 3 主 + 3 从

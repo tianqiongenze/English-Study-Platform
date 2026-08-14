@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
       - name: learning-worker
-        image: esp/learning-java:1.8.7   # #105 DB吞吐 + #110 esp-cache纯JSON(同 learning-java,worker 复用镜像)
+        image: esp/learning-java:1.8.9   # #112 /recommend 第4维 emotion_aware(复用 learning-java 镜像)
         imagePullPolicy: IfNotPresent
         env:
         - {name: ESP_ROLE, value: "worker"}
@@ -51,6 +51,10 @@ spec:
         startupProbe:   {httpGet: {path: /actuator/health, port: 8081}, periodSeconds: 10, failureThreshold: 90, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /actuator/health, port: 8081}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
         livenessProbe:  {httpGet: {path: /actuator/health, port: 8081}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
+        # preStop drain:Disruptor RingBuffer in-flight 事件落库
+        lifecycle:
+          preStop:
+            exec: {command: ["sh","-c","sleep 15"]}
         resources:
           requests: {cpu: "100m", memory: 512Mi}
           limits: {cpu: "1", memory: 2048Mi}

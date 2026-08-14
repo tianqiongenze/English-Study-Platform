@@ -94,6 +94,10 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	// 探针三分离:readyz=依赖就绪(当前无强依赖,直接 UP)、livez=进程存活。
+	// 后续接 Redis ping 后 readyz 再挂真实依赖检查。
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("/api/scenarios", srv.handleScenarios)
 	mux.HandleFunc("/api/sessions", srv.handleCreateSession)
 	mux.HandleFunc("/api/sessions/history", srv.handleListSessionHistory)
@@ -294,8 +298,11 @@ func (s *Server) handleUserText(ctx context.Context, conn *websocket.Conn, sess 
 	}
 	for _, f := range res.Frames {
 		if f.Type == ws.TypeAIReply {
-			// 附加 TTS 音频
-			f.Data = s.tts.Synthesize(ctx, f.Text)
+			// 附加情绪驱动 TTS:音频 + 情绪标签 + 口型序列(#121 数字人)
+			t := s.tts.Synthesize(ctx, f.Text)
+			f.Data = t.Audio
+			f.Emotion = t.Emotion
+			f.Visemes = t.Visemes
 		}
 		if err := writeConn(conn, f); err != nil {
 			return

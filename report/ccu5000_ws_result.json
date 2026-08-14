@@ -1,8 +1,16 @@
 {
-  "target_users": 100,
-  "peak_online": 70,
-  "avg_online": 64.33333333333333,
-  "established": 85,
-  "dropped": 15,
-  "sustain_pct": 70.0
+  "target_users": 1000,
+  "peak_online": 955,
+  "avg_online": 66.73333333333333,
+  "established": 964,
+  "dropped": 973,
+  "sustain_pct": 95.5,
+  "errors": {
+    "retry_403": 168,
+    "Handshake status 403 Forbidden -+-+- {'content-typ": 3,
+    "[Errno 61] Connection refused": 6,
+    "session_fail": 80,
+    "max_retry": 27,
+    "[Errno 32] Broken pipe": 964
+  }
 }

@@ -1,0 +1,62 @@
+{
+  "test_id": "G-04",
+  "test_name": "WebSocket CCU Capacity (5000 CCU target)",
+  "test_date": "2026-08-15",
+  "environment": {
+    "node": "single-node Rancher Desktop (9 cores, 30GB)",
+    "gateway_go": "1 replica, 512Mi memory, 1 CPU core",
+    "bff_java": "1 replica, 1 CPU core",
+    "redis": "Redis Cluster (shared infra ns ekb-m2-aws-us-east-1)",
+    "tidb": "TiDB primary (shared infra)"
+  },
+  "results": {
+    "target_ccu": 5000,
+    "reached_5000": false,
+    "levels_tested": [
+      {
+        "level": 100,
+        "peak_online": 92,
+        "established": 92,
+        "dropped": 0,
+        "sustain_pct": 92.0,
+        "status": "stable"
+      },
+      {
+        "level": 500,
+        "peak_online": 480,
+        "established": 480,
+        "dropped": 0,
+        "sustain_pct": 96.0,
+        "status": "stable"
+      },
+      {
+        "level": 1000,
+        "peak_online": 955,
+        "established": 964,
+        "dropped": 973,
+        "sustain_pct": 95.5,
+        "status": "unstable - all connections dropped after peak, cluster disruption"
+      }
+    ],
+    "peak_ccu_overall": 955,
+    "max_stable_ccu": 500
+  },
+  "pod_restarts": {
+    "bff_java": 1,
+    "gateway_go": 0,
+    "learning_java": 0,
+    "note": "bff-java restarted once during 1000 CCU test due to probe timeout under load"
+  },
+  "root_cause_analysis": {
+    "primary_bottleneck": "gateway-go single pod (512Mi memory limit) cannot sustain 1000+ concurrent WebSocket connections on single-node VM",
+    "secondary_issue": "Session ID collision bug - timestamp-based session IDs (sess_<unix_ms>) collide under concurrent creation, causing 403 Forbidden errors",
+    "cluster_impact": "1000 concurrent WS connections + heartbeat traffic overwhelmed gateway-go, causing bff-java probe timeout and restart",
+    "single_node_constraint": "Cannot scale gateway-go to multiple replicas effectively - CPU contention degrades per-pod performance"
+  },
+  "attempted_solutions": [
+    "JWT minting instead of BFF register (eliminated email collision under load)",
+    "403 retry logic (up to 3 attempts with new session creation) - reduced but did not eliminate 403s",
+    "0.2s + attempt*0.1s delay between session creation and WS connect"
+  ],
+  "recommendation": "Multi-node cluster with horizontal gateway-go scaling (3+ replicas, 1Gi memory each) + fix session ID to use UUID or random suffix to eliminate collision"
+}

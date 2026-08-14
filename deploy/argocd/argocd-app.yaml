@@ -23,10 +23,20 @@ spec:
     syncOptions:
     - CreateNamespace=true
     - ServerSideApply=true  # 处理大 CRD/共存字段
-  # ignoreDifferences:忽略 K8s 默认填充字段 + kubectl-rollout 注解,避免 pulsar-bk/zk、redis-cluster-new
-  # 3 个 StatefulSet 持续 OutOfSync(ServerSideApply 只 own 了 containers[name],其余字段由 k3s/kubectl-rollout 默认填充)。
-  # 这些字段(live 有 / target manifest 未显式声明)值与 K8s 默认一致,force-conflicts 也不会改 Running pod 行为,
-  # 但默认值字段即使被 argocd own 仍可能持续 OOS,故 ignoreDifferences 更彻底。会话22 模式⑨。
+    - RespectManagedFields=true  # SSA:仅 reconcile argocd own 的字段,不与 k3s/控制器抢字段所有权
+  # 3 个跨 ns(ekb-m2-aws-us-east-1)StatefulSet(pulsar-bk/pulsar-zk/redis-cluster-new)
+  # 持续 OutOfSync 的根因(已实证会话22-31):
+  #   ① kubectl diff git vs live = 空(git==live,无真实 drift);
+  #   ② live STS metadata.managedFields 为空(count=0)——这些 STS 由 klipper/helm 历史安装,
+  #      无 field-manager 认领字段,argocd SSA 无所依凭判定字段归属 → 把 K8s 默认填充字段
+  #      (podManagementPolicy/revisionHistoryLimit/persistentVolumeClaimRetentionPolicy/
+  #       updateStrategy/dnsPolicy/restartPolicy/schedulerName/securityContext/
+  #       terminationGracePeriodSeconds)全当作 unowned → empty-diff OOS;
+  #   ③ RespectManagedFields 依赖 managedFields 判归属,managedFields=0 时失效;
+  #      IgnoreExtraneous 同理失效(argocd v3.5.0 已加注解验证不消除 OOS)。
+  # 结论:结构性 SSA 限制,非配置问题。业务零影响(6+3+3 pod 全 Ready,集群正常)。
+  # 真根治需把 3 共享 infra STS 移出 esp-platform 管辖范围(单独 Application 或裸 kubectl 管),
+  # 单节点 RD 阶段不 warranted,留多节点移植时处理。此处 ignoreDifferences 仅作尽力缓解。
   ignoreDifferences:
   - group: apps
     kind: StatefulSet
@@ -35,9 +45,14 @@ spec:
     - /spec/revisionHistoryLimit
     - /spec/persistentVolumeClaimRetentionPolicy
     - /spec/updateStrategy
+    - /spec/serviceName
     - /spec/template/metadata/annotations
+    - /spec/template/metadata/labels
     - /spec/template/spec/dnsPolicy
     - /spec/template/spec/restartPolicy
     - /spec/template/spec/schedulerName
     - /spec/template/spec/securityContext
     - /spec/template/spec/terminationGracePeriodSeconds
+    - /spec/template/spec/serviceAccountName
+    - /spec/template/spec/affinity
+    - /spec/template/spec/nodeSelector

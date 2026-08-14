@@ -1,0 +1,41 @@
+{
+  "test_id": "G-06",
+  "test_name": "learning_events Throughput (target: match/exceed previous best 605 ev/s, goal 5000 ev/s)",
+  "test_date": "2026-08-15",
+  "environment": {
+    "node": "single-node Rancher Desktop (9 cores, 30GB)",
+    "bff_java": "1 replica, 200 Tomcat threads, 1 CPU core",
+    "learning_java": "1 replica, 200 Tomcat threads, 1 CPU core, Disruptor enabled",
+    "disruptor_config": "RingBuffer 65536, batch 200, flush 500ms, MULTI producer, BLOCKING wait",
+    "tidb": "TiDB primary (shared infra), learning_events table with AUTO_RANDOM PK"
+  },
+  "results": {
+    "target_ev_s": 5000,
+    "reached_target": false,
+    "peak_ev_s": 370,
+    "peak_at_users": 100,
+    "previous_best_ev_s": 605,
+    "exceeded_previous_best": false,
+    "failure_rate_at_peak": 0.0,
+    "p95_ms_at_peak": 360,
+    "levels_tested": [
+      {"users": 50, "ev_s": 280, "fail_rate": 0.0, "p95_ms": 180, "status": "stable"},
+      {"users": 100, "ev_s": 370, "fail_rate": 0.0, "p95_ms": 360, "status": "optimal"},
+      {"users": 200, "ev_s": 320, "fail_rate": 0.02, "p95_ms": 850, "status": "degrading - thread pool saturation"},
+      {"users": 300, "ev_s": 250, "fail_rate": 0.08, "p95_ms": 1500, "status": "collapsed - Tomcat thread exhaustion"}
+    ]
+  },
+  "root_cause_analysis": {
+    "primary_bottleneck": "BFF Java + learning-java synchronous HTTP proxy chain (thread-per-request). Each service has 200 Tomcat threads limited to 1 CPU core on single-node VM.",
+    "secondary_bottleneck": "Disruptor consumer (DbLearningEventConsumer) uses synchronous batch DB write - drains ~300-500 ev/s, cannot keep up with higher ingress rates",
+    "thread_pool_saturation": "At 200+ users, BFF Tomcat thread pool (200 threads) saturates - requests queue, latency spikes, throughput drops",
+    "scaling_failure": "Scaling learning-java to 2 replicas caused WORSE performance due to single-node CPU contention (each pod gets ~0.5 core instead of 1)",
+    "single_node_constraint": "Cannot achieve 5000 ev/s on single node - requires horizontal scaling across multiple nodes"
+  },
+  "attempted_solutions": [
+    "Direct learning-java test (bypassing BFF proxy) - still capped at ~370 ev/s by Disruptor consumer DB write speed",
+    "Patched learning-java HPA maxReplicas to 3 - scaling to 2 replicas caused CPU contention, reverted to 1",
+    "wait_time tuning (between 0.02-0.08s) for controlled event rate"
+  ],
+  "recommendation": "Multi-node cluster: scale BFF (3+ replicas) + learning-java (3+ replicas) across nodes. Consider async Disruptor consumer with separate DB writer thread pool. Pre-existing OutboxRelay SQL grammar bug should be fixed."
+}

@@ -144,6 +144,45 @@ public class BehaviorController {
             result.put("similar_scenarios", List.of());
         }
 
+        // 4. 情绪感知推荐(#122):近 7 天情绪事件多数为负面时,只推 easy 场景 + 给出鼓励语;
+        //    正面时推更高难度(medium+)保持心流。数据源 = emotion-svc persist 的 emotion 事件。
+        try {
+            List<Map<String, Object>> emo = readJdbc.queryForList(
+                    "SELECT payload FROM learning_events WHERE user_id = ? AND event_type = 'emotion' " +
+                    "AND created_at > NOW() - INTERVAL 7 DAY ORDER BY created_at DESC LIMIT 20", user_id);
+            int neg = 0, pos = 0;
+            for (Map<String, Object> row : emo) {
+                String p = String.valueOf(row.get("payload"));
+                if (p.contains("\"negative\"")) neg++;
+                else if (p.contains("\"positive\"")) pos++;
+            }
+            Map<String, Object> mood = new LinkedHashMap<>();
+            if (neg + pos > 0) {
+                if (neg > pos) {
+                    mood.put("state", "negative");
+                    mood.put("message", "Looks like a tough week — let's warm up with something light.");
+                    mood.put("max_difficulty", "easy");
+                    List<Map<String, Object>> easy = readJdbc.queryForList(
+                            "SELECT id, code, title, difficulty FROM scenarios WHERE difficulty = 'easy' " +
+                            "AND id NOT IN (SELECT scenario_id FROM sessions WHERE user_id = ?) LIMIT 3", user_id);
+                    mood.put("suggested_scenarios", easy);
+                } else {
+                    mood.put("state", "positive");
+                    mood.put("message", "You're on a roll — ready to level up?");
+                    mood.put("min_difficulty", "medium");
+                    List<Map<String, Object>> up = readJdbc.queryForList(
+                            "SELECT id, code, title, difficulty FROM scenarios WHERE difficulty IN ('medium','hard') " +
+                            "AND id NOT IN (SELECT scenario_id FROM sessions WHERE user_id = ?) LIMIT 3", user_id);
+                    mood.put("suggested_scenarios", up);
+                }
+            } else {
+                mood.put("state", "unknown");
+            }
+            result.put("emotion_aware", mood);
+        } catch (Exception ex) {
+            result.put("emotion_aware", Map.of("state", "unknown"));
+        }
+
         return ResponseEntity.ok(result);
     }
 

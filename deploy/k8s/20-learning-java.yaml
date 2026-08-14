@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: learning-java
-        image: esp/learning-java:1.8.7   # #105 DB吞吐(hikari 50→20 + jdbc batch_size=50 + order_inserts saveAll凑批) + #110 esp-cache纯JSON契约(去DefaultTyping,GenericJackson2JsonRedisSerializer)
+        image: esp/learning-java:1.8.9   # #112 /recommend 第4维 emotion_aware(近7天情绪事件分析+难度适配场景)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
         env:

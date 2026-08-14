@@ -267,6 +267,8 @@ spec:
         - name: otel-collector
           image: otel/opentelemetry-collector-contrib:0.128.0
           args: ["--config=/etc/otelcol/config.yaml"]
+          securityContext:
+            runAsUser: 0   # 读 /var/lib/docker/containers(RD docker CRI root-only,坑㉔)
           ports:
             - containerPort: 4317
               name: otlp-grpc
@@ -284,10 +286,22 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/otelcol
+            - name: varlogpods   # filelog receiver 读节点容器日志
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: dockercontainers   # docker CRI 真实日志路径(RD 坑㉔)
+              mountPath: /var/lib/docker/containers
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: otel-collector-config
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: dockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -303,6 +317,44 @@ data:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
+      # K8s 容器日志采集(替代 fluent-bit,镜像 403 后零新镜像方案):
+      # filelog 直读 /var/log/pods(节点容器日志源),operators 解析 CRI 格式
+      # + k8s attributes,经 loki exporter 进 Loki。单节点 collector 单副本即可覆盖。
+      filelog:
+        # RD 用 docker 作 CRI(坑㉔):/var/log/pods/**/0.log 是 symlink → /var/lib/docker/containers/,
+        # filelog 不 follow symlink,须直读 docker json 路径。
+        include: [/var/lib/docker/containers/*/*-json.log]
+        exclude: [/var/lib/docker/containers/*/*checkpoints*]
+        exclude_older_than: 5m   # 只采近 5 分钟,避免重启回灌全量历史
+        start_at: end
+        include_file_path: true
+        poll_interval: 5s
+        operators:
+          # RD 用 docker 作 CRI(坑㉔):日志为 docker-json 格式 {"log":..,"stream":..,"time":..}
+          - type: json_parser
+            id: parse-docker-json
+            parse_from: body
+            timestamp:
+              parse_from: attributes.time
+              layout: '%Y-%m-%dT%H:%M:%S.%fZ'
+          - type: move
+            from: attributes.log
+            to: body
+          # 从 /var/lib/docker/containers/<64位cid>/<cid>-json.log 提取容器 ID 作 label,
+          # 供 kubectl 反查 pod。if 保护:非标准路径行直接放行,防 move 报错自循环。
+          - type: regex_parser
+            id: extract-container-id
+            parse_from: attributes['log.file.path']
+            regex: '^/var/lib/docker/containers/(?P<cid>[0-9a-f]+/[0-9a-f]+)-json\.log$'
+            if: 'attributes["log.file.path"] != nil'
+          - type: move
+            from: attributes.cid
+            to: resource["container.id"]
+            if: 'attributes.cid != nil'
+          # loki exporter hint:resource attrs 转 Loki label
+          - type: add
+            field: attributes["loki.resource.labels"]
+            value: container.id
     processors:
       # tail-sampling(降量):单/多节点下避免全量 trace 撑爆 Tempo。
       # 保留:ERROR 100% + 慢 span>1s 100% + DB 写 100% + 常规 10%。
@@ -380,7 +432,7 @@ data:
           processors: [resource, tail_sampling, batch]
           exporters: [otlp/tempo]
         logs:
-          receivers: [otlp]
+          receivers: [otlp, filelog]
           processors: [resource, batch]
           exporters: [loki]
         metrics:   # 新增:各服务发 OTLP metrics → prometheus exporter :8889 → Prometheus scrape

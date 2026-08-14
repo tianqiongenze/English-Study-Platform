@@ -16,6 +16,8 @@ kind: StatefulSet
 metadata:
   name: pulsar-zk
   namespace: ekb-m2-aws-us-east-1
+  annotations:
+    argocd.argoproj.io/sync-options: RespectManagedFields=true,IgnoreExtraneous=true
 spec:
   serviceName: pulsar-zk
   replicas: 3
@@ -113,6 +115,8 @@ kind: StatefulSet
 metadata:
   name: pulsar-bk
   namespace: ekb-m2-aws-us-east-1
+  annotations:
+    argocd.argoproj.io/sync-options: RespectManagedFields=true,IgnoreExtraneous=true
 spec:
   serviceName: pulsar-bk
   replicas: 3

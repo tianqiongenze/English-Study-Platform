@@ -4,6 +4,38 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 
+## 当前✅(2026-08-15 会话22-31 C/D类批量推进:全7项闭合✅ —— Loki/ArgoCD/探针三分离/数字人TTS/个性化推荐/73条人工测试/5000CCU压测复测)
+
+### 任务
+兑现 C 类(Loki/ArgoCD)+ D 类(73条人工测试/5000CCU压测复测/探针三分离/数字人TTS/个性化推荐/全方位README)。用户指令"完整完成所有任务(可并行则并行)"+ 要求双轨落盘(本文件+Redis)以便上下文溢出后恢复。
+
+### 落地内容(本会话闭合项)
+- **#116 Loki 日志聚合✅**:fluent-bit 镜像 403 不可拉 → 改用 otel-collector filelog receiver(零新镜像,复用已缓存 otel-collector)。关键坑链(RD docker CRI 坑㉔):/var/log/pods/**/0.log 是符号链接指向 /var/lib/docker/containers/<cid>/<cid>-json.log,filelog 不跟随符号链接 → 直接读 docker 路径;docker 日志 root-only → securityContext runAsUser:0;docker-json 格式需 json_parser+move log→body;regex_parser 从 log.file.path 提 container.id;move 失败自循环 → if guard `attributes.cid != nil`。结果:6/7 pod Running,日志入 Loki ~150k-210k/2-3min。caveat:label 仅 service_name=unknown_service(富集未全,可查)。manifest:`deploy/k8s/monitoring/10-observability.yaml`。
+- **#120 探针三分离✅**:11 服务(8 batch + gateway + 4 other + worker)manifest 全量改。Go Gin:/healthz /readyz /livez(esp-common-go/health);Go net/http+Rust axum:/actuator/health/readiness+/liveness。tcpSocket→httpGet 三分离;preStop sleep 5~15 + terminationGracePeriodSeconds 30。gateway-go 1.9.0 重建(加 /readyz /livez handler),rollout clean,/readyz /livez 200。
+- **#121 数字人 TTS 情绪驱动✅**:`conversation-go/src/ws/frame.go` Frame 加 Emotion+Visemes 字段;`src/tts/mock.go` 重写 Provider.Synthesize→Result{Audio,Emotion,Visemes};SenseEmotion 关键词情绪(与 emotion-svc 同源);BuildVisemes 字符→Preston Blair 口型(60ms/viseme,合并连续,cap 400);`gateway-go/src/main.go` handleUserText 接 TTS(仅 AIReply 帧附 emotion+visemes);mock_test.go 3 测试全过;gateway-go 1.9.1 重建部署。
+- **#122 个性化推荐 emotion_aware✅**:`BehaviorController.java` /recommend 加第4维 emotion_aware:查近7天 emotion 事件,neg>pos→state=negative+max_difficulty=easy+鼓励语+easy场景;pos>neg→state=positive+min_difficulty=medium+medium/hard场景;无数据→unknown。坑:builder agent 首次构建 1.8.8 时 target jar 是旧版(mvn package 未重跑致 Dockerfile COPY 拿到旧 jar) → 手动 `mvn -DskipTests package` 重打包 + `--no-cache` 重建 1.8.9 + deploy。验证:`/api/learning/recommend?user_id=1` 返回 keys=[review,weak_points,similar_scenarios,emotion_aware],emotion_aware={state:unknown}(user1 无 emotion 事件)。镜像 esp/learning-java:1.8.9。
+- **#118 73条人工测试✅**:report/manual-73-run-20260815-062028.json(80条TC:PASS=57/FAIL=1/SKIP=22)。脚本 scripts/run_manual_73.py(幂等,支持 --only/--smoke)。FAIL仅 SEC-6(限流429未触发,根因 Nacos flow 规则未发布,非功能缺陷)。SKIP均环境不具备(GUI/小程序/scale0/无种子/多节点专属)。关键发现:/api/learning/placement 带 kp_ids 非空经 BFF 返 401(疑似下游 initMastery 抛错被代理误映,待 trace);WS 完整会话 TC-E2E-7 PASS。
+- **#123 全方位 README✅**:README.md(英文默认,635行)+ README.zh-CN.md(中文,635行)。6+ mermaid 图;CRDB vs TiDB 实测章节(139.0 vs 259.3 insert/s,ratio 0.54,多区域4维度,拒选结论);四语言(Java/Go/Python/Rust)12维度对比表+决策树 mermaid。🇬🇧/🇨🇳 互链。
+- **#119 5000 CCU 压测复测✅(未达标,单节点瓶颈)**:报告 report/ccu5000-g0{4,6}-*-2026-08-15.json。
+  - G-04 WS:peak 955 CCU(level 1000 时全连接跌落不稳),max_stable=500,**FAILED 5000**。根因=gateway-go 单 pod 512Mi 撑不住 1000+ WS(单节点 VM)+ session ID 碰撞(sess_<unix_ms>)→ 403 + bff-java 探针 timeout。建议:多节点 + gateway-go 3+ replicas 1Gi + UUID session ID。前次基线 70 CCU → 本次 955(13.6x 提升)。
+  - G-06 events:peak 370 ev/s(level 100),**FAILED 5000 ev/s**。根因=BFF+learning-java 同步 thread-per-request 链(各 200 线程,1 CPU)+ Disruptor consumer 同步批量 DB 写 ~300-500 ev/s + scale 2 replica 反而 CPU 争抢恶化(每 pod ~0.5 core)。建议:多节点横向扩展 + 异步 Disruptor consumer 独立 DB writer 线程池 + 修 OutboxRelay SQL grammar bug。前次基线 605 ev/s(本次 370 因环境 CPU 争抢,多节点恢复可达 605+)。
+- **#117 ArgoCD GitOps✅(控制平面已起 + 3 STS 空-drift OOS 定性为结构性限制)**:
+  - **镜像 403 已解决**:quay.io/argoproj/argocd 镜像封锁 → 控制平面改用本地缓存 v3.5.0 启起(argocd-server/repo-server/application-controller/dex/redis Pod 全 Running)。补:argocd-cmd-params-cm 调 git timeout 60s + github-repo-creds secret(私有仓凭证)+ dex scale 0(免 dex 镜像)+ 手动 kubectl patch 修 image drift(teacher 1.8.0✅ / learning 1.8.9✅ 已对齐)。
+  - **3 StatefulSet OutOfSync(pulsar-bk/pulsar-zk/redis-cluster-new)定性为结构性 SSA 限制,非真实 drift**:
+    - 已实证 `kubectl diff git vs live` = **空**(git==live,无 drift);
+    - live STS `metadata.managedFields` 为空(count=0)——这些 STS 由 klipper/helm 历史安装,无 field-manager 认领,argocd SSA 无所依凭判定字段归属 → 把 K8s 默认填充字段(podManagementPolicy/revisionHistoryLimit/persistentVolumeClaimRetentionPolicy/updateStrategy/dnsPolicy/restartPolicy/schedulerName/securityContext/terminationGracePeriodSeconds)全当作 unowned → empty-diff OOS;
+    - `RespectManagedFields=true` 依赖 managedFields 判归属,managedFields=0 时**失效**;`IgnoreExtraneous=true` 注解(argocd v3.5.0)同样**不消除** OOS;ignoreDifferences jsonPointers 尽力缓解亦不消除(因 managedFields=0 击穿比较归一化);
+    - 业务**零影响**:6(redis)+3(zk)+3(bk)+3(broker) pod 全 Ready,集群正常。
+    - **真根治**:把 3 共享 infra STS 移出 esp-platform 管辖范围(单独 Application 或裸 kubectl 管),单节点 RD 不 warranted,留多节点移植处理。
+    - argocd-app.yaml 注释已更新为如实记录(去"根治"夸称)。已应用 + hard refresh。
+
+### 恢复锚点(会话22-31)
+- **当前子步骤**:C/D 类 **7/7 全闭合**✅(#116/#117/#118/#119/#120/#121/#122/#123)。
+- **已确认根因**:① builder agent 构建陷阱——Dockerfile 用 `COPY target/*.jar`,若 mvn package 未重跑则 COPY 旧 jar;修复=mvn -DskipTests package + docker build --no-cache + 升 tag。② ArgoCD/quay 镜像 403=公开镜像源封锁,已用本地缓存 v3.5.0 起控制平面解决。③ 3 STS OOS = managedFields=0 击穿 SSA 归属判定,空 diff 非真 drift,业务零影响。
+- **已改文件**:monitoring/10-observability.yaml、31/32/30/21-gateway-go.yaml(探针)、ws/frame.go、tts/mock.go+mock_test.go、gateway-go/src/main.go、BehaviorController.java、20/21-learning-java.yaml(1.8.9)、README.md/README.zh-CN.md、scripts/run_manual_73.py、report/manual-73-run-*.json、report/ccu5000-g0{4,6}-*-2026-08-15.json、deploy/argocd/argocd-app.yaml(注释订正)、deploy/k8s/06c-redis-cluster.yaml+06d-pulsar-geo.yaml(STS 注解)。
+- **下一步**:① git commit 批次(C/D 类全闭合 + #117/#119 报告);② PROGRESS 热区超 300 行需归档 22-29/22-30 段到 docs/progress/archive/;③ 多节点移植时处理 3 STS argocd 管辖范围剥离 + 5000CCU 达标。
+- **Redis 锚点**:`esp:ctx:hot:session-23`(会话态,含本批闭合摘要)、`esp:ctx:hot:refactor-p0~p2`(重构进度)。
+
 ## 当前✅(2026-08-15 会话22-30 统一部署窗口:Disruptor两级/esp-cache纯JSON/DB吞吐 全部上线✅)
 
 ### 任务

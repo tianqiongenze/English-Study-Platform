@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"time"
 
-	"esp/gateway-go/src/db"
-	"esp/gateway-go/src/pulsar"
+	"esp/conversation-go/src/db"
+	"esp/conversation-go/src/pulsar"
 	"github.com/redis/go-redis/v9"
 )
 

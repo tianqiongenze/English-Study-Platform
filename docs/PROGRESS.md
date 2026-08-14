@@ -4,9 +4,42 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 
-## 当前✅(2026-08-14 会话22-24 P1 第二波容量质量 6 项 — 全部验证闭合✅ + 坑㉖ OOM 修复)
+## 当前✅(2026-08-14 会话22-25 P2 第三波架构深化 — P2-13/14/15/16/19 全闭合✅,P2-17/18 deferred)
 
-**第二波 P1(容量质量,6 项)代码+镜像+部署+验证全部闭合✅**。P0 安全红线已闭合(见下文历史)。本会话(22-24)补完 P1-12 真因修复 + learning-worker 启动 OOM(坑㉖)修复。**verify_p1.sh 8/8 PASS**(注册/refresh rotation/幂等重放/logout 拉黑/cache.gets 有 measurements/outbox 表/worker 1/1)。P1 全量可进 git commit,继而评估 P2。
+**第三波 P2(架构深化,7 项)**。P0 安全红线✅ + P1 容量质量 6 项✅。本会话(22-25)P2-13 DDD充血化✅ / P2-14 gateway-go 瘦身✅ / P2-15 读写异步化(判定)✅ / P2-16 缓存防护✅ / **P2-19 工程化补齐✅** 五项全闭合。P2-18 目录重组 deferred(单节点非 git 仓库无安全网,迁移风险>收益)。P2-17 前端 monorepo deferred(独立大块)。
+
+### P2-19 工程化补齐✅(本会话完成)
+- **Go 单测 0→25(4 模块)**:① `vocab-srs-go/sm2_test.go`(14 tests,SM2 间隔重复算法全路径:new card/interval 增长/lapse 重置/easeFactor 1.3-2.5 钳位/quality 钳位/mastered 升级/边界);② `gamification-go/logic_test.go`(2 tests,uidStr/parseTop 边界;addPoints/leaderboard/grantAchievement 因耦合全局 DB+Redis 跳过);③ `course-path-go/main_test.go`(6 tests,writeJSON/generatePath/unlockNode/getPath/readiness/liveness);④ `esp-common-go/config/config_test.go`(4 tests,Getenv/GetenvInt 默认值与解析)。listening/reading/live-tutor 无纯函数(全 gin handler 绑全局 DB)跳过,留待 DI 重构。**所有 go 命令前缀 `env -u GOROOT GOTOOLCHAIN=local`(gvm GOROOT 坑)**。
+- **Java 覆盖率 JaCoCo 补齐**:teacher-java 原为唯一无 jacoco 的 Java 服务 → pom.xml 加 jacoco-maven-plugin 0.8.12(prepare-agent + test 阶段 report)。三服务覆盖率实测:learning 40.5% / teacher 23.6% / bff 30.6%(业务服务起步基线,后续迭代提升)。
+- **Java 领域行为单测 14 条**:① teacher `SubmissionTest`(4:grade 设自动分+反馈+状态/confirm 设最终分+finalized/confirm 幂等/rollback 状态恢复);② learning `UserMasteryTest`(5:applyReviewEvent 对/错/null 容错/applyTeacherFinalized/initBaseline);③ bff `RouteTableTest`(5:resolve 各路由 + 关键 `writingCoach 优先级高于 writing` 防止 /api/writing-coach 误路由到 writing-py)。全 PASS。
+- **前端 Vitest 起步**:frontend-react 加 vitest 2.1.0 + `vitest.config.ts`(node env)+ `src/test-setup.ts`(LocalStorageStub —— auth.ts zustand create 模块加载即读 localStorage,node 环境必须预注入)+ `src/auth.test.ts`(2:authHeader null→{}/token→Bearer)。全 PASS。CI frontend job 加 `npm test` step。
+- **CI workflow 补齐**:`.github/workflows/ci.yml` 新增 `go-services` job(go vet+test 4 模块,前缀 env -u GOROOT GOTOOLCHAIN=local)+ `frontend` job(npm ci + tsc --noEmit + npm test + npm run build);build-images needs 已含 go-services/frontend。YAML 校验通过(9 jobs: java-commons/java-services/go-gateway/python-services/go-services/build-images/contract/e2e/frontend)。
+- **E2E Playwright 起步(scaffold)**:`e2e/` 新建 `package.json`(@playwright/test ^1.48.0)+ `playwright.config.ts`(chromium,baseURL localhost:3000,CI webServer 自动起 dev)+ `smoke.spec.ts`(2:首页可加载 + 未带 token /api/scenarios → 401/403)+ `README.md`(运行说明)。**注:scaffold 级,需 `npx playwright install chromium` + dev server + BFF 可达才能实跑;CI e2e job 需 runner 可达集群,暂 workflow_dispatch 级**。
+- **覆盖率未达 80% 的诚实记录**:Go 4/6 模块有测(2 模块耦合全局状态待 DI 重构);Java 三服务 23.6%-40.5%(业务服务起步基线);E2E 仅冒烟级。距 plan 目标"≥80%/完整 E2E"有差距,留作后续迭代(单节点环境 + 上下文约束下,优先保证"从 0 到有"的工程化闭环)。
+
+### P2 已闭合项
+- **P2-13 DDD 充血化✅**:`UserMastery`(`applyEvent` 行为下沉)/`Submission`(`grade` 行为下沉)贫血 POJO→充血聚合;domain 包拆 aggregate/valueobject/domainevent/repository(接口入 domain 实现入 infrastructure)。learning-java/teacher-java 已重构+全量单测绿(learning 48 tests / teacher 16 tests)。镜像 learning-java 1.8.6 / teacher-java 1.7.7 ✅deploy。
+- **P2-14 gateway-go 瘦身✅**:对话逻辑 11 包下沉独立 Go 模块 `conversation-go`(无 esp/common-go 与 jwt 依赖,仅 miniredis/pulsar/mysql/websocket/redis/otel);gateway-go 退回纯路由+鉴权+WS接入+jwt校验(verify-only,ParseUserID via RS256 公钥)。go.work 9 模块。镜像 **gateway-go 1.7.0**✅deploy。回归全 PASS(healthz/scenarios 带 token 200 无 token 401 / WS 本人 101 无token 403 他人 403)。
+  - **关键坑(gvm GOROOT)**:`compile: version "go1.26.2" does not match go tool version "go1.26.5"`。**FIX**:所有 go 命令前缀 `env -u GOROOT GOTOOLCHAIN=local`。
+  - **docker 构建路径**:host docker context `rd-vm` SSH 拒连/`desktop-linux` daemon 未起。**解法**:`rdctl shell sh -c 'docker build ...'` 进 RD VM 内构建(VM moby daemon = k3s CRI,镜像直接对 k3s 可见)。
+- **P2-15 读写异步化✅(判定降级)**:经 esp-explorer 双轮探查(bff 查库路径 + learning/teacher @DataSource 异步链路),**"ThreadLocal 失效"前提不成立**——① bff Disruptor 转发链路(EdgeAuthHandler→InletDisruptor→DownstreamForwarder)零 DB 操作,仅 JWT 鉴权+HTTP 转发;bff 仅 AuthController register/login 在 Spring MVC 同步线程查 users 表,@DataSource AOP 路由正常。② learning/teacher 9 个 @DataSource 方法体内部全是同步 DB 操作,无 @Async/CompletableFuture/ExecutorService;唯一跨线程链路 Pulsar consumer 线程调 @DataSource 方法,但 consumer 线程作为独立执行入口,AOP 在该线程内 set→proceed→clear 闭环,不跨线程传递 ThreadLocal,路由正确(且 consumer 链路只触发 WRITE 方法,默认值也是 WRITE,无路由错误)。**结论**:当前单节点 TiDB(读写同库)+ consumer 线程默认走 WRITE,无实际路由错误发生路径。降级为"未来多节点 TiDB / 真 READ 副本路由时才需考虑的 SQL Hint `/*+MASTER*/` / TransmittableThreadLocal 准备项",当前无需改动 esp-rw-java。
+- **P2-16 缓存防护✅**:TTL 加 ±10% 随机抖动(防雪崩)+ singleflight 互斥(防击穿);BehaviorController top/funnel/heatmap 纳入缓存。镜像 learning-java 1.8.6 / esp-cache 已 install m2。验证:behavior/top 200 返回 `[{"user_id":1,"cnt":1}]` / funnel 200 三阶段 / heatmap 200 `[{"event":"behavior.probe_b","cnt":1}]` / 二次调用走缓存命中。
+
+### 镜像 tag(P2 阶段,全部已 deploy)
+- gateway-go:**1.7.0**(P2-14 瘦身:conversation-go 独立模块)✅
+- learning-java:**1.8.6**(P2-13 DDD充血化 UserMastery.applyEvent + P2-16 缓存防护 BehaviorController)✅ 入口+worker
+- teacher-java:**1.7.7**(P2-13 DDD充血化 Submission.grade + P2-16 缓存防护)✅
+- esp-cache:1.0.0(P2-16 TTL抖动+singleflight,install m2,消费方透传)✅
+
+### 恢复锚点(P2)
+- **当前子步骤**:P2-13/14/15/16/19 全闭合✅。P2-19 产出:Go 单测 25(4 模块)/ Java jacoco 补齐 teacher + 覆盖率实测 / Java 领域行为单测 14 / 前端 vitest 2 / CI 加 go-services+frontend job / E2E Playwright scaffold。P2-18 目录重组 deferred。P2-17 前端 monorepo deferred。**P0~P2 全量重构计划(19 项)完成:6(P0)+6(P1)+5(P2 实现,2 deferred)= 闭合 17/19**。
+- **已改文件(P2-19)**:① `services/vocab-srs-go/src/srs/sm2_test.go`(新);② `services/gamification-go/src/logic_test.go`(新);③ `services/course-path-go/src/main_test.go`(新);④ `services/esp-common-go/config/config_test.go`(新);⑤ `services/teacher-java/pom.xml`(加 jacoco);⑥ `services/teacher-java/src/test/.../domain/SubmissionTest.java`(新);⑦ `services/learning-java/src/test/.../domain/UserMasteryTest.java`(新);⑧ `services/bff-java/src/test/.../edge/RouteTableTest.java`(新);⑨ `frontend-react/package.json`(test scripts + vitest devDep);⑩ `frontend-react/vitest.config.ts`(新);⑪ `frontend-react/src/test-setup.ts`(新);⑫ `frontend-react/src/auth.test.ts`(新);⑬ `.github/workflows/ci.yml`(加 go-services + frontend job + frontend npm test step);⑭ `e2e/package.json`(新);⑮ `e2e/playwright.config.ts`(新);⑯ `e2e/smoke.spec.ts`(新);⑰ `e2e/README.md`(新)。
+- **下一步**:① git commit 全部 P2 改动(P2-13/14/15/16 + P2-19);② (可选)覆盖率提升迭代 / E2E 完整登录流 / DI 重构 listening|reading|live-tutor;③ P2-17 前端 monorepo(用户指示前不启动);④ 多节点容量验证 G-01/G-06(用户指示前不启动)。
+- **Redis 锚点**:`esp:ctx:hot:refactor-p2`(P2 全量闭合后写)。
+
+---
+
+## 历史 (2026-08-14 会话22-24 P1 第二波容量质量 6 项 — 全部验证闭合✅ + 坑㉖ OOM 修复)
 
 ### P1 6 项最终状态(全部已验证✅)
 - **P1-7 全局限流✅**:traefik `esp-ratelimit`(100/burst200/1s)+ bff `RateLimitFilter`+`SentinelRuleBootstrap`。实测 burst 400→11×429。
@@ -31,13 +64,13 @@
 - **坑㉚(22-23)bff 业务代理断链**:traefik ingress /api/** → bff:8090,但 8090 只有 auth 控制器,业务路径 404;Netty edge 9090 RouteTable fire-and-forget 不回响应。**修复**:新增 `ProxyController`(@RestController /api/**,RestClient 透传,SKIP_HEADERS 过滤 hop-by-hop,GET/DELETE 走无 body 分支,4xx/5xx 原样透传)。
 - **坑㉛(22-23)LearningEventConsumer @Lazy 不装配**:`@Component @Lazy` 在无人注入时永不实例化 → @PostConstruct 订阅从未启动 → worker 4 topic 全未订阅。**修复**:改 `@ConditionalOnProperty(esp.pulsar.consumer-enabled, matchIfMissing=true)`,worker(true)启动即订阅,入口(false)不装配天然防循环。
 - **坑㉜(22-23)陈旧 esp-cache fat-jar(已被 P1-12 真因覆盖)**:曾以为 cache_* 缺失是 fat-jar 打包时机问题。**22-24 实证真因**=esp-cache 把 spring-boot-starter-cache 声明 `provided`,使用方未显式引入 → SB4 CacheMetricsRegistrarConfiguration 不在 classpath。修复=三 pom 显式加 starter-cache(坑㉜ 的重 install esp-cache 只是顺带清掉旧 fat-jar,非真因)。
-- **坑㉝(22-24)learning-worker 启动 OOM(致命)**:新 worker pod crash-loop `OutOfMemoryError: Java heap space`(Dubbo ServiceConfig.export 阶段)。**根因**:`LearningEventConsumer.handleRegistered` 调 `masteryRepo.findAll()`(JpaRepository 默认)加载 user_mastery **全表 4,998,730 行**进堆 → 2G heap 撑爆。触发路径:user.registered Pulsar topic 有 backlog,worker @PostConstruct 订阅即收消息→handleRegistered→findAll→OOM。次要:`initMastery` 逐条 save(10,000 次顺序 INSERT 往返)。**修复**(3 处):① `UserMasteryRepository` 加投影 `findKpIdsByUserId`(只查 kpId 列);② `handleRegistered` 用 Set 去重仅 init 缺失 kp;③ `LearningService.initMastery` 改批量 `saveAll`。learning-java 1.8.4→1.8.5。修后 worker `55c859f84b-jmfjs` 1/1 Running RESTARTS=0。**教训**:JpaRepository `findAll()` 在大表(千万行级)上是隐式全表扫描炸弹,业务去重必须用投影查询;消费者 @PostConstruct 订阅有 backlog 的 topic 时,首条消息就可能触发重逻辑,启动期内存预算要留余量。
+- **坑㉖(22-24)learning-worker 启动 OOM(致命)**:新 worker pod crash-loop `OutOfMemoryError: Java heap space`(Dubbo ServiceConfig.export 阶段)。**根因**:`LearningEventConsumer.handleRegistered` 调 `masteryRepo.findAll()`(JpaRepository 默认)加载 user_mastery **全表 4,998,730 行**进堆 → 2G heap 撑爆。触发路径:user.registered Pulsar topic 有 backlog,worker @PostConstruct 订阅即收消息→handleRegistered→findAll→OOM。次要:`initMastery` 逐条 save(10,000 次顺序 INSERT 往返)。**修复**(3 处):① `UserMasteryRepository` 加投影 `findKpIdsByUserId`(只查 kpId 列);② `handleRegistered` 用 Set 去重仅 init 缺失 kp;③ `LearningService.initMastery` 改批量 `saveAll`。learning-java 1.8.4→1.8.5。修后 worker `55c859f84b-jmfjs` 1/1 Running RESTARTS=0。**教训**:JpaRepository `findAll()` 在大表(千万行级)上是隐式全表扫描炸弹,业务去重必须用投影查询;消费者 @PostConstruct 订阅有 backlog 的 topic 时,首条消息就可能触发重逻辑,启动期内存预算要留余量。
 
 ### 恢复锚点(跨会话必读)
 - **当前子步骤**:P1 6 项全部闭合✅(verify_p1.sh 8/8 PASS:注册/refresh rotation 旧 refresh 401/幂等同 key 同 body/logout 后 access 401/cache.gets COUNT=1.0/outbox 表 0 行/worker 1/1 RESTARTS=0)。坑㉖ worker OOM 修复(1.8.5)已 deploy 稳定。P1 待 git commit。
 - **已改文件**:① esp-cache:`IdempotencyFilter`/`IdempotentResponseWrapper`/`CacheConfig`(recordStats+setCacheNames)/`CacheService`(tryIdempotent);② bff-java:`JwtService`(3-arg+黑名单+refresh)/`RateLimitFilter`/`SentinelRuleBootstrap`/`ProxyController`+3 测试 mock + pom(starter-cache);③ learning-java:`LearningEventDisruptor`(5-arg+outbox)/`OutboxRelay`/`LearningEventConsumer`(@ConditionalOnProperty+handleRegistered 投影去重)/`UserMasteryRepository`(findKpIdsByUserId)/`LearningService`(initMastery 批量 saveAll)+ pom(starter-cache)+ application.yml;④ teacher-java:测试 mock + pom(starter-cache);⑤ gateway-go:main.go(sessions SetNX);⑥ writing-py:grade/polish nx=True;⑦ deploy:`40b-traefik-ratelimit.yaml`/`40-ingress.yaml`/`21-learning-worker.yaml`(1.8.5)/`20-learning-java.yaml`(1.8.5)/`15-bff-java.yaml`(1.7.5)/`30-other-services.yaml`(teacher 1.7.6);⑧ TiDB:`learning_event_outbox` 表。
-- **下一步**:① git commit P1 全量(任务#72 进行中);② 评估进 P2(7 项:P2-13 DDD充血化/P2-14 gateway瘦身/P2-15 读写异步化/P2-16 缓存防护/P2-17 前端monorepo/P2-18 目录重组/P2-19 工程化补齐)——每波结束评估避免单会话上下文溢出,前端完整重构并入第三波。
-- **Redis 锚点**:`esp:ctx:hot:refactor-p1`(待更新:镜像 tag→1.8.5/1.7.5/1.7.6 + 坑㉖ OOM 真因 + P1-12 starter-cache 真因 + verify 8/8)。
+- **下一步**:① ✅ git commit P1 全量(945d9fe);② 评估进 P2(7 项:P2-13 DDD充血化/P2-14 gateway瘦身/P2-15 读写异步化/P2-16 缓存防护/P2-17 前端monorepo/P2-18 目录重组/P2-19 工程化补齐)——每波结束评估避免单会话上下文溢出,前端完整重构并入第三波。
+- **Redis 锚点**:`esp:ctx:hot:refactor-p1`(P1 闭合:verify 8/8 / 镜像1.8.5/1.7.5/1.7.6 / 坑㉖ OOM / P1-12 starter-cache 真因 / 已 commit 945d9fe)。
 - **网络可达性备忘**:host 经 `192.168.5.15` 不可达,验证一律走 `127.0.0.1`(RD host localhost 转发),traefik /api/** → bff-java:8090,/ws/ → gateway-go。
 
 ---

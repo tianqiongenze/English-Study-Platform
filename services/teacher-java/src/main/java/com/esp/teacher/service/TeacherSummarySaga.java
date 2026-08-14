@@ -116,8 +116,7 @@ public class TeacherSummarySaga {
         String prevStatus = s.getStatus();
         BigDecimal prevFinalScore = s.getFinalScore();
 
-        s.setFinalScore(finalScore);
-        s.setStatus("finalized");
+        s.confirm(finalScore);
         submissionRepo.save(s);
         if (classId != null) {
             cacheService.evict("teacher:class-weak", "teacher:class-weak:" + classId);
@@ -154,8 +153,7 @@ public class TeacherSummarySaga {
                     submissionId, s.getStatus());
             return;
         }
-        s.setStatus(snapshot.prevStatus);
-        s.setFinalScore(snapshot.prevFinalScore);
+        s.rollbackStatus(snapshot.prevStatus, snapshot.prevFinalScore);
         submissionRepo.save(s);
         // 失效幂等占位,允许下次重试(占位已被消费,可重新执行)
         cacheService.evict("esp:idem", "esp:idem:teacher:summary:" + submissionId);

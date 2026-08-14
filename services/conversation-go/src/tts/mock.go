@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 
-	"esp/gateway-go/src/cache"
+	"esp/conversation-go/src/cache"
 )
 
 // Provider 语音合成接口。

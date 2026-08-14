@@ -17,19 +17,19 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
-	"esp/gateway-go/src/asr"
-	"esp/gateway-go/src/dialog"
-	"esp/gateway-go/src/hub"
-	espjwt "esp/gateway-go/src/jwt"
-	"esp/gateway-go/src/llm"
-	gwlog "esp/gateway-go/src/log"
-	"esp/gateway-go/src/scenario"
-	"esp/gateway-go/src/session"
-	"esp/gateway-go/src/tts"
-	"esp/gateway-go/src/ws"
-
 	"esp/common-go/config"
 	"esp/common-go/redisx"
+
+	"esp/conversation-go/src/asr"
+	"esp/conversation-go/src/dialog"
+	"esp/conversation-go/src/hub"
+	espjwt "esp/gateway-go/src/jwt"
+	"esp/conversation-go/src/llm"
+	gwlog "esp/conversation-go/src/log"
+	"esp/conversation-go/src/scenario"
+	"esp/conversation-go/src/session"
+	"esp/conversation-go/src/tts"
+	"esp/conversation-go/src/ws"
 )
 
 var upgrader = websocket.Upgrader{

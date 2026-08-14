@@ -1,0 +1,14 @@
+{
+  "name": "esp-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "description": "ESP Web E2E (Playwright) — P2-19 工程化补齐",
+  "scripts": {
+    "test": "playwright test",
+    "test:ci": "CI=1 playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

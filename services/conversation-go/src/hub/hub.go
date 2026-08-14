@@ -23,7 +23,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
 
-	"esp/gateway-go/src/ws"
+	"esp/conversation-go/src/ws"
 )
 
 // ShardCount 分片 channel 数(与副本数解耦,固定值)。

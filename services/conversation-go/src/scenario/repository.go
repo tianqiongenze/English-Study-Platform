@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"esp/gateway-go/src/db"
+	"esp/conversation-go/src/db"
 )
 
 // Scenario 是一个口语练习场景。

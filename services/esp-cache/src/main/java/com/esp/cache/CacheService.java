@@ -57,12 +57,27 @@ public class CacheService {
     @Value("${esp.cache.double-delete-delay-ms:100}")
     private long doubleDeleteDelayMs;
 
+    /**
+     * P2-16: L2 TTL 抖动幅度(±百分比)。防雪崩——同一批 key 失效后不会同时回源打 DB。
+     * 0=关闭抖动(行为同 P1);典型 10 表示 ±10%。生效于 L2 set 的真实 TTL。
+     */
+    @Value("${esp.cache.l2-ttl-jitter-pct:10}")
+    private int l2TtlJitterPct;
+
     private final ScheduledExecutorService delayPool =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "cache-double-delete");
                 t.setDaemon(true);
                 return t;
             });
+
+    /**
+     * P2-16: singleflight 槽位——同一 key 并发回源时只允许一个线程执行 loader,
+     * 其余线程阻塞等待该结果,防缓存击穿(DB 压力陡增时 N 个并发请求同时穿透)。
+     * key=完整缓存 key,value=CompletableFuture(首线程创建并填值,余者 get)。
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.CompletableFuture<Object>> inFlight =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     public CacheService(ObjectProvider<CacheManager> cacheManagerProvider,
                         ObjectProvider<RedisTemplate<String, Object>> redisTemplateProvider,
@@ -74,6 +89,8 @@ public class CacheService {
 
     /**
      * 读:L1 → L2 → DB。
+     *
+     * <p>P2-16 防击穿:L1/L2 同时 miss 时,singleflight 互斥——同一 key 并发回源只一个线程执行 loader。
      *
      * @param cacheName  L1 缓存名(如 "learning:due")
      * @param key        完整 key(如 "learning:due:1")
@@ -112,18 +129,18 @@ public class CacheService {
             log.warn("L2 redis read failed for {}, degrade to DB: {}", key, ex.toString());
         }
 
-        // 3. DB
+        // 3. DB(singleflight 互斥:并发回源只一个线程跑 loader,余者等其结果)
         if (!l2Hit) {
-            val = loader.get();
+            val = loadWithSingleflight(key, loader);
             try {
-                long ttl = ttlSec > 0 ? ttlSec : l2TtlSeconds;
                 if (val == null) {
                     if (cacheEmpty) {
-                        redisTemplate.opsForValue().set(key, EMPTY_SENTINEL, emptyTtlSeconds, TimeUnit.SECONDS);
+                        redisTemplate.opsForValue().set(key, EMPTY_SENTINEL, jitterTtl(emptyTtlSeconds), TimeUnit.SECONDS);
                         l1.put(key, null);
                     }
                 } else {
-                    redisTemplate.opsForValue().set(key, val, ttl, TimeUnit.SECONDS);
+                    long ttl = ttlSec > 0 ? ttlSec : l2TtlSeconds;
+                    redisTemplate.opsForValue().set(key, val, jitterTtl(ttl), TimeUnit.SECONDS);
                     l1.put(key, val);
                 }
             } catch (Exception ex) {
@@ -133,6 +150,49 @@ public class CacheService {
             l1.put(key, val); // L2 命中,回填 L1
         }
         return val;
+    }
+
+    /**
+     * P2-16: singleflight 回源。同一 key 并发只一个线程执行 loader,其余阻塞等待其结果。
+     * loader 抛异常时 future 完成 exceptionally,所有等待者收到同一异常(避免重复打 DB)。
+     */
+    @SuppressWarnings("unchecked")
+    private <T> T loadWithSingleflight(String key, Supplier<T> loader) {
+        java.util.concurrent.CompletableFuture<Object> mine = new java.util.concurrent.CompletableFuture<>();
+        java.util.concurrent.CompletableFuture<Object> first = inFlight.putIfAbsent(key, mine);
+        if (first == null) {
+            // 首线程:执行 loader,完成后移除槽位并传播结果/异常。
+            try {
+                T result = loader.get();
+                mine.complete(result);
+                return result;
+            } catch (RuntimeException ex) {
+                mine.completeExceptionally(ex);
+                throw ex;
+            } finally {
+                inFlight.remove(key, mine);
+            }
+        }
+        // 后续线程:等待首线程结果,不重复打 DB。
+        try {
+            return (T) first.join();
+        } catch (java.util.concurrent.CompletionException ce) {
+            Throwable cause = ce.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw ce;
+        }
+    }
+
+    /**
+     * P2-16: TTL 加 ±l2TtlJitterPct% 随机抖动(防雪崩)。
+     * 抖动关闭(jitter=0)或 ttl 过小直接返回原值。基于 ThreadLocalRandom(无 contention)。
+     */
+    private long jitterTtl(long baseTtl) {
+        if (l2TtlJitterPct <= 0 || baseTtl <= 1) return baseTtl;
+        long delta = baseTtl * l2TtlJitterPct / 100;
+        // [baseTtl - delta, baseTtl + delta]
+        long jitter = java.util.concurrent.ThreadLocalRandom.current().nextLong(-delta, delta + 1);
+        return Math.max(1L, baseTtl + jitter);
     }
 
     public void put(String cacheName, String key, Object value, long ttlSec) {

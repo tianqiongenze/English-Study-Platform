@@ -139,10 +139,8 @@ public class LearningEventConsumer {
                     new com.esp.learning.domain.UserMasteryId(ev.getUserId(), kpId)).orElse(null);
             if (m == null) {
                 m = new UserMastery(ev.getUserId(), kpId);
-                m.setReviewCount(0);
             }
-            m.setMasteryScore(score);
-            m.setLastReviewAt(Instant.now());
+            m.applyTeacherFinalized(score, Instant.now());
             masteryRepo.save(m); // upsert(幂等:同主键覆盖)
             log.info("teacher.finalized handled: userId={}, kpId={}, score={}",
                     ev.getUserId(), kpId, score);

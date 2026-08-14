@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"esp/gateway-go/src/llm"
-	"esp/gateway-go/src/session"
-	"esp/gateway-go/src/ws"
+	"esp/conversation-go/src/llm"
+	"esp/conversation-go/src/session"
+	"esp/conversation-go/src/ws"
 )
 
 func TestEngine_Process_ReplyAndTurn(t *testing.T) {

@@ -2,9 +2,11 @@
 FROM golang:1.25-alpine AS builder
 WORKDIR /app
 COPY esp-common-go ./esp-common-go
+COPY conversation-go ./conversation-go
 COPY gateway-go/go.mod gateway-go/go.sum ./
 ENV GOPROXY=https://goproxy.cn,direct
-RUN sed -i 's|replace esp/common-go => ../esp-common-go|replace esp/common-go => ./esp-common-go|' go.mod
+RUN sed -i 's|replace esp/common-go => ../esp-common-go|replace esp/common-go => ./esp-common-go|' go.mod \
+ && sed -i 's|replace esp/conversation-go => ../conversation-go|replace esp/conversation-go => ./conversation-go|' go.mod
 RUN go mod download
 COPY gateway-go/src ./src
 RUN CGO_ENABLED=0 go build -o /out/gateway-go ./src

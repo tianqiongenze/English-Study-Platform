@@ -86,9 +86,7 @@ public class LearningService {
         java.util.List<UserMastery> batch = new java.util.ArrayList<>(kpIds.size());
         for (Long kpId : kpIds) {
             UserMastery m = new UserMastery(userId, kpId);
-            m.setMasteryScore(BigDecimal.valueOf(initialScore));
-            m.setReviewCount(0);
-            m.setLastReviewAt(now);
+            m.initBaseline(BigDecimal.valueOf(initialScore), now);
             batch.add(m);
         }
         masteryRepo.saveAll(batch);
@@ -123,18 +121,15 @@ public class LearningService {
 
     /**
      * FR-2.3 复习一次:更新 mastery + 艾宾浩斯下次复习时间(写主库)。写后异步失效 due/weak。
+     * P2-13: 字段联动下沉为 {@link UserMastery#applyReviewEvent},Service 只加载→调聚合方法→保存。
      */
     @DataSource(DataSourceType.WRITE)
     public void review(long userId, long kpId, boolean correct) {
         UserMasteryId id = new UserMasteryId(userId, kpId);
         UserMastery m = masteryRepo.findById(id).orElseGet(() -> new UserMastery(userId, kpId));
-        int count = m.getReviewCount() == null ? 0 : m.getReviewCount();
         Instant now = Instant.now();
-        m.setLastReviewAt(now);
-        m.setNextReviewAt(scheduler.nextReviewAt(count, correct, now));
-        m.setReviewCount(correct ? count + 1 : 0);
-        BigDecimal score = m.getMasteryScore() == null ? BigDecimal.ZERO : m.getMasteryScore();
-        m.setMasteryScore(correct ? score.add(BigDecimal.ONE) : score);
+        int count = m.getReviewCount() == null ? 0 : m.getReviewCount();
+        m.applyReviewEvent(correct, scheduler.nextReviewAt(count, correct, now), now);
         masteryRepo.save(m);
         evictUserCache(userId);
     }

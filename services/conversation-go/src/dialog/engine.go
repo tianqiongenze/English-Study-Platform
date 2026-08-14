@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"esp/gateway-go/src/llm"
-	"esp/gateway-go/src/session"
-	"esp/gateway-go/src/ws"
+	"esp/conversation-go/src/llm"
+	"esp/conversation-go/src/session"
+	"esp/conversation-go/src/ws"
 )
 
 // Engine 编排一次对话:纠错 → LLM → 启发式引导。

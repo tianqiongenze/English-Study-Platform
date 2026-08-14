@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: learning-java
-        image: esp/learning-java:1.8.5   # 坑㉖修 worker OOM:findKpIdsByUserId 投影替代 findAll 全表 + saveAll 批量
+        image: esp/learning-java:1.8.6   # P2-13 DDD充血化:UserMastery.applyEvent行为下沉 + P2-16 缓存防护(BehaviorController scenarios/funnel/heatmap 纳入缓存)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
         env:

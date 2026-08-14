@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	esp/common-go v0.0.0
+	esp/conversation-go v0.0.0
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/apache/pulsar-client-go v0.21.0
 	github.com/go-sql-driver/mysql v1.10.0
@@ -19,6 +20,8 @@ require (
 )
 
 replace esp/common-go => ../esp-common-go
+
+replace esp/conversation-go => ../conversation-go
 
 // TODO(otel): run `go mod tidy` to populate go.sum with the new OTel
 // dependencies (sdk, otlptracegrpc, otelhttp, otelwebsocket, grpc) and

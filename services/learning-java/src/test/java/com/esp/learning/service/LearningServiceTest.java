@@ -81,7 +81,12 @@ class LearningServiceTest {
     @Test
     void initMastery_writesBaselineForEachKp() {
         service.initMastery(1L, List.of(10L, 20L), 50.0);
-        verify(masteryRepo, times(2)).save(any(UserMastery.class));
+        verify(masteryRepo).saveAll(argThat(list -> {
+            java.util.Iterator<?> it = list.iterator();
+            int n = 0;
+            while (it.hasNext()) { it.next(); n++; }
+            return n == 2;
+        }));
     }
 
     @Test

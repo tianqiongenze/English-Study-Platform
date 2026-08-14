@@ -131,10 +131,31 @@ jobs:
       - name: pytest
         run: pytest -q --maxfail=5
 
+  # ───────── Go 业务服务单元测试(gateway-go 已有,P2-19 补 vocab-srs/gamification/course-path/common)─────────
+  go-services:
+    name: Go services (unit + vet)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: go.sum
+      - name: go vet (vocab-srs/gamification/course-path/common)
+        run: |
+          env -u GOROOT GOTOOLCHAIN=local go vet ./vocab-srs-go/... ./gamification-go/... ./course-path-go/... ./esp-common-go/...
+      - name: go test (race + coverage)
+        run: |
+          env -u GOROOT GOTOOLCHAIN=local go test -race -coverprofile=coverage.out -covermode=atomic \
+            ./vocab-srs-go/... ./gamification-go/... ./course-path-go/... ./esp-common-go/...
+
   # ───────── 构建镜像(仅 main / 手动;PR 跳过省资源)─────────
   build-images:
     name: Build images (${{ matrix.svc }})
-    needs: [java-commons, java-services, go-gateway, python-services]
+    needs: [java-commons, java-services, go-gateway, go-services, python-services]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
@@ -196,3 +217,26 @@ jobs:
           echo "  POD=\$(kubectl -n esp-prod get pod -l app=writing-py -o jsonpath='{.items[0].metadata.name}')"
           echo "  kubectl cp deploy/newman/esp_e2e.py \$POD:/tmp/ && kubectl exec \$POD -- python3 /tmp/esp_e2e.py"
           echo "或本机装 newman:newman run deploy/newman/esp-e2e.postman_collection.json -e deploy/newman/esp-env.json"
+
+  # ───────── 前端 Web 单元测试 + 构建(P2-19: frontend-react 起步)─────────
+  frontend:
+    name: Frontend (web typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend-react/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint (tsc typecheck)
+        run: npx tsc --noEmit
+      - name: Unit tests (vitest)
+        run: npm test
+      - name: Build
+        run: npm run build

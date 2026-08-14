@@ -74,9 +74,7 @@ public class TeacherService {
         int graded = 0;
         for (Submission s : subs) {
             if (!"auto_graded".equals(s.getStatus())) {
-                s.setAutoScore(scoreContent(s.getContent()));
-                s.setAutoFeedback(feedbackFor(s.getContent()));
-                s.setStatus("auto_graded");
+                s.grade(scoreContent(s.getContent()), feedbackFor(s.getContent()));
                 submissionRepo.save(s);
                 graded++;
             }
@@ -102,8 +100,7 @@ public class TeacherService {
         }
         Submission s = submissionRepo.findById(submissionId)
                 .orElseThrow(() -> new IllegalArgumentException("submission not found: " + submissionId));
-        s.setFinalScore(finalScore);
-        s.setStatus("finalized");
+        s.confirm(finalScore);
         submissionRepo.save(s);
         if (classId != null) {
             cacheService.evict("teacher:class-weak", "teacher:class-weak:" + classId);

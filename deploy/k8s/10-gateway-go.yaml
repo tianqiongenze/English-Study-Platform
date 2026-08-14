@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: gateway-go
-        image: esp/gateway-go:1.6.3   # P1-8 sessions SetNX 幂等;P0-3 IDOR 修复:移除 history 的 query user_id 回落
+        image: esp/gateway-go:1.7.0   # P2-14 瘦身:对话逻辑(dialog/scenario/llm/session/asr/tts/ws/cache/db/log/pulsar/hub)下沉独立模块 conversation-go;gateway 退回纯路由+鉴权+WS接入+jwt校验(已verify-only)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8080}]
         env:

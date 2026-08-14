@@ -78,15 +78,24 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        svc: [gateway-go, bff-java, learning-java, teacher-java, writing-py, emotion-svc, course-path-go]
+        include:
+          # Go/Python 服务 Dockerfile 用 backend/-相对 COPY,context=backend
+          - { svc: gateway-go,    context: backend, file: services/gateway-go/Dockerfile }
+          - { svc: writing-py,    context: backend, file: services/writing-py/Dockerfile }
+          - { svc: emotion-svc,   context: backend, file: services/emotion-svc/Dockerfile }
+          - { svc: course-path-go, context: backend, file: services/course-path-go/Dockerfile }
+          # Java 服务用预构建 fat-jar(context=服务目录)
+          - { svc: bff-java,      context: backend/services/bff-java, file: Dockerfile }
+          - { svc: learning-java, context: backend/services/learning-java, file: Dockerfile }
+          - { svc: teacher-java,  context: backend/services/teacher-java, file: Dockerfile }
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - name: 构建镜像(不推)
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: services/${{ matrix.svc }}/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           tags: esp-${{ matrix.svc }}:scan
           load: true
       - uses: aquasecurity/setup-trivy@v0.24.0

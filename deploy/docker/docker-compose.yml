@@ -73,7 +73,9 @@ services:
 
   # ---------- 微服务 ----------
   gateway-go:
-    build: ../services/gateway-go
+    build:
+      context: ../../backend
+      dockerfile: services/gateway-go/Dockerfile
     environment:
       PORT: "8080"
       REDIS_ADDR: "redis:6379"
@@ -82,7 +84,7 @@ services:
     depends_on: [redis]
 
   learning-java:
-    build: ../services/learning-java
+    build: ../../backend/services/learning-java
     environment:
       WRITE_DB_URL: "jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"
       READ_DB_URL: "jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"
@@ -95,14 +97,16 @@ services:
         condition: service_healthy
 
   writing-py:
-    build: ../services/writing-py
+    build:
+      context: ../../backend
+      dockerfile: services/writing-py/Dockerfile
     environment:
       PORT: "8082"
       LLM_MODE: "mock"
     ports: ["8082:8082"]
 
   teacher-java:
-    build: ../services/teacher-java
+    build: ../../backend/services/teacher-java
     environment:
       WRITE_DB_URL: "jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"
       READ_DB_URL: "jdbc:mysql://tidb:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"
@@ -114,7 +118,9 @@ services:
         condition: service_healthy
 
   emotion-svc:
-    build: ../services/emotion-svc
+    build:
+      context: ../../backend
+      dockerfile: services/emotion-svc/Dockerfile
     environment:
       PORT: "8084"
     ports: ["8084:8084"]

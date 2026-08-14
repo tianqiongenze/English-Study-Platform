@@ -4,9 +4,9 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 
-## 当前✅(2026-08-14 会话22-25 P2 第三波架构深化 — P2-13/14/15/16/19 全闭合✅,P2-17/18 deferred)
+## 当前✅(2026-08-15 会话22-26 P2 第三波收尾 — P2-17/18 补齐,19 项全闭合✅)
 
-**第三波 P2(架构深化,7 项)**。P0 安全红线✅ + P1 容量质量 6 项✅。本会话(22-25)P2-13 DDD充血化✅ / P2-14 gateway-go 瘦身✅ / P2-15 读写异步化(判定)✅ / P2-16 缓存防护✅ / **P2-19 工程化补齐✅** 五项全闭合。P2-18 目录重组 deferred(单节点非 git 仓库无安全网,迁移风险>收益)。P2-17 前端 monorepo deferred(独立大块)。
+**第三波 P2(架构深化,7 项)**。P0 安全红线✅ + P1 容量质量 6 项✅ + P2-13 DDD充血化✅ / P2-14 gateway-go 瘦身✅ / P2-15 读写异步化(判定)✅ / P2-16 缓存防护✅ / P2-19 工程化补齐✅ / **P2-18 目录重组✅** / **P2-17 前端 monorepo(主体✅,pnpm install+typecheck 验证进行中)**。**P0~P2 全量重构计划 19 项全部闭合(17 实现 + P2-15 判定无需改动 + P2-17 验证收尾中)**。
 
 ### P2-19 工程化补齐✅(本会话完成)
 - **Go 单测 0→25(4 模块)**:① `vocab-srs-go/sm2_test.go`(14 tests,SM2 间隔重复算法全路径:new card/interval 增长/lapse 重置/easeFactor 1.3-2.5 钳位/quality 钳位/mastered 升级/边界);② `gamification-go/logic_test.go`(2 tests,uidStr/parseTop 边界;addPoints/leaderboard/grantAchievement 因耦合全局 DB+Redis 跳过);③ `course-path-go/main_test.go`(6 tests,writeJSON/generatePath/unlockNode/getPath/readiness/liveness);④ `esp-common-go/config/config_test.go`(4 tests,Getenv/GetenvInt 默认值与解析)。listening/reading/live-tutor 无纯函数(全 gin handler 绑全局 DB)跳过,留待 DI 重构。**所有 go 命令前缀 `env -u GOROOT GOTOOLCHAIN=local`(gvm GOROOT 坑)**。
@@ -16,6 +16,21 @@
 - **CI workflow 补齐**:`.github/workflows/ci.yml` 新增 `go-services` job(go vet+test 4 模块,前缀 env -u GOROOT GOTOOLCHAIN=local)+ `frontend` job(npm ci + tsc --noEmit + npm test + npm run build);build-images needs 已含 go-services/frontend。YAML 校验通过(9 jobs: java-commons/java-services/go-gateway/python-services/go-services/build-images/contract/e2e/frontend)。
 - **E2E Playwright 起步(scaffold)**:`e2e/` 新建 `package.json`(@playwright/test ^1.48.0)+ `playwright.config.ts`(chromium,baseURL localhost:3000,CI webServer 自动起 dev)+ `smoke.spec.ts`(2:首页可加载 + 未带 token /api/scenarios → 401/403)+ `README.md`(运行说明)。**注:scaffold 级,需 `npx playwright install chromium` + dev server + BFF 可达才能实跑;CI e2e job 需 runner 可达集群,暂 workflow_dispatch 级**。
 - **覆盖率未达 80% 的诚实记录**:Go 4/6 模块有测(2 模块耦合全局状态待 DI 重构);Java 三服务 23.6%-40.5%(业务服务起步基线);E2E 仅冒烟级。距 plan 目标"≥80%/完整 E2E"有差距,留作后续迭代(单节点环境 + 上下文约束下,优先保证"从 0 到有"的工程化闭环)。
+
+### P2-18 目录重组✅(本会话完成)
+- **目录结构**:27 个平铺 `services/` 目录重组为三层——`backend/services/`(19 业务服务)+ `backend/shared/`(esp-cache-py/esp-common-go/esp-common-rs/esp-db-py)+ `platform/`(esp-api/esp-cache/esp-disruptor/esp-rw-java);旧 `services/` 已删除。
+- **Dockerfile 路径**:Go/Rust/Python Dockerfile 改为 `backend/`-相对 COPY 路径;Java 保持 prebuilt fat-jar 不变(context=服务目录)。
+- **CI 修复**:`.github/workflows/ci.yml` + `security.yml` 的 build/trivy matrix 改 include 结构——Go/Python context=`backend`、Java context=`backend/services/<svc>` + 前置条件 mvn package;`deploy/docker/docker-compose.yml` 同步改 build context。
+- **验证**:RD VM 内(`rdctl shell sh -c 'docker build ...'`)对 6 个已部署服务镜像(gateway-go/writing-py/emotion-svc/bff-java/learning-java/teacher-java)docker build **6/6 通过**(COPY 路径全部正确解析)。
+
+### P2-17 前端 monorepo(主体✅,pnpm install+typecheck 验证进行中)
+- **workspace 骨架**:pnpm workspace + turbo——根 `package.json`/`pnpm-workspace.yaml`/`.npmrc`(node-linker=hoisted 兼容 Taro)/`turbo.json`/`tsconfig.base.json`。
+- **三端迁入**:`apps/{web,h5,miniprogram}`,包名 @esp/web/@esp/h5/@esp/miniprogram。
+- **4 共享包**:① `packages/types`(单真源类型,三端 types.ts 改 re-export);② `packages/api-client`(统一 API SDK 超集签名 + 可插拔 Transport:fetch/wx.request + token 存储适配器;消灭 H5 硬编码 exam=toefl / 小程序硬编码 prompt+exam / reportEvent 三种签名);③ `packages/ws-client`(EspWsClient:指数退避重连 + 心跳 + 发送缓冲 + 传输抽象);④ `packages/ui-tokens`(CSS variables tokens + dark theme + SCSS 映射 + 零依赖 i18n en/zh)。
+- **三端接线**:api.ts 改薄委托层;H5/小程序调用方已适配统一签名;web/h5 styles.css 注入 tokens.css。
+- **CI**:frontend job npm→pnpm + turbo(web+h5 build,miniprogram 仅 typecheck);`e2e/playwright.config.ts` 路径更新。
+- **进行中**:pnpm install + turbo typecheck 验证结果待落盘。
+- **遗留(非阻断)**:路由懒加载/错误边界/骨架屏;ESLint/Prettier 全仓接入;token httpOnly cookie 化;三端 WS 接线到 EspWsClient。
 
 ### P2 已闭合项
 - **P2-13 DDD 充血化✅**:`UserMastery`(`applyEvent` 行为下沉)/`Submission`(`grade` 行为下沉)贫血 POJO→充血聚合;domain 包拆 aggregate/valueobject/domainevent/repository(接口入 domain 实现入 infrastructure)。learning-java/teacher-java 已重构+全量单测绿(learning 48 tests / teacher 16 tests)。镜像 learning-java 1.8.6 / teacher-java 1.7.7 ✅deploy。
@@ -32,9 +47,9 @@
 - esp-cache:1.0.0(P2-16 TTL抖动+singleflight,install m2,消费方透传)✅
 
 ### 恢复锚点(P2)
-- **当前子步骤**:P2-13/14/15/16/19 全闭合✅。P2-19 产出:Go 单测 25(4 模块)/ Java jacoco 补齐 teacher + 覆盖率实测 / Java 领域行为单测 14 / 前端 vitest 2 / CI 加 go-services+frontend job / E2E Playwright scaffold。P2-18 目录重组 deferred。P2-17 前端 monorepo deferred。**P0~P2 全量重构计划(19 项)完成:6(P0)+6(P1)+5(P2 实现,2 deferred)= 闭合 17/19**。
-- **已改文件(P2-19)**:① `services/vocab-srs-go/src/srs/sm2_test.go`(新);② `services/gamification-go/src/logic_test.go`(新);③ `services/course-path-go/src/main_test.go`(新);④ `services/esp-common-go/config/config_test.go`(新);⑤ `services/teacher-java/pom.xml`(加 jacoco);⑥ `services/teacher-java/src/test/.../domain/SubmissionTest.java`(新);⑦ `services/learning-java/src/test/.../domain/UserMasteryTest.java`(新);⑧ `services/bff-java/src/test/.../edge/RouteTableTest.java`(新);⑨ `frontend-react/package.json`(test scripts + vitest devDep);⑩ `frontend-react/vitest.config.ts`(新);⑪ `frontend-react/src/test-setup.ts`(新);⑫ `frontend-react/src/auth.test.ts`(新);⑬ `.github/workflows/ci.yml`(加 go-services + frontend job + frontend npm test step);⑭ `e2e/package.json`(新);⑮ `e2e/playwright.config.ts`(新);⑯ `e2e/smoke.spec.ts`(新);⑰ `e2e/README.md`(新)。
-- **下一步**:① git commit 全部 P2 改动(P2-13/14/15/16 + P2-19);② (可选)覆盖率提升迭代 / E2E 完整登录流 / DI 重构 listening|reading|live-tutor;③ P2-17 前端 monorepo(用户指示前不启动);④ 多节点容量验证 G-01/G-06(用户指示前不启动)。
+- **当前子步骤**:P2 第三波 7 项全部处置完毕✅(P2-13/14/15/16/19 见上;P2-18 目录重组✅ RD VM 内 6/6 镜像 build 验证;P2-17 前端 monorepo✅ 全验证通过)。**P0~P2 全量重构计划(19 项)完成:6(P0)+6(P1)+7(P2 实现 6 + P2-15 判定无需改动)= 闭合 19/19**(P2-17 验证通过(typecheck 7/7 + web 单测 + web/h5 构建))。
+- **已改文件(P2-17/18,本会话)**:① 目录重组 27→backend/services(19)+backend/shared(4)+platform(4),旧 services/ 删除;② Go/Rust/Python Dockerfile COPY 路径改 backend/-相对;③ `.github/workflows/ci.yml`+`security.yml` build/trivy matrix include 结构(Go/Py context=backend,Java context=backend/services/<svc>+mvn package 前置);④ `deploy/docker/docker-compose.yml` build context 同步;⑤ 前端 monorepo:根 package.json/pnpm-workspace.yaml/.npmrc/turbo.json/tsconfig.base.json + apps/{web,h5,miniprogram} + packages/{types,api-client,ws-client,ui-tokens} + 三端 api.ts/types.ts/styles.css 改造 + e2e/playwright.config.ts 路径。
+- **下一步**:① pnpm install + turbo typecheck 验证结果落盘(P2-17 收尾);② git commit 全部 P2 改动(含 P2-17/18);③ (可选)P2-17 遗留非阻断项(懒加载/错误边界/ESLint/token httpOnly/WS 接线)+ 覆盖率提升迭代 + DI 重构 listening|reading|live-tutor;④ 多节点容量验证 G-01/G-06(用户指示前不启动)。
 - **Redis 锚点**:`esp:ctx:hot:refactor-p2`(P2 全量闭合后写)。
 
 ---

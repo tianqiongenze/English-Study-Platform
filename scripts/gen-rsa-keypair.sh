@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # gen-rsa-keypair.sh — 生成 ESP JWT RS256 密钥对(PKCS8 私钥 + PKCS8/X.509 公钥 PEM)
 # 用法: ./scripts/gen-rsa-keypair.sh [输出目录]
-# 默认输出到 services/bff-java/src/test/resources/rsa/
+# 默认输出到 backend/services/bff-java/src/test/resources/rsa/
 set -euo pipefail
 
-OUT_DIR="${1:-$(dirname "$0")/../services/bff-java/src/test/resources/rsa}"
+OUT_DIR="${1:-$(dirname "$0")/../backend/services/bff-java/src/test/resources/rsa}"
 mkdir -p "$OUT_DIR"
 
 PRIV="$OUT_DIR/private.pem"

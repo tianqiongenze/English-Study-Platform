@@ -1,0 +1,24 @@
+{
+  "name": "@esp/ws-client",
+  "version": "1.0.0",
+  "description": "ESP 三端 WS 客户端:重连指数退避 + 心跳 ping/pong + 消息缓冲,抽象传输(WebSocket/wx.connectSocket)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@esp/types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

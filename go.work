@@ -4,13 +4,13 @@
 go 1.25.0
 
 use (
-	./services/esp-common-go
-	./services/conversation-go
-	./services/gateway-go
-	./services/course-path-go
-	./services/listening-go
-	./services/reading-go
-	./services/gamification-go
-	./services/live-tutor-go
-	./services/vocab-srs-go
+	./backend/shared/esp-common-go
+	./backend/services/conversation-go
+	./backend/services/gateway-go
+	./backend/services/course-path-go
+	./backend/services/listening-go
+	./backend/services/reading-go
+	./backend/services/gamification-go
+	./backend/services/live-tutor-go
+	./backend/services/vocab-srs-go
 )

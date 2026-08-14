@@ -1,0 +1,23 @@
+{
+  "name": "@esp/ui-tokens",
+  "version": "1.0.0",
+  "description": "ESP 设计 tokens:spacing/color/typography/dark-theme CSS variables + i18n(en/zh),三端共用",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./tokens.css": "./tokens.css",
+    "./tokens.scss": "./tokens.scss"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

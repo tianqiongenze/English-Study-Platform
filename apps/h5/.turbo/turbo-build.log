@@ -1,0 +1,19 @@
+$ tsc && vite build
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 951 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/registerSW.js                0.14 kB
+dist/manifest.webmanifest         0.16 kB
+dist/index.html                   0.63 kB │ gzip:  0.38 kB
+dist/assets/index-L9RexOp2.css   11.56 kB │ gzip:  3.01 kB
+dist/assets/index-C7XDw6h9.js   259.97 kB │ gzip: 84.07 kB
+✓ built in 1.45s
+
+PWA v1.3.0
+mode      generateSW
+precache  5 entries (265.91 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-9c191d2f.js

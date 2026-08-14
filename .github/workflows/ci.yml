@@ -25,7 +25,7 @@ jobs:
         pkg: [esp-disruptor, esp-rw-java, esp-cache]
     defaults:
       run:
-        working-directory: services/${{ matrix.pkg }}
+        working-directory: platform/${{ matrix.pkg }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -53,7 +53,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-${{ matrix.pkg }}
-          path: services/${{ matrix.pkg }}/target/site/jacoco/
+          path: platform/${{ matrix.pkg }}/target/site/jacoco/
 
   # ───────── Java 业务服务单元测试(bff/learning/teacher)─────────
   java-services:
@@ -64,7 +64,7 @@ jobs:
         svc: [bff-java, learning-java, teacher-java]
     defaults:
       run:
-        working-directory: services/${{ matrix.svc }}
+        working-directory: backend/services/${{ matrix.svc }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -87,7 +87,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-${{ matrix.svc }}
-          path: services/${{ matrix.svc }}/target/site/jacoco/
+          path: backend/services/${{ matrix.svc }}/target/site/jacoco/
 
   # ───────── Go gateway 单元测试 ─────────
   go-gateway:
@@ -95,13 +95,13 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: services/gateway-go
+        working-directory: backend/services/gateway-go
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-          cache-dependency-path: services/gateway-go/go.sum
+          cache-dependency-path: backend/services/gateway-go/go.sum
       - name: go vet
         run: go vet ./...
       - name: go test (race + coverage)
@@ -116,7 +116,7 @@ jobs:
         svc: [writing-py, emotion-svc]
     defaults:
       run:
-        working-directory: services/${{ matrix.svc }}
+        working-directory: backend/services/${{ matrix.svc }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -124,7 +124,7 @@ jobs:
           python-version: '3.13'
       - name: 安装(含公共包 esp-cache-py / esp-db-py)
         run: |
-          pip install ../esp-cache-py ../esp-db-py
+          pip install ../../shared/esp-cache-py ../../shared/esp-db-py
           pip install -e .[dev] 2>/dev/null || pip install -e .
       - name: ruff lint
         run: ruff check . || true
@@ -137,20 +137,20 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: services
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-          cache-dependency-path: go.sum
+          cache-dependency-path: backend/go.sum
       - name: go vet (vocab-srs/gamification/course-path/common)
         run: |
-          env -u GOROOT GOTOOLCHAIN=local go vet ./vocab-srs-go/... ./gamification-go/... ./course-path-go/... ./esp-common-go/...
+          env -u GOROOT GOTOOLCHAIN=local go vet ./services/vocab-srs-go/... ./services/gamification-go/... ./services/course-path-go/... ./shared/esp-common-go/...
       - name: go test (race + coverage)
         run: |
           env -u GOROOT GOTOOLCHAIN=local go test -race -coverprofile=coverage.out -covermode=atomic \
-            ./vocab-srs-go/... ./gamification-go/... ./course-path-go/... ./esp-common-go/...
+            ./services/vocab-srs-go/... ./services/gamification-go/... ./services/course-path-go/... ./shared/esp-common-go/...
 
   # ───────── 构建镜像(仅 main / 手动;PR 跳过省资源)─────────
   build-images:
@@ -160,16 +160,35 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        svc: [gateway-go, bff-java, learning-java, teacher-java, writing-py, emotion-svc]
+        include:
+          # Go/Python 服务 Dockerfile 用 backend/-相对 COPY(shared/* + services/<svc>/),context=backend
+          - { svc: gateway-go,    context: backend, file: services/gateway-go/Dockerfile }
+          - { svc: writing-py,    context: backend, file: services/writing-py/Dockerfile }
+          - { svc: emotion-svc,   context: backend, file: services/emotion-svc/Dockerfile }
+          # Java 服务用预构建 fat-jar(context=服务目录,COPY target/*.jar + otel-agent.jar)
+          - { svc: bff-java,      context: backend/services/bff-java, file: Dockerfile }
+          - { svc: learning-java, context: backend/services/learning-java, file: Dockerfile }
+          - { svc: teacher-java,  context: backend/services/teacher-java, file: Dockerfile }
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        if: matrix.context == 'backend/services/bff-java' || matrix.context == 'backend/services/learning-java' || matrix.context == 'backend/services/teacher-java'
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # Java 服务是预构建 fat-jar 模式,先 mvn package 产出 target/*.jar 再 COPY
+      - name: mvn package (Java 服务)
+        if: matrix.context == 'backend/services/bff-java' || matrix.context == 'backend/services/learning-java' || matrix.context == 'backend/services/teacher-java'
+        working-directory: ${{ matrix.context }}
+        run: mvn -B package -DskipTests
       - name: Set up BuildKit
         uses: docker/setup-buildx-action@v3
       - name: Build image(不推送;启用 push 见下方注释)
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: services/${{ matrix.svc }}/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           tags: esp-${{ matrix.svc }}:${{ github.sha }}
           load: true
           cache-from: type=gha
@@ -192,16 +211,16 @@ jobs:
           cache: maven
       # 1) Consumer(teacher-java)生成 pact 文件
       - name: Consumer pact test (teacher-java)
-        run: mvn -B -pl services/teacher-java test -Dtest="com.esp.teacher.contract.LearningRpcPactConsumerTest"
+        run: mvn -B -pl backend/services/teacher-java test -Dtest="com.esp.teacher.contract.LearningRpcPactConsumerTest"
       # 2) 将 consumer 生成的 pact 文件拷贝到 provider 的 fallback 位置
       - name: Copy pact file to provider fallback
         run: |
-          mkdir -p services/learning-java/src/test/resources/pacts
-          cp services/teacher-java/target/pacts/teacher-learningrpc-pact.json \
-             services/learning-java/src/test/resources/pacts/
+          mkdir -p backend/services/learning-java/src/test/resources/pacts
+          cp backend/services/teacher-java/target/pacts/teacher-learningrpc-pact.json \
+             backend/services/learning-java/src/test/resources/pacts/
       # 3) Provider(learning-java)验证契约
       - name: Provider pact verify (learning-java)
-        run: mvn -B -pl services/learning-java test -Dtest="com.esp.learning.contract.LearningRpcPactProviderTest"
+        run: mvn -B -pl backend/services/learning-java test -Dtest="com.esp.learning.contract.LearningRpcPactProviderTest"
 
   # ───────── 接口级 e2e(前后端连调契约;需集群,本地/手动触发)─────────
   e2e:
@@ -218,25 +237,24 @@ jobs:
           echo "  kubectl cp deploy/newman/esp_e2e.py \$POD:/tmp/ && kubectl exec \$POD -- python3 /tmp/esp_e2e.py"
           echo "或本机装 newman:newman run deploy/newman/esp-e2e.postman_collection.json -e deploy/newman/esp-env.json"
 
-  # ───────── 前端 Web 单元测试 + 构建(P2-19: frontend-react 起步)─────────
+  # ───────── 前端 monorepo(P2-17: pnpm workspace + turbo,三端 + 共享包)─────────
   frontend:
-    name: Frontend (web typecheck + build)
+    name: Frontend (pnpm monorepo typecheck + test + build)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend-react
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
-          cache-dependency-path: frontend-react/package-lock.json
+          cache: pnpm
       - name: Install
-        run: npm ci
-      - name: Lint (tsc typecheck)
-        run: npx tsc --noEmit
-      - name: Unit tests (vitest)
-        run: npm test
-      - name: Build
-        run: npm run build
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck (全 workspace)
+        run: pnpm turbo typecheck
+      - name: Unit tests (vitest, 有 test 脚本的包)
+        run: pnpm turbo test -- --passWithNoTests
+      - name: Build (web + h5;小程序无微信构建凭据仅 typecheck)
+        run: pnpm turbo build --filter=@esp/web --filter=@esp/h5

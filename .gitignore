@@ -84,3 +84,4 @@ $CLAUDE_JOB_DIR
 {{etc}}/
 *.local
 *.local.*
+.turbo/

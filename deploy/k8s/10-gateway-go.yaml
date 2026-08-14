@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: gateway-go
-        image: esp/gateway-go:1.7.0   # P2-14 瘦身:对话逻辑(dialog/scenario/llm/session/asr/tts/ws/cache/db/log/pulsar/hub)下沉独立模块 conversation-go;gateway 退回纯路由+鉴权+WS接入+jwt校验(已verify-only)
+        image: esp/gateway-go:1.7.1   # P2-14 瘦身:对话逻辑(dialog/scenario/llm/session/asr/tts/ws/cache/db/log/pulsar/hub)下沉独立模块 conversation-go;gateway 退回纯路由+鉴权+WS接入+jwt校验(已verify-only)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8080}]
         env:
@@ -28,7 +28,7 @@ spec:
         - {name: READ_DB_USER, value: "root"}
         # OTel 注入(ADR-observability-rebuild):gateway-go 已内置 otel sdk(tracing.go),仅需 env
         - {name: OTEL_SERVICE_NAME, value: "gateway"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
         envFrom:
         - secretRef: {name: esp-rsa-jwt-verify}   # P0-1 私钥收敛:仅校验,只注入公钥(防任一服务 RCE 伪造 admin JWT)

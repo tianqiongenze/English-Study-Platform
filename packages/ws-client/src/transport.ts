@@ -23,15 +23,15 @@ export class BrowserWsTransport implements WsTransport {
     this.ws?.close(code, reason);
   }
   onOpen(cb: () => void): void {
-    this.ws && (this.ws.onopen = cb);
+    if (this.ws) this.ws.onopen = cb;
   }
   onMessage(cb: (data: string) => void): void {
-    this.ws && (this.ws.onmessage = (e) => cb(e.data as string));
+    if (this.ws) this.ws.onmessage = (e) => cb(e.data as string);
   }
   onClose(cb: (ev: { code: number; reason?: string }) => void): void {
-    this.ws && (this.ws.onclose = (e) => cb({ code: e.code, reason: e.reason }));
+    if (this.ws) this.ws.onclose = (e) => cb({ code: e.code, reason: e.reason });
   }
   onError(cb: (err: unknown) => void): void {
-    this.ws && (this.ws.onerror = cb);
+    if (this.ws) this.ws.onerror = cb;
   }
 }

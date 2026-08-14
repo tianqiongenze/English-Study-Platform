@@ -17,9 +17,8 @@ export function traceparent(): string {
   // 优先用 wx.getRandomValues(同步,微信基础库 2.26.0+);否则降级 Math.random。
   try {
     const buf = new Uint8Array(16);
-    // @ts-ignore wx 运行时注入
+    // wx 已有全局类型声明(无需 @ts-expect-error)
     if (typeof wx !== "undefined" && wx.getRandomValues) {
-      // @ts-ignore
       wx.getRandomValues({
         length: 16,
         success: (res: { randomValues: ArrayBuffer }) => {

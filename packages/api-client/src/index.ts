@@ -3,7 +3,6 @@
 // reportEvent 三端签名不一。统一后各端 api.ts 为薄委托层。
 
 import type {
-  AuthUser,
   ClassAnalytics,
   DifficultyResp,
   GradeResult,
@@ -23,7 +22,7 @@ import type { TokenStorage } from "./storage";
 export { ApiError, FetchTransport } from "./transport";
 export type { Transport, TransportRequest, TransportResponse } from "./transport";
 export type { TokenStorage } from "./storage";
-export { LocalStorageTokenStorage } from "./storage";
+export { LocalStorageTokenStorage, CookieTokenStorage } from "./storage";
 
 // 简版 traceparent 生成(00-<32hex>-<16hex>-01),与三端原 trace.ts 行为一致
 function traceparent(): string {
@@ -233,9 +232,12 @@ export class ApiClient {
   }
 
   // ---- WS ----
+  // P1-13 cookie 模式:无本地 token 时不拼 ?token=(WS 握手同源自动带 httpOnly cookie,
+  // gateway-go 侧已兼容从 esp_token cookie 验签);小程序/Bearer 模式仍拼 ?token=。
   speechWsUrl(sessionId: string): string {
-    const token = this.storage.getToken() ?? "";
-    return `${this.base.replace(/^http/, "ws")}/ws/speech/${sessionId}?token=${token}`;
+    const base = `${this.base.replace(/^http/, "ws")}/ws/speech/${sessionId}`;
+    const token = this.storage.getToken();
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   }
 }
 

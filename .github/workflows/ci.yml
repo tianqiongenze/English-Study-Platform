@@ -254,6 +254,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck (全 workspace)
         run: pnpm turbo typecheck
+      - name: Lint (ESLint,0 error 门禁)
+        run: pnpm turbo lint
       - name: Unit tests (vitest, 有 test 脚本的包)
         run: pnpm turbo test -- --passWithNoTests
       - name: Build (web + h5;小程序无微信构建凭据仅 typecheck)

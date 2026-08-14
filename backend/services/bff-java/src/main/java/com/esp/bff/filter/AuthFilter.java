@@ -44,13 +44,26 @@ public class AuthFilter extends OncePerRequestFilter {
         String path = req.getRequestURI();
         for (String w : WHITELIST) if (path.startsWith(w)) { chain.doFilter(req, res); return; }
 
+        // P1-13:Bearer 优先,无 header 时回落 esp_token httpOnly cookie(浏览器同源自动携带)。
+        // XSS 防的是前端 JS 读 token;服务端两种凭证等价校验。
         String auth = req.getHeader("Authorization");
-        if (auth == null || !auth.startsWith("Bearer ")) {
+        String token = null;
+        if (auth != null && auth.startsWith("Bearer ")) {
+            token = auth.substring(7);
+        } else if (req.getCookies() != null) {
+            for (jakarta.servlet.http.Cookie c : req.getCookies()) {
+                if ("esp_token".equals(c.getName()) && !c.getValue().isBlank()) {
+                    token = c.getValue();
+                    break;
+                }
+            }
+        }
+        if (token == null) {
             res.setStatus(HttpStatus.UNAUTHORIZED.value());
             return;
         }
         try {
-            Claims c = jwt.parse(auth.substring(7));
+            Claims c = jwt.parse(token);
             String uid = c.getSubject();
             String role = c.get("role", String.class);
             HttpServletRequest wrapped = new AuthHeaderWrapper(req, uid, role);

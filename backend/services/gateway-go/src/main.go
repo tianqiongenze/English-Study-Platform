@@ -221,14 +221,21 @@ func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing session id", 400)
 		return
 	}
-	// WS 鉴权(防越权连他人会话):浏览器 WS API 不能设 Authorization header,
-	// 故用 ?token= 传 JWT;校验 token 解析出的 userID 必须等于会话归属 UserID。
+	// WS 鉴权(防越权连他人会话):token 取 ?token= 查询参数或 esp_token cookie
+	// (P1-13 cookie 模式:浏览器 WS 握手同源自动带 httpOnly cookie,JS 无需也无法读 token);
+	// 校验 token 解析出的 userID 必须等于会话归属 UserID。
 	sess, err := s.sessions.Get(r.Context(), sessionID)
 	if err != nil || sess == nil {
 		http.Error(w, "session not found", 404)
 		return
 	}
-	if uid := s.parseUserID(r.URL.Query().Get("token")); uid == 0 || uid != sess.UserID {
+	wsToken := r.URL.Query().Get("token")
+	if wsToken == "" {
+		if c, err := r.Cookie("esp_token"); err == nil {
+			wsToken = c.Value
+		}
+	}
+	if uid := s.parseUserID(wsToken); uid == 0 || uid != sess.UserID {
 		http.Error(w, "forbidden", 403)
 		return
 	}
@@ -316,13 +323,23 @@ func (s *Server) parseUserID(tokenStr string) int64 {
 	return s.jwt.ParseUserID(tokenStr)
 }
 
-// userIDFromRequest 从 Authorization: Bearer <jwt> 解析 userID(HTTP 路径用)。
+// userIDFromRequest 解析 userID(HTTP 路径用)。
+// P1-13:Authorization Bearer 优先;无 header 时回落 esp_token httpOnly cookie
+// (浏览器同源请求自动携带,JS 读不到 → 消灭 XSS 窃取面;小程序仍走 Bearer)。
 func (s *Server) userIDFromRequest(r *http.Request) int64 {
+	return s.parseUserID(tokenFromRequest(r))
+}
+
+// tokenFromRequest 取 JWT:Bearer header 优先,回落 esp_token cookie,都没有返回空串。
+func tokenFromRequest(r *http.Request) string {
 	authz := r.Header.Get("Authorization")
-	if !strings.HasPrefix(authz, "Bearer ") {
-		return 0
+	if strings.HasPrefix(authz, "Bearer ") {
+		return strings.TrimPrefix(authz, "Bearer ")
 	}
-	return s.parseUserID(strings.TrimPrefix(authz, "Bearer "))
+	if c, err := r.Cookie("esp_token"); err == nil && c.Value != "" {
+		return c.Value
+	}
+	return ""
 }
 
 func env(k, def string) string {

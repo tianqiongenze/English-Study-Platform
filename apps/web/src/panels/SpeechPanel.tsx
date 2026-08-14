@@ -3,9 +3,12 @@ import { api } from "../api";
 import type { Scenario } from "../types";
 import { EspWsClient } from "@esp/ws-client";
 import Avatar, { Emotion } from "../components/Avatar";
+import Skeleton from "../Skeleton";
 
 export default function SpeechPanel() {
   const [scenarios, setScenarios] = useState<Scenario[]>([{ code: "airport", title: "机场登机", system: "", difficulty: 2 }]);
+  // 场景列表加载态:复用通用骨架屏
+  const [scenariosLoading, setScenariosLoading] = useState(true);
   const [scenario, setScenario] = useState("airport");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
@@ -19,7 +22,7 @@ export default function SpeechPanel() {
   const addLog = (s: string) => setLog((l) => [...l, s]);
 
   useEffect(() => {
-    api.scenarios().then(setScenarios).catch(() => {});
+    api.scenarios().then(setScenarios).catch(() => {}).finally(() => setScenariosLoading(false));
     return () => wsRef.current?.close();
   }, []);
 
@@ -61,9 +64,11 @@ export default function SpeechPanel() {
 
   return (
     <div>
-      <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
-        {scenarios.map((s) => <option key={s.code} value={s.code}>{s.title}</option>)}
-      </select>{" "}
+      {scenariosLoading ? <Skeleton height={36} /> : (
+        <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
+          {scenarios.map((s) => <option key={s.code} value={s.code}>{s.title}</option>)}
+        </select>
+      )}{" "}
       <button className="primary" onClick={startSession}>开始陪练</button>
       {/* 数字人舞台(FR-6.1) */}
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start", margin: "12px 0" }}>

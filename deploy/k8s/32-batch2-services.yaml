@@ -33,7 +33,7 @@ spec:
         - {name: READ_DB_URL, value: "mysql://root:@tidb-follower:4000/esp_pronunciation?ssl-mode=DISABLED"}
         - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "pronunciation-rs"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         startupProbe:   {tcpSocket: {port: 8088}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {tcpSocket: {port: 8088}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
@@ -73,7 +73,7 @@ spec:
         - {name: READ_DB_URL, value: "root:@tcp(tidb-follower:4000)/esp_listening?parseTime=true"}
         - {name: WRITE_DB_URL, value: "root:@tcp(tidb-primary:4000)/esp_listening?parseTime=true"}
         - {name: OTEL_SERVICE_NAME, value: "listening-go"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         startupProbe:   {tcpSocket: {port: 8089}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {tcpSocket: {port: 8089}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
@@ -115,7 +115,7 @@ spec:
         - {name: READ_DB_URL, value: "mysql://root:@tidb-follower:4000/esp_assessment?ssl-mode=DISABLED"}
         - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "assessment-rs"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         startupProbe:   {tcpSocket: {port: 8090}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {tcpSocket: {port: 8090}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
@@ -155,7 +155,7 @@ spec:
         - {name: READ_DB_URL, value: "root:@tcp(tidb-follower:4000)/esp_reading?parseTime=true"}
         - {name: WRITE_DB_URL, value: "root:@tcp(tidb-primary:4000)/esp_reading?parseTime=true"}
         - {name: OTEL_SERVICE_NAME, value: "reading-go"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         startupProbe:   {tcpSocket: {port: 8091}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {tcpSocket: {port: 8091}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
@@ -196,7 +196,7 @@ spec:
         - {name: WRITE_DB_URL, value: "root:@tcp(tidb-primary:4000)/esp_gamification?parseTime=true"}
         - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "gamification-go"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         startupProbe:   {tcpSocket: {port: 8092}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {tcpSocket: {port: 8092}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}

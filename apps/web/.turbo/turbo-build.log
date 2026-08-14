@@ -1,10 +1,17 @@
 $ tsc && vite build
 vite v7.3.6 building client environment for production...
 transforming...
-✓ 62 modules transformed.
+✓ 65 modules transformed.
 rendering chunks...
 computing gzip size...
-dist/index.html                   0.42 kB │ gzip:  0.28 kB
-dist/assets/index-BqIvWP_5.css    4.11 kB │ gzip:  1.42 kB
-dist/assets/index-qbBv1JTo.js   259.15 kB │ gzip: 82.33 kB
-✓ built in 755ms
+dist/index.html                          0.42 kB │ gzip:  0.28 kB
+dist/assets/index-BqIvWP_5.css           4.11 kB │ gzip:  1.42 kB
+dist/assets/Analytics-CSKHWujy.js        0.94 kB │ gzip:  0.53 kB
+dist/assets/LessonPlan-CCTUxudy.js       1.35 kB │ gzip:  0.62 kB
+dist/assets/Profile-CSTEz1Xp.js          1.44 kB │ gzip:  0.76 kB
+dist/assets/Grading-D_1RMpSF.js          1.91 kB │ gzip:  0.84 kB
+dist/assets/LearningPanel-Fw_9QlYu.js    2.79 kB │ gzip:  1.26 kB
+dist/assets/WritingPanel-DEaYFoRe.js     4.34 kB │ gzip:  1.37 kB
+dist/assets/SpeechPanel-Cea65PAN.js      5.98 kB │ gzip:  2.56 kB
+dist/assets/index-8DRBlW_3.js          245.34 kB │ gzip: 78.91 kB
+✓ built in 847ms

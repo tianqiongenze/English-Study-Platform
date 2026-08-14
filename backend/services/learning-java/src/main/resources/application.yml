@@ -22,6 +22,13 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MariaDBDialect
+        # DB吞吐优化(2026-08-15 会话22-27,方案见 docs/design/db-access-throughput-optimization.md):
+        # 批量写:saveAll 逐条→50条/往返,写路径 DB 往返降~50x;order_* 同类型实体排序凑批。
+        # 红线(坑㉖):禁 findAll 千万行全表,业务去重用投影查询。
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
     open-in-view: false
   datasource:
     write:
@@ -30,16 +37,19 @@ spring:
       password: ${DB_PASS:""}
       driver-class-name: com.mysql.cj.jdbc.Driver
       hikari:
-        maximum-pool-size: 50
-        minimum-idle: 10
+        # DB吞吐优化(2026-08-15):50→20。虚拟线程下池=天然限流器,池超DB承载只会把排队
+        # 转移到TiDB/TiKV内部(锁等待+region热点+RTT膨胀,坑㉑)。20/池=2k~4k QPS容量,
+        # 对5000 CCU(落DB~250 QPS)有10x余量;多节点迁移靠副本数放大而非加大池。
+        maximum-pool-size: 20
+        minimum-idle: 5
     read:
       jdbc-url: ${READ_DB_URL:jdbc:mysql://tidb-follower:4000/esp?useSSL=false&allowPublicKeyRetrieval=true}
       username: ${DB_USER:root}
       password: ${DB_PASS:""}
       driver-class-name: com.mysql.cj.jdbc.Driver
       hikari:
-        maximum-pool-size: 50
-        minimum-idle: 10
+        maximum-pool-size: 20   # 50→20,理由同上(读池同收敛,防瞬时百连接打满TiDB)
+        minimum-idle: 5
         # P2-6: 从库连接初始化时设 tidb_read_consistency=strong(TiDB 6.5+),
         # 让 follower 读强制读最新已提交版本,作为应用层 consistent=true 之外的兜底,
         # 缩窄 follower lag 导致的读后写窗口。主库连接无需此设置(本就是最新)。

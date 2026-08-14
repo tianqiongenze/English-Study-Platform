@@ -1,16 +1,25 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./auth";
 import Login from "./pages/Login";
 import LearningLayout from "./pages/LearningLayout";
-import SpeechPanel from "./panels/SpeechPanel";
-import WritingPanel from "./panels/WritingPanel";
-import LearningPanel from "./panels/LearningPanel";
 import TeacherLayout from "./pages/TeacherLayout";
-import LessonPlan from "./pages/teacher/LessonPlan";
-import Analytics from "./pages/teacher/Analytics";
-import Grading from "./pages/teacher/Grading";
-import Profile from "./pages/Profile";
+import { SkeletonPage } from "./Skeleton";
+
+// 路由懒加载(React.lazy):非首屏页面级组件按需分包。
+// chunk 命名由 Vite 自动按模块名处理,无需 /* webpackChunkName */ 注释。
+const SpeechPanel = lazy(() => import("./panels/SpeechPanel"));
+const WritingPanel = lazy(() => import("./panels/WritingPanel"));
+const LearningPanel = lazy(() => import("./panels/LearningPanel"));
+const LessonPlan = lazy(() => import("./pages/teacher/LessonPlan"));
+const Analytics = lazy(() => import("./pages/teacher/Analytics"));
+const Grading = lazy(() => import("./pages/teacher/Grading"));
+const Profile = lazy(() => import("./pages/Profile"));
+
+/** 懒加载路由包裹器:加载期间展示页面级骨架屏 */
+function Lazy({ children }: { children: React.JSX.Element }) {
+  return <Suspense fallback={<SkeletonPage />}>{children}</Suspense>;
+}
 
 function RequireAuth({ children, role }: { children: React.JSX.Element; role?: string }) {
   const { user } = useAuth();
@@ -26,19 +35,19 @@ export default function App() {
         <Route path="/auth/login" element={<Login />} />
         <Route path="/learning" element={<RequireAuth><LearningLayout /></RequireAuth>}>
           <Route index element={<Navigate to="/learning/speech" replace />} />
-          <Route path="speech" element={<SpeechPanel />} />
-          <Route path="writing" element={<WritingPanel />} />
-          <Route path="knowledge" element={<LearningPanel />} />
-          <Route path="review" element={<LearningPanel mode="review" />} />
-          <Route path="difficulty" element={<LearningPanel mode="difficulty" />} />
+          <Route path="speech" element={<Lazy><SpeechPanel /></Lazy>} />
+          <Route path="writing" element={<Lazy><WritingPanel /></Lazy>} />
+          <Route path="knowledge" element={<Lazy><LearningPanel /></Lazy>} />
+          <Route path="review" element={<Lazy><LearningPanel mode="review" /></Lazy>} />
+          <Route path="difficulty" element={<Lazy><LearningPanel mode="difficulty" /></Lazy>} />
         </Route>
         <Route path="/teacher" element={<RequireAuth role="teacher"><TeacherLayout /></RequireAuth>}>
           <Route index element={<Navigate to="/teacher/lesson-plan" replace />} />
-          <Route path="lesson-plan" element={<LessonPlan />} />
-          <Route path="analytics" element={<Analytics />} />
-          <Route path="grading" element={<Grading />} />
+          <Route path="lesson-plan" element={<Lazy><LessonPlan /></Lazy>} />
+          <Route path="analytics" element={<Lazy><Analytics /></Lazy>} />
+          <Route path="grading" element={<Lazy><Grading /></Lazy>} />
         </Route>
-        <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
+        <Route path="/profile" element={<RequireAuth><Lazy><Profile /></Lazy></RequireAuth>} />
         <Route path="*" element={<Navigate to="/learning/speech" replace />} />
       </Routes>
     </BrowserRouter>

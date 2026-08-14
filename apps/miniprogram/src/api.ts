@@ -22,6 +22,9 @@ const wxTransport: Transport = {
   },
 };
 
+// P1-13 说明:小程序保持 Bearer token 方案不变 —— wx.storage 无 localStorage 式 XSS 窃取面
+// (沙箱隔离、无跨站脚本注入路径),且 wx.request 不自动管理 cookie。token 走 Authorization header
+// + WS ?token= 查询参数,服务端 Bearer 优先校验,与 cookie 模式(Web/H5)并存。
 const wxStorage: TokenStorage = {
   getToken: () => wx.getStorageSync("esp_token") || null,
   setToken: (t) => wx.setStorageSync("esp_token", t),

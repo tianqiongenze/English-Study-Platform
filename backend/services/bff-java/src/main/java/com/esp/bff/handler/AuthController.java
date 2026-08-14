@@ -11,12 +11,15 @@ import com.esp.rw.DataSourceType;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 
@@ -34,6 +37,34 @@ import java.util.Objects;
 public class AuthController {
 
     private static final String CACHE_USER = "bff_user";
+
+    /**
+     * P1-13 token 迁移 httpOnly cookie:JWT 放 HttpOnly cookie 消灭 XSS 窃取面(JS 读不到)。
+     * - HttpOnly + SameSite=Strict + Path=/ + Max-Age 7d(与 refresh 链路对齐)。
+     * - TODO(安全): esp-ingress 启用 TLS 后必须补 .secure(true);当前 ingress 仅 80 明文,
+     *   加 Secure 浏览器会在 http 下拒发 cookie,故验证阶段暂不开启。
+     * - body 仍返回 token(小程序 Bearer 方案 + 非 Cookie 客户端过渡兼容)。
+     */
+    private static final String TOKEN_COOKIE = "esp_token";
+
+    private ResponseCookie tokenCookie(String token) {
+        return ResponseCookie.from(TOKEN_COOKIE, token)
+                .httpOnly(true)
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(Duration.ofDays(7))
+                .build();
+    }
+
+    /** 清空 token cookie(logout 用,Max-Age=0 立即失效)。 */
+    private ResponseCookie clearedTokenCookie() {
+        return ResponseCookie.from(TOKEN_COOKIE, "")
+                .httpOnly(true)
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(Duration.ZERO)
+                .build();
+    }
 
     private final JdbcTemplate jdbc;
     private final JwtService jwt;
@@ -79,7 +110,9 @@ public class AuthController {
         // EDA:发 user.registered 事件 → learning-java 初始化 mastery(补死代码断链)
         eventPublisher.publish(EventTopics.USER_REGISTERED,
                 new UserRegisteredEvent(id, email, role));
-        return ResponseEntity.ok(Map.of(
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, tokenCookie(token).toString())
+                .body(Map.of(
                 "token", token,
                 "refreshToken", refresh,
                 "expiresIn", jwt.getAccessTtlSeconds(),
@@ -109,7 +142,9 @@ public class AuthController {
             // 登录成功缓存用户画像(5min L2 TTL);鉴权/聚合请求可走缓存
             Map<String, Object> userView = Map.of("id", id, "email", email, "name", name, "role", role);
             cacheService.put(CACHE_USER, "user:" + id, userView, 300);
-            return ResponseEntity.ok(Map.of(
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, tokenCookie(token).toString())
+                    .body(Map.of(
                     "token", token,
                     "refreshToken", refresh,
                     "expiresIn", jwt.getAccessTtlSeconds(),
@@ -129,7 +164,9 @@ public class AuthController {
         long anonId = Math.abs(("wx" + code).hashCode()) % 1_000_000L + 1L;
         String token = jwt.issue(anonId, "wx_" + anonId, "微信用户", "learner");
         String refresh = jwt.issueRefresh(anonId, "wx_" + anonId, "微信用户", "learner");
-        return ResponseEntity.ok(Map.of(
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, tokenCookie(token).toString())
+                .body(Map.of(
                 "token", token,
                 "refreshToken", refresh,
                 "expiresIn", jwt.getAccessTtlSeconds(),
@@ -159,7 +196,9 @@ public class AuthController {
             jwt.revoke(claims);
             String newAccess = jwt.issue(userId, email, name, role);
             String newRefresh = jwt.issueRefresh(userId, email, name, role);
-            return ResponseEntity.ok(Map.of(
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, tokenCookie(newAccess).toString())
+                    .body(Map.of(
                     "token", newAccess,
                     "refreshToken", newRefresh,
                     "expiresIn", jwt.getAccessTtlSeconds()));
@@ -172,20 +211,27 @@ public class AuthController {
 
     /**
      * P1-9 注销:拉黑当前 access token 的 jti,立即生效(原方案 logout 后旧 token 仍可用 1h)。
-     * 客户端调用后应同时丢弃本地 token。
+     * P1-13:token 取 Authorization Bearer 或 esp_token cookie 二选一(cookie 模式前端 JS 拿不到 token);
+     * 响应 Set-Cookie Max-Age=0 清空 esp_token cookie。
      */
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@RequestHeader(value = "Authorization", required = false) String auth) {
-        if (auth == null || !auth.startsWith("Bearer ")) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Authorization header required"));
+    public ResponseEntity<?> logout(@RequestHeader(value = "Authorization", required = false) String auth,
+                                    @CookieValue(value = TOKEN_COOKIE, required = false) String cookieToken) {
+        String token = null;
+        if (auth != null && auth.startsWith("Bearer ")) {
+            token = auth.substring(7);
+        } else if (cookieToken != null && !cookieToken.isBlank()) {
+            token = cookieToken;
         }
-        try {
-            Claims claims = jwt.parse(auth.substring(7));
-            jwt.revoke(claims);
-            return ResponseEntity.ok(Map.of("status", "logged out"));
-        } catch (Exception e) {
-            // token 已无效也算注销成功(幂等)
-            return ResponseEntity.ok(Map.of("status", "logged out"));
+        if (token != null) {
+            try {
+                jwt.revoke(jwt.parse(token));
+            } catch (Exception ignored) {
+                // token 已无效也算注销成功(幂等)
+            }
         }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, clearedTokenCookie().toString())
+                .body(Map.of("status", "logged out"));
     }
 }

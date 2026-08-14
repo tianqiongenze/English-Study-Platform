@@ -7,7 +7,7 @@
     "dev": "vite --host",
     "build": "tsc && vite build",
     "preview": "vite preview --host",
-    "lint": "eslint src --ext .ts,.tsx || true",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist build .taro coverage"
   },

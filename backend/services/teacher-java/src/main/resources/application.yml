@@ -22,6 +22,12 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MariaDBDialect
+        # DB吞吐优化(2026-08-15 会话22-27):批量写 saveAll 50条/往返 + 排序凑批
+        # (方案 docs/design/db-access-throughput-optimization.md;坑㉖红线:禁findAll全表)
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
     open-in-view: false
   datasource:
     write:
@@ -30,14 +36,18 @@ spring:
       password: ${DB_PASS:""}
       driver-class-name: com.mysql.cj.jdbc.Driver
       hikari:
-        maximum-pool-size: 30
+        # DB吞吐优化(2026-08-15):30→20。虚拟线程下池=限流器,池超DB承载反致TiKV
+        # region热点+RTT膨胀;20/池对5000 CCU有10x容量余量(见方案文档§2①)
+        maximum-pool-size: 20
+        minimum-idle: 5
     read:
       jdbc-url: ${READ_DB_URL:jdbc:mysql://tidb-follower:4000/esp?useSSL=false&allowPublicKeyRetrieval=true}
       username: ${DB_USER:root}
       password: ${DB_PASS:""}
       driver-class-name: com.mysql.cj.jdbc.Driver
       hikari:
-        maximum-pool-size: 30
+        maximum-pool-size: 20   # 30→20,理由同上(读池同收敛)
+        minimum-idle: 5
   data:
     redis:
       # Redis Cluster 模式(经 ExternalName redis-cluster → redis-cluster-new,3主3从)

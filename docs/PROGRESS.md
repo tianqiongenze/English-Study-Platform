@@ -52,6 +52,28 @@
 - **下一步**:① pnpm install + turbo typecheck 验证结果落盘(P2-17 收尾);② git commit 全部 P2 改动(含 P2-17/18);③ (可选)P2-17 遗留非阻断项(懒加载/错误边界/ESLint/token httpOnly/WS 接线)+ 覆盖率提升迭代 + DI 重构 listening|reading|live-tutor;④ 多节点容量验证 G-01/G-06(用户指示前不启动)。
 - **Redis 锚点**:`esp:ctx:hot:refactor-p2`(P2 全量闭合后写)。
 
+### 会话22-26 补充:otel-collector 部署 + 全服务 OTLP 接入(2026-08-14)
+- **根因**:18 个业务 deploy 的 `OTEL_EXPORTER_OTLP_ENDPOINT` 全部指向不存在的 `otel-collector.esp-observability.svc.cluster.local:4317`(esp-observability ns 从未创建),OTLP 导出持续 `export timeout / name resolver error`。
+- **部署**:`deploy/k8s/95-otel-collector.yaml`(esp-prod 内 ConfigMap+Deployment+ClusterIP Service,receiver otlp grpc:4317/http:4318,batch processor,debug exporter,三 pipeline traces/metrics/logs)。镜像固定 `otel/opentelemetry-collector-contrib:0.128.0`。
+- **坑㉗(镜像拉取)**:VM 出口对 dockerhub/ghcr 匿名 HEAD 一律 403(1ms.run/daocloud mirror 同样 403);手动 curl+token 可通,系 daemon 兼容问题。**解法:复用 VM docker 本地已有镜像 0.128.0 并固定 tag**(`rdctl shell docker images` 可查)。另:collector 无 13133 探针端口(health_check extension 未配),探针已移除。
+- **接入清单**(endpoint 统一改 `http://otel-collector:4317`,grpc 端口维持 4317):gateway-go、bff-java、learning-java、learning-worker、writing-py、teacher-java、emotion-svc、writing-coach、course-path-go、pronunciation-rs、listening-go、assessment-rs、reading-go、gamification-go(14 个,均 rollout 成功;live-tutor-go/media-learn-rs replicas=0 未运行,manifest 已同步改)。改动文件:10-gateway-go/15-bff-java/20-learning-java/21-learning-worker/30-other-services/31-new-services/32-batch2-services。
+- **验证证据**:① collector 日志持续接收:`Traces {"...spans": 34}`、`Logs {"...log records": 3}`(每 5s 一批);② gateway-go/learning-java/bff-java/writing-py/teacher-java 近 3 分钟导出错误 0 条(改造前 gateway-go 每 10~15s 一条 `exporter export timeout`)。
+- **多节点演进**:otel-collector-gateway.yaml / otel-collector-daemonset.yaml(已备,依赖 tempo/loki,单节点不 apply)。
+
+---
+
+## 当前 (2026-08-15 会话22-27 DB访问吞吐优化 — 方案+配置落地✅,编译✅,未部署待确认窗口)
+
+- **方案**:`docs/design/db-access-throughput-optimization.md`(诊断:同步JDBC吞吐=池×1/RTT;5000 CCU测算落DB仅~250 QPS,20/池有10x余量;四层优化:①池收敛 ②虚拟线程已开 ③Hibernate批量 ④缓存前置已有;明确不建议R2DBC全异步化)。
+- **配置落地**(未部署,部署步骤见方案§4):
+  - learning-java application.yml:write/read 池 50→20+minimum-idle:5(shared 10维持);新增 hibernate `jdbc.batch_size:50`+`order_inserts/updates:true`。
+  - teacher-java application.yml:write/read 池 30→20+minimum-idle:5;同上批量三参数。
+  - bff-java application.yml:池 20 维持仅补注释(bff 无 JPA 不加批量参数)。
+  - esp-rw-java RoutingHolder.java:虚拟线程下 ThreadLocal 语义验证注释(每虚拟线程独立Thread、AOP同线程闭环路由正确)+ ScopedValue TODO。
+- **集群连接收敛**:210→130(learning 110→50,teacher 60→40,bff 40 维持),防瞬时打满单节点 TiDB/TiKV region 热点(坑㉑)。
+- **验证**:`mvn -B compile -DskipTests -q` 串行 4 模块全 RC=0, RoutingHolder.class 等产物 Aug 15 00:18 新鲜。
+- **下一步**:用户确认窗口后按方案§4 部署(learning-java 1.8.7 / teacher-java 1.7.8 换 tag 滚更,learning-worker 同步)+ 回归(hikaricp.connections.active≤20、写路径批量生效、k6 500 CCU 对比)。
+
 ---
 
 ## 历史 (2026-08-14 会话22-24 P1 第二波容量质量 6 项 — 全部验证闭合✅ + 坑㉖ OOM 修复)
@@ -334,6 +356,22 @@
 - 查节点镜像:`ssh -F lima/0/ssh.config lima-0 'sudo k3s ctr images ls | grep esp/'`
 - 导入镜像:`ssh ... lima-0 'docker save esp/xxx:tag | sudo k3s ctr images import -'`
 - apply 顺序:00-namespace → 05-infra-reuse → 05b → 06-sca → 07-tidb → 10/15/16/20/21/30/31/32 → esp-redis-warmup-job
+
+---
+
+## P1-13 token 迁移 httpOnly cookie(2026-08-15,消灭 XSS 窃取面)
+
+### 改动
+- **bff-java**(1.7.6):`AuthController` login/register/wx-login/refresh 响应 `Set-Cookie: esp_token=<jwt>; HttpOnly; SameSite=Strict; Path=/; Max-Age=7d`;logout 改为 Bearer/cookie 二选一 + Set-Cookie Max-Age=0 清 cookie;`AuthFilter` 无 Bearer header 时回落 esp_token cookie 验签。
+  - **TODO(安全)**:esp-ingress 启用 TLS 后 cookie 必须补 `.secure(true)`(当前仅 80 明文,加 Secure 浏览器拒发)。
+- **gateway-go**(1.7.1):`main.go` 新增 `tokenFromRequest`(Bearer 优先→esp_token cookie 回落),HTTP 鉴权 `userIDFromRequest` 与 WS 握手 `handleSpeech` 均走 cookie 兼容;body 仍返回 token(小程序/非 Cookie 客户端过渡)。
+- **前端**:`packages/api-client` 新增 `CookieTokenStorage`(getToken 恒 null→不注入 Authorization,靠同源 cookie);`speechWsUrl` 无 token 时不拼 `?token=`(WS 握手同源自动带 cookie)。web/h5 的 `api.ts` 换 CookieTokenStorage,`auth.ts` token 仅存 zustand 内存不再落 localStorage(logout 顺手清历史遗留 key);**小程序保持 Bearer + wx.storage 不变**(无 XSS 面)。
+
+### 验证(全过)
+- bff-java `mvn package` RC=0;gateway-go `go build`/`go test` RC=0;`pnpm turbo typecheck` **7/7**(顺手修 miniprogram/trace.ts 两处失效 @ts-expect-error,存量问题非本次引入)。
+- 镜像:RD VM `docker build` esp/bff-java:1.7.6(context=services/bff-java)+ esp/gateway-go:1.7.1(context=backend),yaml 同步 tag,滚动更新 2/2 Running。
+- curl(30009 bff / 30080 gateway):register/login `Set-Cookie` 含 HttpOnly+SameSite=Strict+Max-Age=604800 ✅;**纯 cookie**(无 Authorization)调 bff `/api/scenarios` 200 ✅、gateway `/api/sessions/history` 200 ✅;无凭证 401 ✅;logout `Set-Cookie: esp_token=; Max-Age=0` ✅。
+- WS cookie 鉴权为代码路径验证(未做真实握手测试,前端 SpeechPanel 本就是同源无 token URL,靠 cookie 回落)。
 
 ---
 

@@ -8,7 +8,7 @@
     "build:weapp": "taro build --type weapp",
     "dev:h5": "taro build --type h5 --watch",
     "build:h5": "taro build --type h5",
-    "lint": "eslint src --ext .ts,.tsx || true",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist build .taro coverage"
   },

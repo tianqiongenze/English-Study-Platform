@@ -3,9 +3,12 @@ import { api } from "../api";
 import type { Scenario } from "../types";
 import { EspWsClient } from "@esp/ws-client";
 import Avatar, { Emotion } from "../components/Avatar";
+import Skeleton from "../Skeleton";
 
 export default function Speech() {
   const [scenarios, setScenarios] = useState<Scenario[]>([{ code: "airport", title: "机场登机", system: "", difficulty: 2 }]);
+  // 场景列表加载态:复用通用骨架屏
+  const [scenariosLoading, setScenariosLoading] = useState(true);
   const [scenario, setScenario] = useState("airport");
   const [log, setLog] = useState<string[]>([]);
   const [input, setInput] = useState("");
@@ -16,7 +19,7 @@ export default function Speech() {
   const [bubble, setBubble] = useState("");
   const add = (s: string) => setLog((l) => [...l, s]);
 
-  useEffect(() => { api.scenarios().then(setScenarios).catch(() => {}); return () => wsRef.current?.close(); }, []);
+  useEffect(() => { api.scenarios().then(setScenarios).catch(() => {}).finally(() => setScenariosLoading(false)); return () => wsRef.current?.close(); }, []);
 
   async function start() {
     try {
@@ -47,9 +50,11 @@ export default function Speech() {
 
   return (
     <div>
-      <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
-        {scenarios.map((s) => <option key={s.code} value={s.code}>{s.title}</option>)}
-      </select>
+      {scenariosLoading ? <Skeleton height={40} /> : (
+        <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
+          {scenarios.map((s) => <option key={s.code} value={s.code}>{s.title}</option>)}
+        </select>
+      )}
       <button className="primary" onClick={start} style={{ marginTop: 6 }}>开始陪练</button>
       <Avatar emotion={emotion} active={speaking} text={bubble || undefined} />
       <div className="log">{log.map((l, i) => <div key={i}>{l}</div>)}</div>

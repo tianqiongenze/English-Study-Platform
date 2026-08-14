@@ -9,7 +9,7 @@
     "preview": "vite preview --port 3000",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src --ext .ts,.tsx || true",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist build .taro coverage"
   },

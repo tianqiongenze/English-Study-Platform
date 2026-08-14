@@ -1,0 +1,15 @@
+$ eslint .
+(node:86360) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/joelgong/claude-Projects/English-Study-Platform/eslint.config.js?mtime=1786724108103 is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/joelgong/claude-Projects/English-Study-Platform/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+/Users/joelgong/claude-Projects/English-Study-Platform/apps/miniprogram/src/pages/login/index.tsx
+  15:14  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
+
+/Users/joelgong/claude-Projects/English-Study-Platform/apps/miniprogram/src/pages/speech/index.tsx
+  2:16  warning  'Text' is defined but never used. Allowed unused vars must match /^_/u                   @typescript-eslint/no-unused-vars
+  7:21  warning  'setScenarios' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+✖ 3 problems (0 errors, 3 warnings)
+

@@ -56,13 +56,13 @@ spring:
       username: ${DB_USER:root}
       password: ${DB_PASS:}
       driver-class-name: com.mysql.cj.jdbc.Driver
-      hikari: {maximum-pool-size: 20, minimum-idle: 5}
+      hikari: {maximum-pool-size: 20, minimum-idle: 5}   # DB吞吐优化(2026-08-15):20维持。虚拟线程下池=限流器,20/池=2k~4k QPS容量对5000 CCU有10x余量(方案 docs/design/db-access-throughput-optimization.md)
     read:
       jdbc-url: ${READ_DB_URL:jdbc:mysql://tidb-follower:4000/esp?useSSL=false&allowPublicKeyRetrieval=true}
       username: ${DB_USER:root}
       password: ${DB_PASS:}
       driver-class-name: com.mysql.cj.jdbc.Driver
-      hikari: {maximum-pool-size: 20, minimum-idle: 5}
+      hikari: {maximum-pool-size: 20, minimum-idle: 5}   # 20维持,理由同上(bff鉴权场景读多走主库强一致)
   data:
     redis:
       # Redis Cluster 模式(经 ExternalName redis-cluster → redis-cluster-new,3主3从)

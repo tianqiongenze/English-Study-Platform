@@ -26,7 +26,7 @@ spec:
         - {name: READ_DB_USER, value: "root"}
         # OTel 注入(ADR-observability-rebuild):writing-py 已内置 opentelemetry-sdk(tracing.py),仅需 env
         - {name: OTEL_SERVICE_NAME, value: "writing"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
         startupProbe:   {httpGet: {path: /healthz, port: 8082}, periodSeconds: 10, failureThreshold: 18, timeoutSeconds: 3}   # 180s 慢启动保护(granian 冷启动 + OTel 连 collector)
         readinessProbe: {httpGet: {path: /healthz, port: 8082}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
@@ -61,7 +61,7 @@ spec:
         - {name: DUBBO_GROUP, value: "esp"}
         # OTel 注入(ADR-observability-rebuild):javaagent 已在镜像 JAVA_OPTS 中(Dockerfile ENTRYPOINT)
         - {name: OTEL_SERVICE_NAME, value: "teacher"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
         - {name: OTEL_METRICS_EXPORTER, value: "none"}
         # ADR-12 JWT 公钥(D2 修复):envFrom 注入 JWT_RSA_PUBLIC_KEY_PEM,供 JwtValidator 校验 BFF 签发的 RS256 JWT
@@ -101,7 +101,7 @@ spec:
         - {name: READ_DB_USER, value: "root"}
         # OTel 注入(ADR-observability-rebuild):emotion-svc 已内置 opentelemetry-sdk,仅需 env
         - {name: OTEL_SERVICE_NAME, value: "emotion"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
         startupProbe:   {httpGet: {path: /healthz, port: 8084}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 3}   # 600s 慢启动保护(AI 推理冷启动)
         readinessProbe: {httpGet: {path: /healthz, port: 8084}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
@@ -147,7 +147,7 @@ spec:
         - {name: REDIS_PORT, value: "6379"}
         # OTel 注入
         - {name: OTEL_SERVICE_NAME, value: "writing-coach"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
         startupProbe:   {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 24, timeoutSeconds: 3}   # 240s 慢启动保护(granian 冷启动 + pip 装公共包)
         readinessProbe: {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}

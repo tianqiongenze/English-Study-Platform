@@ -1,15 +1,10 @@
 // Web 端 API 层 —— 薄委托到 @esp/api-client(P2-17 monorepo 统一 SDK)。
 // 本地签名保持组件兼容;签名漂移处(如 register role)由 SDK 统一。
-import { ApiClient } from "@esp/api-client";
-import { useAuth } from "./auth";
+// P1-13:token 改 httpOnly cookie(服务端 Set-Cookie 下发),前端不注入 Authorization header,
+// 同源请求/WS 握手由浏览器自动携带 esp_token cookie(BFF/网关侧已兼容 cookie 验签)。
+import { ApiClient, CookieTokenStorage } from "@esp/api-client";
 
-const storage = {
-  getToken: () => useAuth.getState().token,
-  setToken: (t: string) => t,
-  clearToken: () => useAuth.getState().logout(),
-};
-
-export const client = new ApiClient({ storage });
+export const client = new ApiClient({ storage: new CookieTokenStorage() });
 
 export const api = {
   login: client.login.bind(client),

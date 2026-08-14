@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: bff-java
-        image: esp/bff-java:1.7.5   # P1-12 缓存指标修复:加 spring-boot-starter-cache 依赖拉入 SB4 CacheMetricsRegistrarConfiguration(CacheAutoConfiguration 移至 spring-boot-cache 独立 jar);ProxyController 补业务代理断链+EdgeAuth double-release 修复
+        image: esp/bff-java:1.7.6   # P1-12 缓存指标修复:加 spring-boot-starter-cache 依赖拉入 SB4 CacheMetricsRegistrarConfiguration(CacheAutoConfiguration 移至 spring-boot-cache 独立 jar);ProxyController 补业务代理断链+EdgeAuth double-release 修复
         imagePullPolicy: IfNotPresent
         ports:
         - {containerPort: 8090,  name: mvc}
@@ -34,7 +34,7 @@ spec:
         # 这里只补 OTEL_* env 配置(agent 已加载,仅需配置 service 名/exporter 端点)。
         # 注:本轮只写 manifest + 代码,不 build 部署(资源紧张,灌数完成后再 build+scale)
         - {name: OTEL_SERVICE_NAME, value: "bff"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
         - {name: OTEL_METRICS_EXPORTER, value: "none"}
         - {name: OTEL_LOGS_EXPORTER, value: "none"}

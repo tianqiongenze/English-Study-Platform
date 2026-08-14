@@ -42,7 +42,7 @@ spec:
         - {name: DUBBO_GROUP, value: "esp"}
         - {name: SEATA_ENABLED, value: "false"}              # worker 不参与全局事务,关 Seata 减负
         - {name: OTEL_SERVICE_NAME, value: "learning-worker"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
         - {name: OTEL_METRICS_EXPORTER, value: "none"}
         envFrom:

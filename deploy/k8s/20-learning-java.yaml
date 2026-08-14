@@ -30,7 +30,7 @@ spec:
         - {name: DUBBO_GROUP, value: "esp"}
         # OTel 注入(ADR-observability-rebuild):javaagent 已在镜像 JAVA_OPTS 中(Dockerfile ENTRYPOINT)
         - {name: OTEL_SERVICE_NAME, value: "learning"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
         - {name: OTEL_METRICS_EXPORTER, value: "none"}
         envFrom:

@@ -1,0 +1,114 @@
+# 95-otel-collector.yaml — 单节点验证阶段 OTel Collector(会话22-26)
+#
+# 背景:所有业务服务 OTEL_EXPORTER_OTLP_ENDPOINT 指向不存在的
+# otel-collector.esp-observability.svc.cluster.local,OTLP 导出持续超时。
+# 本 manifest 在 esp-prod 内部署轻量 collector(esp-observability ns 未建,
+# 且 ExternalName 方案有 DNS 间歇失败前科——坑㉒,故直接同 ns 部署)。
+#
+# exporter 用 debug(contrib 新版已移除 logging exporter);traces/metrics/logs
+# 三 pipeline 均打控制台,单节点验证阶段不接外部后端。
+# 多节点演进方案见 otel-collector-gateway.yaml / otel-collector-daemonset.yaml。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: esp-prod
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+    exporters:
+      debug:
+        verbosity: basic
+    service:
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug]
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug]
+        logs:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: esp-prod
+  labels:
+    app: otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          # 固定 0.128.0:VM docker 本地已有此镜像(dockerhub/ghcr 出口被 403 拦,
+          # 匿名 HEAD 均被拒,详见 PROGRESS.md 会话22-26 坑记录)
+          image: otel/opentelemetry-collector-contrib:0.128.0
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: esp-prod
+  labels:
+    app: otel-collector
+spec:
+  type: ClusterIP
+  selector:
+    app: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
+      protocol: TCP

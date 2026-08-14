@@ -49,7 +49,7 @@ spec:
     spec:
       containers:
       - name: teacher-java
-        image: esp/teacher-java:1.7.7   # P2-13 DDD充血化:Submission.grade行为下沉 + P2-16 缓存防护(esp-cache TTL抖动+singleflight)
+        image: esp/teacher-java:1.8.0   # #110 esp-cache 纯 JSON 契约(去 DefaultTyping,GenericJackson2JsonRedisSerializer);复用 P2-13 DDD充血化 + P2-16 缓存防护(TTL抖动+singleflight)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8083}]
         env:

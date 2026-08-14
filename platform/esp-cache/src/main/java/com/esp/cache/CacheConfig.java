@@ -3,7 +3,6 @@ package com.esp.cache;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -82,7 +81,35 @@ public class CacheConfig {
     }
 
     /**
-     * L2 Redis 模板:String key + Jackson value(支持 POJO 与 JavaTime)。
+     * L2 Redis 模板:String key + 纯 JSON value(跨语言互通,兑现 §2.2 契约)。
+     *
+     * <p>序列化决策(2026-08-15 会话22-28,兑现多级缓存架构对齐文档 §2.2 承诺):
+     * <ul>
+     *   <li><b>去掉 activateDefaultTyping</b>:原 {@code DefaultTyping.NON_FINAL} 会在 JSON 中嵌入
+     *       Java FQCN 类型标记(形如 {@code ["com.esp.xxx.UserView", {...}]})。Go/Python 读到后
+     *       {@code json.Unmarshal}/{@code json.loads} 得到的是数组而非预期对象,跨语言互读失败。
+     *       这是 §2.2 标注的"定时炸弹"。</li>
+     *   <li><b>方案选型</b>:经探查,Java 侧缓存 value 类型有限——String(sentinel/"1" 幂等占位/
+     *       JWT 黑名单)、Map(bff user view、behavior 聚合 {@code List<Map<String,Object>>})、
+     *       POJO 列表({@code List<UserMastery>} / {@code List<Object[]>})。所有 value 的下游消费方
+     *       均不依赖 Java 类型标记:① HTTP 入口直接把缓存值交给 Spring 的 Jackson 序列化写响应体,
+     *       不强类型;② {@code LearningRpcProvider.weakestPoints()} 会缓存命中后对每个元素调
+     *       getter,要求元素是 {@code UserMastery} —— 但 L1 Caffeine 命中时直接是原对象(不经
+     *       Redis 序列化),只有 L2 命中回填路径会拿 {@code LinkedHashMap}。经查 L2 命中回填后
+     *       返回的元素是 {@code LinkedHashMap}(Jackson 无类型标记反序列化默认结果),
+     *       {@code getKpId()} 等 getter 调用会抛 ClassCastException。
+     *       <b>故对 POJO 列表缓存点加防御性类型还原</b>(见各调用方注释/适配),
+     *       这是去掉 DefaultTyping 的唯一需要适配的代价。</li>
+     *   <li><b>选用 GenericJackson2JsonRedisSerializer.builder().defaultTyping(false)</b>:
+     *       Spring Data Redis 3.x 新增 builder API,显式关 defaultTyping 即写出无类型标记的纯 JSON。
+     *       相比自定义 StringRedisSerializer + 调用方自行 ObjectMapper 的方案,本方案对调用方零侵入
+     *       (CacheService 的 {@code opsForValue().set/get} 签名不变),且 ObjectMapper 配 JavaTimeModule
+     *       支持 Instant/BigDecimal 等 Java 时间类型。</li>
+     *   <li><b>存量缓存兼容</b>:Redis 中旧格式 key(带 {@code @class}/类型数组)在新序列化器下反序列化
+     *       会失败。因所有缓存 TTL ≤ 30min,旧 key 在滚动部署后 30min 内自然过期;CacheService 内部
+     *       L2 读异常已 catch 降级到 loader(见 {@link CacheService#getOrLoad}),故旧 key 读失败不报错
+     *       只触发一次回源。滚动部署窗口建议避开高峰,或对热点前缀执行 {@code DEL}(见 PROGRESS 说明)。</li>
+     * </ul>
      */
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory cf) {
@@ -93,9 +120,12 @@ public class CacheConfig {
         ObjectMapper om = new ObjectMapper();
         om.registerModule(new JavaTimeModule());
         om.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
-        om.activateDefaultTyping(LaissezFaireSubTypeValidator.instance,
-                ObjectMapper.DefaultTyping.NON_FINAL);
-        GenericJackson2JsonRedisSerializer jsonSer = new GenericJackson2JsonRedisSerializer(om);
+        // §2.2 契约:关闭 defaultTyping,value 为纯 JSON(无 Java 类型标记),Go/Python 可直接 json 解析。
+        // 原 activateDefaultTyping(NON_FINAL) 会写 ["FQCN", {...}],跨语言互读失败。
+        GenericJackson2JsonRedisSerializer jsonSer = GenericJackson2JsonRedisSerializer.builder()
+                .defaultTyping(false)
+                .objectMapper(om)
+                .build();
 
         tpl.setValueSerializer(jsonSer);
         tpl.setHashKeySerializer(new StringRedisSerializer());

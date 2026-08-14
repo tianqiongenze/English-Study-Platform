@@ -1,0 +1,28 @@
+{
+  "db": "CockroachDB v24.3.11 (3-node, single-VM RD, arm64)",
+  "seed_counts": {
+    "users": "100",
+    "scenarios": "3",
+    "sessions": "500",
+    "session_turns": "2000",
+    "learning_events": "2000"
+  },
+  "after_seed_learning_events": "2000",
+  "write_bench": {
+    "rows": 2000,
+    "elapsed_s": 25.45,
+    "insert_s": 78.6
+  },
+  "point_read_bench": {
+    "queries": 100,
+    "elapsed_s": 126.58,
+    "qps_via_kubeexec": 0.8,
+    "note": "kubectl exec per-query overhead dominates; real QPS via app connection pool is much higher"
+  },
+  "range_read_bench": {
+    "latency_ms": 1345.9,
+    "count": "36"
+  },
+  "total_learning_events_after_write": "4000",
+  "caveat": "单节点 RD VM 3 CRDB pod 共享同一 VM CPU/磁盘,kube exec per-query 开销显著;真实对比需经应用层连接池(见 #107 plan)。此为冒烟级可行性验证。"
+}

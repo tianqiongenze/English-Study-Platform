@@ -14,9 +14,10 @@ git-fetch-with-cli = true
 EOF
 
 # build context = backend/(含 shared/esp-common-rs + services/llm-orchestrator-rs)
-# Cargo.toml 的 esp-common-rs = { path = "../../shared/esp-common-rs" } → 需 /workspace/esp-common-rs
+# Cargo.toml 的 esp-common-rs = { path = "../../shared/esp-common-rs" } → 从 WORKDIR 出发解析。
+# WORKDIR=/workspace/llm-orchestrator-rs → ../../shared/esp-common-rs = /shared/esp-common-rs
 WORKDIR /workspace/llm-orchestrator-rs
-COPY shared/esp-common-rs /workspace/esp-common-rs
+COPY shared/esp-common-rs /shared/esp-common-rs
 COPY services/llm-orchestrator-rs/Cargo.toml Cargo.lock* ./
 COPY services/llm-orchestrator-rs/src ./src
 RUN cargo build --release
@@ -28,7 +29,9 @@ RUN cargo build --release
 # - 用 useradd 创建非 root 用户 65532,USER 切换,等价 nonroot 安全姿态。
 # ADR-security-scanning §4:对标 gateway-go/course-path-go 0 漏洞基线(运行时基线差异已记录)
 FROM docker.1ms.run/library/debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 \
+# 国内镜像源(VM 出口偶发不通 deb.debian.org,改 USTC 镜像)
+RUN sed -i 's|http://deb.debian.org/debian|http://mirrors.ustc.edu.cn/debian|g; s|http://deb.debian.org/debian-security|http://mirrors.ustc.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 65532 -r -s /usr/sbin/nologin nonroot
 WORKDIR /app

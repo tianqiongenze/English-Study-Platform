@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: bff-java
-        image: esp/bff-java:1.7.6   # P1-12 缓存指标修复:加 spring-boot-starter-cache 依赖拉入 SB4 CacheMetricsRegistrarConfiguration(CacheAutoConfiguration 移至 spring-boot-cache 独立 jar);ProxyController 补业务代理断链+EdgeAuth double-release 修复
+        image: esp/bff-java:1.8.0   # #109 InletDisruptor 升两级 pipeline(parse 65536 LITE_BLOCKING → forward 16384 BLOCKING),InletNormalizer+DownstreamForwarder 双 stage;依赖 esp-disruptor DisruptorPipeline 多级能力从测试走向生产
         imagePullPolicy: IfNotPresent
         ports:
         - {containerPort: 8090,  name: mvc}

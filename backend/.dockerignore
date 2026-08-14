@@ -1,0 +1,16 @@
+# 避免整 backend/ 作为 build context 时搬运无关服务/产物(emotion-svc .venv 符号链接坑)。
+# 各 Dockerfile 只 COPY 自己的 services/<svc>/ + shared/,其余全忽略。
+services/*/.venv
+services/*/.venv-test
+services/*/target
+services/*/node_modules
+services/*/dist
+services/*/build
+**/.venv
+**/.venv-test
+**/target
+**/.git
+**/.idea
+**/.vscode
+**/__pycache__
+**/*.pyc

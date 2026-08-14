@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: learning-java
-        image: esp/learning-java:1.8.6   # P2-13 DDD充血化:UserMastery.applyEvent行为下沉 + P2-16 缓存防护(BehaviorController scenarios/funnel/heatmap 纳入缓存)
+        image: esp/learning-java:1.8.7   # #105 DB吞吐(hikari 50→20 + jdbc batch_size=50 + order_inserts saveAll凑批) + #110 esp-cache纯JSON契约(去DefaultTyping,GenericJackson2JsonRedisSerializer)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
         env:

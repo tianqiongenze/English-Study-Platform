@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: esp-crdb
+---
+# Headless Service for stable pod DNS (crdb-0.crdb, crdb-1.crdb, crdb-2.crdb)
+apiVersion: v1
+kind: Service
+metadata:
+  name: crdb
+  namespace: esp-crdb
+  labels:
+    app: crdb
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: crdb
+  ports:
+    - name: sql
+      port: 26257
+      targetPort: 26257
+    - name: ui
+      port: 8080
+      targetPort: 8080
+---
+# ClusterIP Service for client access (single stable endpoint)
+apiVersion: v1
+kind: Service
+metadata:
+  name: crdb-public
+  namespace: esp-crdb
+  labels:
+    app: crdb
+spec:
+  type: ClusterIP
+  selector:
+    app: crdb
+  ports:
+    - name: sql
+      port: 26257
+      targetPort: 26257
+    - name: ui
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: crdb
+  namespace: esp-crdb
+  labels:
+    app: crdb
+spec:
+  serviceName: crdb
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: crdb
+  template:
+    metadata:
+      labels:
+        app: crdb
+    spec:
+      terminationGracePeriodSeconds: 60
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: crdb
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: cockroachdb
+          # 单节点 RD VM 为 aarch64;cockroach v24.3.11 默认 amd64 镜像走 qemu 转 SIGSEGV,
+          # 故预拉 arm64 镜像并 tag 为 -arm64 后在此引用。多节点迁 amd64 节点时改回 cockroachdb/cockroach:v24.3.11。
+          image: cockroachdb/cockroach:v24.3.11-arm64
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 26257
+              name: sql
+            - containerPort: 8080
+              name: ui
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              exec /cockroach/cockroach start \
+                --insecure \
+                --advertise-addr=$(POD_IP):26257 \
+                --http-addr=$(POD_IP):8080 \
+                --join=crdb-0.crdb,crdb-1.crdb,crdb-2.crdb \
+                --cache=.25Gi \
+                --max-sql-memory=.25Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health?ready=1
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: datadir
+              mountPath: /cockroach/cockroach-data
+  volumeClaimTemplates:
+    - metadata:
+        name: datadir
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 20Gi

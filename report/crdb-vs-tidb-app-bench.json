@@ -1,0 +1,19 @@
+{
+  "env": "single RD VM, 3 CRDB pods + TiDB(1 tidb+1 tikv) 共存,串行 bench",
+  "crdb": {
+    "write": {
+      "rows": 4000,
+      "elapsed_s": 28.77,
+      "insert_s": 139.0
+    }
+  },
+  "tidb": {
+    "write": {
+      "rows": 4000,
+      "elapsed_s": 15.42,
+      "insert_s": 259.3
+    }
+  },
+  "ratio_crdb_over_tidb": 0.54,
+  "caveat": "单节点 RD VM 资源共享,3 CRDB pod 与 TiDB 抢 CPU/磁盘;此为可行性+量级对比,非生产容量结论。真实多区域对比见 #107 plan §4(需 3master+6worker 集群)。"
+}

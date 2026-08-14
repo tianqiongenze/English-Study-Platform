@@ -1,0 +1,162 @@
+# 33-orchestrator-vocab.yaml —— 兑现 adr-new-services.md 10 服务矩阵最后 2 个(审计发现有代码无 Deployment)
+#
+# S1 llm-orchestrator-rs(Rust/axum+tokio,P0)—— LLM 编排网关 + dialogue 子模块
+# S2 vocab-srs-go(Go/gin,P0)—— 词汇间隔重复记忆服务
+#
+# ADR: docs/design/adr-new-services.md(§3 行45)
+# PRD: docs/design/prd-new-services.md
+# schema: docs/design/schema-per-service-phase0.sql(esp_llm / esp_vocab)
+# SDD: docs/design/sdd-llm-orchestrator-rs.md / docs/design/sdd-vocab-srs-go.md
+#
+# 端口:llm-orchestrator-rs=8086(代码 main.rs:43)/ vocab-srs-go=8087(代码 main.go:8)
+# 依赖:TiDB(tidb-primary 写 / tidb-follower 读,ExternalName 短名,05-infra-reuse.yaml)
+#       Redis Cluster(redis-cluster 短名可达;llm-orchestrator 强依赖,vocab 预留)
+#       OTEL(otel-collector.esp-observability.svc.cluster.local:4317)
+#       LLM provider key(secret llm-providers,空值占位,生产用 KMS/SealedSecret 注入)
+#
+# 单节点 RD 策略:replicas=1,HPA min=1/max=3 target CPU 70%(对齐 31/32 惯例)。
+---
+# ============ llm-orchestrator-rs ============
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-orchestrator-rs
+  namespace: esp-prod
+  labels:
+    app: llm-orchestrator-rs
+    tier: new-service
+    lang: rust
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: llm-orchestrator-rs}
+  template:
+    metadata:
+      labels: {app: llm-orchestrator-rs, tier: new-service, lang: rust}
+    spec:
+      containers:
+      - name: llm-orchestrator-rs
+        image: esp/llm-orchestrator-rs:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8086, name: http}]
+        env:
+        - {name: PORT, value: "8086"}
+        # Redis Cluster seed:FQDN(对齐 31/32,避免短名跨 ns 解析偶发坑㉓)
+        - {name: REDIS_ADDR, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        # TiDB esp_llm(代码 main.rs:82 default_dsn 无 ssl-mode 字面量,原样保留)
+        - {name: TIDB_DSN, value: "mysql://root@tidb-primary:4000/esp_llm"}
+        - {name: LLM_DEFAULT_MODEL, value: "gpt-4o-mini"}
+        - {name: RUST_LOG, value: "info,llm_orchestrator_rs=debug"}
+        # LLM provider 配置:secret llm-providers(空值占位,生产用 KMS/SealedSecret 注入真实 key)
+        # 代码 provider/mod.rs from_env():无 *_BASE env 则不注入 provider,兜底 StubProvider 保证启动可跑
+        - {name: LLM_PROVIDER_OPENAI_BASE, valueFrom: {secretKeyRef: {name: llm-providers, key: openai-base, optional: true}}}
+        - {name: LLM_PROVIDER_OPENAI_KEY, valueFrom: {secretKeyRef: {name: llm-providers, key: openai-key, optional: true}}}
+        - {name: LLM_PROVIDER_QWEN_BASE,   valueFrom: {secretKeyRef: {name: llm-providers, key: qwen-base,   optional: true}}}
+        - {name: LLM_PROVIDER_QWEN_KEY,    valueFrom: {secretKeyRef: {name: llm-providers, key: qwen-key,    optional: true}}}
+        - {name: LLM_PROVIDER_CLAUDE_BASE, valueFrom: {secretKeyRef: {name: llm-providers, key: claude-base, optional: true}}}
+        - {name: LLM_PROVIDER_CLAUDE_KEY,  valueFrom: {secretKeyRef: {name: llm-providers, key: claude-key,  optional: true}}}
+        # OTEL(新规范:FQDN,对齐 Dockerfile 默认值)
+        - {name: OTEL_SERVICE_NAME, value: "llm-orchestrator-rs"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        startupProbe:   {httpGet: {path: /healthz, port: 8086}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {httpGet: {path: /readyz,  port: 8086}, periodSeconds: 15, failureThreshold: 5,  timeoutSeconds: 5}
+        livenessProbe:  {httpGet: {path: /livez,   port: 8086}, periodSeconds: 20, failureThreshold: 6,  timeoutSeconds: 5}
+        resources:
+          requests: {cpu: "250m", memory: 256Mi}
+          limits:   {cpu: "1000m", memory: 512Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-orchestrator-rs
+  namespace: esp-prod
+  labels: {app: llm-orchestrator-rs}
+spec:
+  selector: {app: llm-orchestrator-rs}
+  ports:
+  - {name: http, port: 80, targetPort: 8086}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: llm-orchestrator-rs
+  namespace: esp-prod
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: llm-orchestrator-rs}
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+# ============ vocab-srs-go ============
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vocab-srs-go
+  namespace: esp-prod
+  labels:
+    app: vocab-srs-go
+    tier: new-service
+    lang: go
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: vocab-srs-go}
+  template:
+    metadata:
+      labels: {app: vocab-srs-go, tier: new-service, lang: go}
+    spec:
+      containers:
+      - name: vocab-srs-go
+        image: esp/vocab-srs-go:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8087, name: http}]
+        env:
+        - {name: PORT, value: "8087"}
+        - {name: GIN_MODE, value: "release"}
+        # 读写分离 TiDB(代码 main.go:58 buildDSN 用 TIDB_HOST/TIDB_HOST_READ)
+        - {name: TIDB_HOST, value: "tidb-primary"}
+        - {name: TIDB_HOST_READ, value: "tidb-follower"}
+        - {name: TIDB_PORT, value: "4000"}
+        - {name: TIDB_USER, value: "root"}
+        - {name: TIDB_PASSWORD, value: ""}
+        - {name: TIDB_DB, value: "esp_vocab"}
+        # OTEL(新规范:FQDN,对齐 Dockerfile 默认值)
+        - {name: OTEL_SERVICE_NAME, value: "vocab-srs-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_PROTOCOL, value: "grpc"}
+        startupProbe:   {httpGet: {path: /healthz, port: 8087}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {httpGet: {path: /readyz,  port: 8087}, periodSeconds: 15, failureThreshold: 5,  timeoutSeconds: 5}
+        livenessProbe:  {httpGet: {path: /livez,   port: 8087}, periodSeconds: 20, failureThreshold: 6,  timeoutSeconds: 5}
+        resources:
+          requests: {cpu: "100m", memory: 128Mi}
+          limits:   {cpu: "500m", memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vocab-srs-go
+  namespace: esp-prod
+  labels: {app: vocab-srs-go}
+spec:
+  selector: {app: vocab-srs-go}
+  ports:
+  - {name: http, port: 80, targetPort: 8087}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: vocab-srs-go
+  namespace: esp-prod
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: vocab-srs-go}
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+# Secret:llm-providers —— LLM provider 配置占位(空值,生产用 KMS/SealedSecret 注入真实 key)
+# 已由 kubectl create secret dry-run|apply 创建(本 manifest 仅作文档契约,不重复 apply 防覆盖真实 key)
+# keys: openai-base/openai-key/qwen-base/qwen-key/claude-base/claude-key

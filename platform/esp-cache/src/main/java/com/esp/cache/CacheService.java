@@ -92,6 +92,13 @@ public class CacheService {
      *
      * <p>P2-16 防击穿:L1/L2 同时 miss 时,singleflight 互斥——同一 key 并发回源只一个线程执行 loader。
      *
+     * <p>§2.2 跨语言纯 JSON 契约(2026-08-15):CacheConfig 已关闭 defaultTyping,L2 Redis 存纯 JSON。
+     * 这意味着 L2 命中时反序列化结果是"无类型 JSON 树":Map → LinkedHashMap,POJO → LinkedHashMap,
+     * List<POJO> → List<LinkedHashMap>。L1 Caffeine 命中时则是原始 Java 对象(写回填时存的就是 loader
+     * 返回的强类型对象)。调用方需注意:<b>L2 命中回填后,泛型 {@code <T>} 可能是 LinkedHashMap 而非
+     * 预期 POJO</b>。对需要强类型的调用方(如调 getter 的 RPC provider),应在调用方做防御性类型还原
+     * (见 LearningRpcProvider 注释),或对热点 key 依赖 L1 命中(L1 TTL 60s,命中率应 > 90%)。
+     *
      * @param cacheName  L1 缓存名(如 "learning:due")
      * @param key        完整 key(如 "learning:due:1")
      * @param loader     DB 加载函数(L1/L2 miss 时调用)

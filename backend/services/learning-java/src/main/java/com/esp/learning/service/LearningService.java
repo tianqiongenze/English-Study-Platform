@@ -98,6 +98,10 @@ public class LearningService {
      * P2-6: consistent=true 强制走主库。复习提交/初测后前端会立即拉复习清单,
      * 若走从库受 follower lag 影响会读到旧值(刚 review 的 next_review_at 未同步),
      * 故写后立即读的高频入口一律走主库,牺牲少量主库读压力换正确性。
+     *
+     * <p>§2.2 跨语言纯 JSON 契约(2026-08-15):L2 命中时返回 {@code List<LinkedHashMap>} 而非
+     * {@code List<UserMastery>}。HTTP 入口(LearningController/BehaviorController)不强类型,
+     * 交 Spring Jackson 序列化即可;RPC provider(LearningRpcProvider)调 getter,自行 {@code toUserMastery} 适配。
      */
     @DataSource(value = DataSourceType.READ, consistent = true)
     public List<UserMastery> dueReview(long userId) {
@@ -110,6 +114,7 @@ public class LearningService {
     /**
      * FR-2.1 薄弱知识点(三入口复用热点)。L1 → L2 → DB。
      * P2-6: consistent=true 强制走主库(同 dueReview 理由:写后立即读)。
+     * §2.2 同 dueReview:L2 命中返回 List<LinkedHashMap>,调用方需注意类型(见 dueReview 注释)。
      */
     @DataSource(value = DataSourceType.READ, consistent = true)
     public List<UserMastery> weakestPoints(long userId) {

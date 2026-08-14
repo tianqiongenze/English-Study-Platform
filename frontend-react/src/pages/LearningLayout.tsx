@@ -7,7 +7,7 @@ export default function LearningLayout() {
   return (
     <div className="app">
       <header>
-        <h1>Home-Tutor · 学习中心</h1>
+        <h1>ESP · 学习中心</h1>
         <nav className="tabs">
           <NavLink to="/learning/speech" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>口语陪练</NavLink>
           <NavLink to="/learning/writing" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>写作批改</NavLink>

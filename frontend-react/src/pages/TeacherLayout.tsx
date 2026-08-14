@@ -7,7 +7,7 @@ export default function TeacherLayout() {
   return (
     <div className="app">
       <header>
-        <h1>Home-Tutor · 教师端</h1>
+        <h1>ESP · 教师端</h1>
         <nav className="tabs">
           <NavLink to="/teacher/lesson-plan" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>教案生成</NavLink>
           <NavLink to="/teacher/analytics" className={({ isActive }) => `tab ${isActive ? "active" : ""}`}>学情分析</NavLink>

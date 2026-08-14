@@ -4,9 +4,29 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> **当前✅(2026-08-14 会话22-18 k6 基线 529rps + Locust WS 鉴权双修 70/100 + Redis Cluster 自愈 + 前端 build 全绿 + portal 隧道就绪)**:① k6go 基线(本地 golang:1.25-alpine 编静态二进制 + busybox:1.36 hostPath 跑,绕开 3128 proxy)50VUS/15874 请求/100% 成功/529.1rps/平均 1.61ms。② Locust WS smoke 100 用户:修复 token URL 编码(JWT signature 含 +/_-,必须 `quote(token, safe='')`)+ 去 Host header → peak_online=70 established=85 dropped=15(70%)。③ Redis Cluster 自愈(坑㉓复发:nodes.conf 持久化旧 PodIP 致 cluster_state:fail),CLUSTER MEET ×5 + CONFIG SET cluster-announce-ip → cluster_state:ok slots_ok:16384,gateway-go create_session 500→200。④ 前端 build 全绿(frontend-react tsc+vite RC=0;frontend-h5 vite+PWA v1.3.0 RC=0)。⑤ portal SSH 隧道 30070 就绪,portal/web/h5/api 全 200 供用户人工 TC-W/H。**遗留**:用户人工浏览器 TC-W/H(隧道已就绪 http://localhost:30070/);3128 proxy 根因已定位待答(lima.yaml setproxy + allowed-images MITM 白名单);git commit 待做;plan `indexed-honking-spring` 未启动。
+> **当前✅(2026-08-14 会话22-20 Redis Cluster warm-up 完成 + TiFlash 诊断 + TiKV健康)**:① **Redis Cluster warm-up 已完成**✅:Job `esp-redis-warmup` Completed,`=== WARMUP DONE total_rows=23000 total_set=23000 elapsed=1.5s ===`,5 表全量灌入 esp:cache:* 前缀(scenarios 1万/knowledge_points 1万/sessions top1000/user_mastery top1000/users top1000)。**键数验证(单节点 scan,Cluster 分片故单节点只见部分)**:redis-cluster-new-0 上 scan 得 7631 键(scenario 3317/kp 3324/session 340/mastery 315/user 335),总数对齐 3 主节点分片 ≈23000。TTL 1h。② **TiKV 3/3 Up 健康**✅(跨 aws/azure/gcp 三区域,v8.5.7,PD /stores 注册 3 个 tikv store,行存引擎完全正常)。③ **TiFlash ⚠️ 重建后仍未注册 PD(根因坐实)**:delete pod 触发重建后,新 pod 1/1 Running 但**TiFlash server 只监听 9000(CH TCP)+8234(内部),缺 8123(http)/20170(raft proxy)/20292(status)** → raft proxy 子进程未拉起 → 未向 PD 注册 store → 无法作列存引擎。PD /stores 仍只 3 个 tikv store,无 tiflash。PD 连通正常(三区域 PD 2379 均 200),config.toml 的 `pd_endpoints` 正确。**根因判断**:TiFlash v8.5.5 raft proxy 启动失败(proxy 未 fork/监听 20170),可能为单节点跨 region raft 选举/版本/资源问题,stdout 无日志无法深挖。**影响**:ESP 业务无 TiFlash 列存依赖(无物化视图/OLAP 加速路径走 TiFlash),业务面暂不受影响;列存引擎能力缺失。**处置(已向用户报告)**:业务无依赖,标记已知缺陷,等后续多节点移植时重建 TiFlash(单节点资源+跨 region raft 单实例先天不健康)。④ **Obsidian 日志同步进行中**(subagent esp-doc 后台跑,向 `/Users/joelgong/IdeaProjects/flink-learning/books/ESP-英语教育平台/` 同步 9 篇经验日志:总览/架构设计/ADR/平台底座/测试体系/踩坑集/上下文工程铁律/部署运维/Redis warm-up)。⑤ **git commit 待做**(17 文件改动:前端三端 vite base+basename 根治白屏 + portal nginx /api/actuator + infra_smoke.sh sts 修正 + PROGRESS.md)。**遗留**:前端浏览器 GUI 人工 TC-W/H(隧道 http://localhost:30070 就绪,全路由 200,待用户点开确认渲染)。
 
-## 当前热区 (2026-08-14 会话22-18 压测+前端收尾)
+## 当前热区 (2026-08-14 会话22-20 Redis warm-up + TiFlash 诊断)
+
+### Redis Cluster warm-up 完成✅
+- **Job**:`esp-redis-warmup` Completed(backoffLimit=2,0 失败),1.5s 灌完 23000 行。
+- **脚本**:`scripts/redis-warmup.py`(ConfigMap `redis-warmup-script` 挂载),流式 SSDictCursor + pipeline 批量写(BATCH=500),TTL=3600。
+- **数据源 → Redis key**:scenarios→`esp:cache:scenario:{id}`、knowledge_points→`esp:cache:kp:{id}`、sessions(top1000)→`esp:cache:session:{id}`、user_mastery(top1000)→`esp:cache:mastery:{uid}:{kp_id}`、users(top1000)→`esp:cache:user:{id}`。
+- **验证**:单节点 scan 7631 键(3 主分片,每主约 1/3),分类计数对齐(scenario+kp≈6600/session+mastery+user≈1000)。
+
+### TiKV/TiFlash 诊断(用户问:基础设施层 TiKV 和 TiFlash 都正常了吗)
+- **TiKV ✅ 3/3 Up**:store id=1(tikv-aws)/id=2(tikv-azure)/id=3(tikv-gcp),跨三区域,每个 capacity≈353.8GiB available≈118.4GiB,v8.5.7。行存引擎完全健康。
+- **TiFlash ⚠️ 未注册 PD**:pod Running 但 raft proxy 未起(只监听 9000+8234,缺 8123/20170/20292),PD /stores 无 tiflash store。delete pod 重建后仍如此 → 非瞬时故障,为持续性启动缺陷。config `pd_endpoints=pd-aws...:2379` 正确,三区域 PD 连通均 200。stdout 无日志(容器无文件日志)。**根因推断**:TiFlash v8.5.5 raft proxy 在单节点跨 region 环境启动失败。业务无 TiFlash 依赖,标记已知缺陷,多节点移植时重建。
+
+### 恢复锚点(跨会话)
+- **当前子步骤**:Redis warm-up 完成✅;TiKV 健康✅;TiFlash 诊断完成(未注册 PD,已知缺陷,待多节点重建);Obsidian 同步进行中;git commit 待做。下一步=git commit+push + Obsidian 同步收尾 + 前端浏览器 GUI 人工确认。
+- **已确认根因**:TiFlash 未注册 PD = raft proxy 子进程未拉起(缺 20170/8123/20292 监听),非 PD 连通问题(三区域 PD 200);Redis warm-up 键数单节点 7631 = Cluster 3 主分片正常分布。
+- **已改文件**:本会话无新增源码改动(诊断为主);Obsidian vault `ESP-英语教育平台/` 目录(subagent 生成中,非 git 仓库内)。
+- **下一步**:① git add/commit/push 17 文件改动(前端白屏根治+infra_smoke+PROGRESS);② Obsidian 同步收尾;③ 用户浏览器确认 http://localhost:30070/web/auth/login 渲染。
+
+---
+
+## 历史 (2026-08-14 会话22-18 压测+前端收尾)
 
 ### k6go 基线压测(成功✅)
 - **方案**:用本地 `golang:1.25-alpine` 编纯 Go 压测程序为静态二进制,`busybox:1.36`(本地有)挂 hostPath 跑,绕开 3128 proxy 拒绝非白名单镜像拉取。

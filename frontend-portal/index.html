@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ESP Home-Tutor | 统一入口</title>
+  <title>ESP 统一入口</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -98,7 +98,7 @@
 </head>
 <body>
   <header>
-    <h1>ESP Home-Tutor 统一入口</h1>
+    <h1>ESP 统一入口</h1>
     <p>AI 英语教育平台 · 多端访问 Portal · Web / H5 / 小程序</p>
     <div class="status-bar" id="status">
       <span><span class="dot pend"></span>检测后端连通性中…</span>
@@ -164,7 +164,7 @@
       const bar = document.getElementById('status');
       bar.innerHTML = '<span><span class="dot pend"></span>探测中…</span>';
       const targets = [
-        { name: 'BFF(8090)', url: '/api/auth/health' },
+        { name: 'BFF(8090)', url: '/api/actuator/health' },
         { name: '网关(80)', url: '/api/scenarios' },
       ];
       const results = [];

@@ -29,7 +29,7 @@ export default function Login() {
 
   return (
     <div className="auth">
-      <h1>English Study Platform · Home-Tutor</h1>
+      <h1>English Study Platform</h1>
       <div className="tabs">
         <button className={`tab ${mode === "login" ? "active" : ""}`} onClick={() => setMode("login")}>登录</button>
         <button className={`tab ${mode === "register" ? "active" : ""}`} onClick={() => setMode("register")}>注册</button>

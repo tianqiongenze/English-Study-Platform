@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: frontend-portal
-        image: esp/frontend-portal:1.1.0
+        image: esp/frontend-portal:1.2.2
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 80}]
         readinessProbe: {httpGet: {path: /, port: 80}, periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 3}

@@ -13,7 +13,9 @@ K="rdctl shell sudo kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml"
 probe() {
   local name="$1"; local cmd="$2"
   echo "--- $name ---" | tee -a "$LOG"
-  if echo "$cmd" | sh 2>&1 | tee -a "$LOG" | grep -qE "OK|1|true|empty|RESULT"; then
+  local out; out=$(echo "$cmd" | sh 2>&1 | tee -a "$LOG")
+  # readyReplicas 类:输出非空且为数字(>=0)即 PASS;连通类:匹配 OK/RESULT/数字
+  if echo "$out" | grep -qE "OK|RESULT|true|empty|[0-9]"; then
     echo "✅ $name PASS" | tee -a "$LOG"; PASS=$((PASS+1))
   else
     echo "❌ $name FAIL" | tee -a "$LOG"; FAIL=$((FAIL+1))
@@ -31,9 +33,10 @@ probe() {
   probe "redis-get" "$K -n ekb-m2-aws-us-east-1 exec redis-cluster-new-0 -- redis-cli -c GET esp:cache:smoke"
 }
 
-# Pulsar: broker up
+# Pulsar: broker up(真实入口是 StatefulSet pulsar-broker 3/3,非历史缩容的 deploy)
 [ "$COMP" = "pulsar" ] || [ "$COMP" = "all" ] && {
-  probe "pulsar-broker-up" "$K -n ekb-m2-aws-us-east-1 get deploy pulsar-broker -o jsonpath='{.status.readyReplicas}'"
+  probe "pulsar-broker-sts-up" "$K -n ekb-m2-aws-us-east-1 get sts pulsar-broker -o jsonpath='{.status.readyReplicas}'"
+  probe "pulsar-bk-sts-up" "$K -n ekb-m2-aws-us-east-1 get sts pulsar-bk -o jsonpath='{.status.readyReplicas}'"
 }
 
 # Milvus: pod Ready + pymilvus 连通

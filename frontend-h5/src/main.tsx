@@ -17,7 +17,7 @@ function Require({ children }: { children: React.JSX.Element }) {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename="/h5">
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Require><Home /></Require>}>

@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: frontend-h5
-        image: esp/frontend-h5:1.0.0
+        image: esp/frontend-h5:1.1.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 80}]
         readinessProbe: {httpGet: {path: /, port: 80}, periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 3}

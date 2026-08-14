@@ -21,7 +21,7 @@ function RequireAuth({ children, role }: { children: React.JSX.Element; role?: s
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/web">
       <Routes>
         <Route path="/auth/login" element={<Login />} />
         <Route path="/learning" element={<RequireAuth><LearningLayout /></RequireAuth>}>

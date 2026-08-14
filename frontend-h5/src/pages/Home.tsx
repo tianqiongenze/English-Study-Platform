@@ -6,7 +6,7 @@ export default function Home() {
   return (
     <div className="app">
       <header>
-        <span className="title">Home-Tutor</span>
+        <span className="title">ESP</span>
         <span style={{ fontSize: "0.8rem" }}>{user?.name} <button onClick={() => { logout(); nav("/login"); }}>退出</button></span>
       </header>
       <nav className="tabs">

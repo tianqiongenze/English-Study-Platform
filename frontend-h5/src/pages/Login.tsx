@@ -20,7 +20,7 @@ export default function Login() {
 
   return (
     <div className="app">
-      <h2 className="title" style={{ textAlign: "center", marginTop: 40 }}>ESP · Home-Tutor</h2>
+      <h2 className="title" style={{ textAlign: "center", marginTop: 40 }}>ESP · H5</h2>
       <div className="tabs" style={{ justifyContent: "center" }}>
         <button className={`tab ${mode === "login" ? "active" : ""}`} onClick={() => setMode("login")}>登录</button>
         <button className={`tab ${mode === "register" ? "active" : ""}`} onClick={() => setMode("register")}>注册</button>

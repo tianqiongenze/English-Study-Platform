@@ -68,6 +68,12 @@
             <artifactId>esp-cache</artifactId>
             <version>1.0.0</version>
         </dependency>
+        <!-- P1-12 缓存可观测:esp-cache 将 spring-boot-starter-cache 声明为 provided,
+             使用方必须显式引入,否则 SB4 CacheMetricsRegistrarConfiguration 不在 classpath → 无 cache_* 指标。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
         <!-- 读写分离:公共包 esp-rw-java(RoutingDataSource + @DataSource AOP,主写从读) -->
         <dependency>
             <groupId>com.esp</groupId>

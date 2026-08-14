@@ -65,9 +65,19 @@ public class CacheConfig {
      */
     @Bean
     public CacheManager cacheManager() {
+        // P1-12 缓存可观测:Caffeine spec 追加 recordStats(),
+        // Spring Boot CacheMetricsAutoConfiguration 自动绑 Micrometer cache.gets{result=hit,miss}/cache.loads/cache.evictions。
+        // 先量化命中率,再据此调 maximumSize/TTL(防凭感觉调参)。
+        String specWithStats = l1Spec.contains("recordStats") ? l1Spec : l1Spec + ",recordStats";
         CaffeineCacheManager mgr = new CaffeineCacheManager();
-        mgr.setCaffeine(com.github.benmanes.caffeine.cache.Caffeine.from(l1Spec));
+        mgr.setCaffeine(com.github.benmanes.caffeine.cache.Caffeine.from(specWithStats));
         mgr.setAllowNullValues(true); // 空结果也缓存(防穿透,TTL 由 CacheService 控制)
+        // P1-12:Caffeine cache 惰性创建,而 CacheMetricsRegistrar 只绑启动时已存在的 cache;
+        // 预注册全部业务 cacheName,保证启动期即完成 Micrometer 绑定(否则首访后才建的 cache 无指标)。
+        mgr.setCacheNames(java.util.List.of(
+                "bff_user", "esp_jwt_blacklist", "esp_idem",
+                "learning:due", "learning:weak", "learning:agg",
+                "teacher:class-weak"));
         return mgr;
     }
 

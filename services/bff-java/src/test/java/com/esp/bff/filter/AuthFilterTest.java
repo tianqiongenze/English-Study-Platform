@@ -1,6 +1,7 @@
 package com.esp.bff.filter;
 
 import com.esp.bff.auth.JwtService;
+import com.esp.cache.CacheService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,7 +31,9 @@ class AuthFilterTest {
     void setUp() throws Exception {
         String priv = Files.readString(Path.of(RSA_DIR, "private.pem"));
         String pub = Files.readString(Path.of(RSA_DIR, "public.pem"));
-        jwt = new JwtService(priv, pub);
+        CacheService cache = mock(CacheService.class);
+        when(cache.isEnabled()).thenReturn(false);
+        jwt = new JwtService(priv, pub, cache);
         filter = new AuthFilter(jwt);
     }
 

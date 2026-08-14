@@ -3,8 +3,10 @@ package com.esp.learning.web;
 import com.esp.learning.service.DifficultyAdjuster;
 import com.esp.learning.service.EbbinghausScheduler;
 import com.esp.learning.service.LearningService;
+import com.esp.learning.auth.JwtValidator;
 import com.esp.learning.disruptor.LearningEventDisruptor;
 import com.esp.learning.repository.UserMasteryRepository;
+import com.esp.cache.CacheService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -20,7 +22,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * LearningController Web 层测试:验证 REST 契约、状态码与 JSON 结构。
- * 通过 @MockBean 隔离 Disruptor / Repository,保证单测快速、无外部依赖。
+ * 通过 @MockitoBean 隔离 Disruptor / Repository,保证单测快速、无外部依赖。
+ * P0-2:userId 一律来自 JwtAuthFilter 注入的 request attribute(模拟
+ * .requestAttr("userId", 7)),不再信任 X-User-Id header / body user_id。
  */
 @WebMvcTest(LearningController.class)
 @TestPropertySource("classpath:application-test.properties")
@@ -34,12 +38,15 @@ class LearningControllerTest {
     @MockitoBean LearningEventDisruptor disruptor;
     @MockitoBean EbbinghausScheduler scheduler;
     @MockitoBean DifficultyAdjuster adjuster;
+    @MockitoBean JwtValidator jwtValidator;
+    @MockitoBean CacheService cacheService;
 
     @Test
     void reportEvent_accepted_whenDisruptorPublishes() throws Exception {
         when(learningService.reportEvent(anyLong(), anyString(), anyString())).thenReturn(true);
 
         mvc.perform(post("/api/learning/event")
+                        .requestAttr("userId", 7)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"user_id\":7,\"event_type\":\"answer\",\"payload\":\"{}\"}"))
                 .andExpect(status().isAccepted())
@@ -51,6 +58,7 @@ class LearningControllerTest {
         when(learningService.reportEvent(anyLong(), anyString(), anyString())).thenReturn(false);
 
         mvc.perform(post("/api/learning/event")
+                        .requestAttr("userId", 7)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"user_id\":7,\"event_type\":\"answer\"}"))
                 .andExpect(status().isServiceUnavailable())
@@ -76,19 +84,20 @@ class LearningControllerTest {
         doNothing().when(learningService).initMastery(anyLong(), anyList(), anyDouble());
 
         mvc.perform(post("/api/learning/placement")
+                        .requestAttr("userId", 7)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.initialized").value(0));
     }
 
-    /** P1-6 断点3:X-User-Id header 优先于 body user_id。 */
+    /** P0-2 断言:userId 取自 JWT attribute(42),伪造 body user_id=7 被忽略。 */
     @Test
-    void reportEvent_usesHeaderUserId_whenPresent() throws Exception {
+    void reportEvent_ignoresBodyUserId_usesJwtSubject() throws Exception {
         when(learningService.reportEvent(anyLong(), anyString(), anyString())).thenReturn(true);
 
         mvc.perform(post("/api/learning/event")
-                        .header("X-User-Id", 42)
+                        .requestAttr("userId", 42)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"user_id\":7,\"event_type\":\"answer\"}"))
                 .andExpect(status().isAccepted())
@@ -96,16 +105,30 @@ class LearningControllerTest {
         verify(learningService).reportEvent(eq(42L), anyString(), anyString());
     }
 
-    /** P1-6 断点3:无 X-User-Id header 时 fallback 到 body user_id。 */
+    /** P0-2 断言:伪造 X-User-Id header 不生效,userId 仍取 JWT attribute。 */
     @Test
-    void reportEvent_fallsBackToBodyUserId_whenNoHeader() throws Exception {
+    void reportEvent_ignoresForgedHeader_usesJwtSubject() throws Exception {
         when(learningService.reportEvent(anyLong(), anyString(), anyString())).thenReturn(true);
 
         mvc.perform(post("/api/learning/event")
+                        .requestAttr("userId", 7)
+                        .header("X-User-Id", 999)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"user_id\":7,\"event_type\":\"answer\"}"))
+                        .content("{\"event_type\":\"answer\"}"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.accepted").value(true));
         verify(learningService).reportEvent(eq(7L), anyString(), anyString());
+        verify(learningService, never()).reportEvent(eq(999L), anyString(), anyString());
+    }
+
+    /** P0-2 断言:JWT attribute 缺失(未鉴权直穿)→ 401。 */
+    @Test
+    void reportEvent_401_whenNoJwtAttribute() throws Exception {
+        mvc.perform(post("/api/learning/event")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"user_id\":7,\"event_type\":\"answer\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.accepted").value(false));
+        verifyNoInteractions(learningService);
     }
 }

@@ -11,7 +11,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+
+import java.util.Set;
 
 /**
  * 学情事件 Disruptor 编排器(基于 ESP 共用 {@link DisruptorWorker},ADR-09)。
@@ -42,6 +45,7 @@ public class LearningEventDisruptor {
     private final int batchSize;
     private final long flushIntervalMs;
     private final LearningEventConsumer consumer;
+    private final JdbcTemplate writeJdbc;
 
     private DisruptorWorker<LearningEvent> worker;
     private BatchEventHandler handler;
@@ -54,15 +58,24 @@ public class LearningEventDisruptor {
      */
     private final ThreadLocal<LearningEvent> translatorInput = ThreadLocal.withInitial(LearningEvent::new);
 
+    /**
+     * P1-10 关键事件白名单:这些 eventType 在 RingBuffer 满时落 outbox 兜底,不可 DROP。
+     * 埋点类(page_view/practice_attempt 等)可接受 DROP,不在此列。
+     */
+    private static final Set<String> CRITICAL_EVENT_TYPES = Set.of(
+            "session_ended", "placement_done", "difficulty_changed", "mastery_updated");
+
     public LearningEventDisruptor(
             @Value("${esp.disruptor.buffer-size:65536}") int bufferSize,
             @Value("${esp.disruptor.batch-size:200}") int batchSize,
             @Value("${esp.disruptor.flush-interval-ms:500}") long flushIntervalMs,
-            LearningEventConsumer consumer) {
+            LearningEventConsumer consumer,
+            JdbcTemplate writeJdbc) {
         this.bufferSize = bufferSize;
         this.batchSize = batchSize;
         this.flushIntervalMs = flushIntervalMs;
         this.consumer = consumer;
+        this.writeJdbc = writeJdbc;
     }
 
     @PostConstruct
@@ -91,6 +104,10 @@ public class LearningEventDisruptor {
     /**
      * 发布事件(非阻塞,背压丢弃)。RingBuffer 满时返回 false(记 dropped)。
      * 保护网关响应时间,不死等。
+     *
+     * <p>P1-10 outbox 兜底:关键事件(security/教务类,见 {@link #CRITICAL_EVENT_TYPES})
+     * 在 RingBuffer 满(DROP)时落 {@code learning_event_outbox} 表,由 OutboxRelay 异步重投,
+     * 防关键业务数据丢失;埋点类可接受 DROP(不影响业务正确性)。
      */
     public boolean publish(long userId, String eventType, String payload) {
         LearningEvent src = translatorInput.get();
@@ -98,7 +115,29 @@ public class LearningEventDisruptor {
         src.setEventType(eventType);
         src.setPayload(payload);
         src.setCreatedAt(System.currentTimeMillis());
-        return worker.publish(src) == PublishResult.PUBLISHED;
+        PublishResult r = worker.publish(src);
+        if (r == PublishResult.PUBLISHED) {
+            return true;
+        }
+        // DROP:关键事件落 outbox 兜底,非关键丢弃。
+        if (CRITICAL_EVENT_TYPES.contains(eventType)) {
+            fallbackToOutbox(userId, eventType, payload);
+        }
+        return false;
+    }
+
+    /** P1-10:关键事件 DROP 时落 outbox(异步,不阻塞发布线程)。 */
+    private void fallbackToOutbox(long userId, String eventType, String payload) {
+        try {
+            writeJdbc.update(
+                    "INSERT INTO learning_event_outbox (user_id, event_type, payload, status) VALUES (?,?,?, 'pending')",
+                    userId, eventType, payload);
+            log.warn("critical event DROP-fallback to outbox: user={} type={}", userId, eventType);
+        } catch (Exception ex) {
+            // outbox 也失败(Redis/DB 双障)→ 尽力而为记日志,不抛(不阻断入口响应)。
+            log.error("outbox fallback FAILED (data loss risk): user={} type={} err={}",
+                    userId, eventType, ex.toString());
+        }
     }
 
     public long publishedCount() {

@@ -4,7 +4,45 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 
-## 当前✅(2026-08-14 会话22-22 P0 第一波安全红线 6 项全部修复验证✅)
+## 当前✅(2026-08-14 会话22-24 P1 第二波容量质量 6 项 — 全部验证闭合✅ + 坑㉖ OOM 修复)
+
+**第二波 P1(容量质量,6 项)代码+镜像+部署+验证全部闭合✅**。P0 安全红线已闭合(见下文历史)。本会话(22-24)补完 P1-12 真因修复 + learning-worker 启动 OOM(坑㉖)修复。**verify_p1.sh 8/8 PASS**(注册/refresh rotation/幂等重放/logout 拉黑/cache.gets 有 measurements/outbox 表/worker 1/1)。P1 全量可进 git commit,继而评估 P2。
+
+### P1 6 项最终状态(全部已验证✅)
+- **P1-7 全局限流✅**:traefik `esp-ratelimit`(100/burst200/1s)+ bff `RateLimitFilter`+`SentinelRuleBootstrap`。实测 burst 400→11×429。
+- **P1-8 写接口幂等✅**:esp-cache `IdempotencyFilter`(`Idempotency-Key`+SETNX TTL300s)+ gateway-go sessions SetNX + writing-py grade/polish nx=True。verify_p1.sh 实测同 key replay 返回同 body "1"。
+- **P1-9 JWT 加固✅**:jti per token + Redis 黑名单 `esp:jwt:blacklist:<jti>` + refresh 7d + rotation。verify_p1.sh 实测 refresh rotation 旧 refresh 401,logout 后旧 access token 401。
+- **P1-10 Disruptor outbox✅**:`learning_event_outbox` 表(DESCRIBE 实证:id bigint PK AUTO_RANDOM/user_id/event_type varchar(32)/payload json/status varchar(16) default pending/retry_count int default 0/next_retry_at/created_at;KEY idx_status_retry + idx_user_time)+ `OutboxRelay` @Scheduled 2s BATCH200 MAX_RETRY8 指数退避。当前 0 行(CRITICAL 事件未触发,relay 空 op)。
+- **P1-11 拆 learning-worker✅**:`21-learning-worker.yaml` replicas:1(ESP_ROLE=worker/PULSAR_CONSUMER_ENABLED=true/SEATA_ENABLED=false);入口 `20-learning-java` PULSAR_CONSUMER_ENABLED=false 防循环(yaml line 21 实证)。worker `learning-worker-55c859f84b-jmfjs` 1/1 Running RESTARTS=0(坑㉖ OOM 修复后稳定)。
+- **P1-12 缓存可观测✅(真因修复)**:`CacheConfig` setCacheNames 预注册 7 缓存名(bff_user/esp_jwt_blacklist/esp_idem/learning:due/learning:weak/learning:agg/teacher:class-weak)+ Caffeine spec 追加 `,recordStats`。**真根因**:esp-cache 把 `spring-boot-starter-cache` 声明为 `provided`,使用方(bff/learning/teacher)pom 未显式引入 → SB4 `CacheMetricsRegistrarConfiguration` 不在 classpath → CaffeineCacheMetrics 不绑 → `/actuator/prometheus` 0 条 cache_*。**修复**:bff/learning/teacher 三 pom 显式加 `spring-boot-starter-cache`(同段注释说明 provided 真因)。修后三服务 `/actuator/prometheus` 各 42 行 `cache_*`(7 缓存 × 6 指标:gets/loads/loads_failure/evictions/eviction_weight/size),`/actuator/caches` 200 列全 7 名(bff /actuator/caches 404 系其 exposure 配置差异,prometheus 指标齐全不影响验收)。`cache.gets` measurements COUNT=1.0 已有真实命中。
+
+### 镜像 tag(本会话最终版,全部已 deploy)
+- learning-java:**1.8.5**(坑㉖ OOM 修复:findKpIdsByUserId 投影+initMastery 批量 saveAll;含 P1-10 outbox + P1-11 consumer装配 + P1-12 starter-cache)✅deploy 入口+worker
+- bff-java:**1.7.5**(P1-12 显式 spring-boot-starter-cache;P1-7 ratelimit + P1-8 幂等 + P1-9 JWT加固 + ProxyController)✅deploy
+- teacher-java:**1.7.6**(P1-12 显式 spring-boot-starter-cache;P0-3 IDOR)✅deploy
+- gateway-go:**1.6.3**(P1-8 sessions SetNX)✅deploy
+- writing-py:**1.5.1**(P1-8 grade/polish nx=True)✅deploy
+- emotion-svc:1.6.2 / writing-coach:1.1.0(P0-3 IDOR,无 P1 改动)
+
+### 关键坑(P1 期间踩的)
+- **坑㉗(22-23)WebMvcTest 切片拉入 IdempotencyFilter**:`@WebMvcTest` 扫 `@Component` Filter → esp-cache `IdempotencyFilter` 依赖 `CacheService`(切片外)→ `NoSuchBeanDefinitionException`。修复:补 `@MockitoBean JwtValidator` + `@MockitoBean CacheService`。
+- **坑㉘(22-23)Servlet 6 移除 setStatus(int,String)**:`IdempotentResponseWrapper` override 已删签名 → 编译失败。修复:删 override 仅留 setStatus(int)。
+- **坑㉙(22-23)JaCoCo JDK25 告警**:`major version 69` 非致命,忽略。
+- **坑㉚(22-23)bff 业务代理断链**:traefik ingress /api/** → bff:8090,但 8090 只有 auth 控制器,业务路径 404;Netty edge 9090 RouteTable fire-and-forget 不回响应。**修复**:新增 `ProxyController`(@RestController /api/**,RestClient 透传,SKIP_HEADERS 过滤 hop-by-hop,GET/DELETE 走无 body 分支,4xx/5xx 原样透传)。
+- **坑㉛(22-23)LearningEventConsumer @Lazy 不装配**:`@Component @Lazy` 在无人注入时永不实例化 → @PostConstruct 订阅从未启动 → worker 4 topic 全未订阅。**修复**:改 `@ConditionalOnProperty(esp.pulsar.consumer-enabled, matchIfMissing=true)`,worker(true)启动即订阅,入口(false)不装配天然防循环。
+- **坑㉜(22-23)陈旧 esp-cache fat-jar(已被 P1-12 真因覆盖)**:曾以为 cache_* 缺失是 fat-jar 打包时机问题。**22-24 实证真因**=esp-cache 把 spring-boot-starter-cache 声明 `provided`,使用方未显式引入 → SB4 CacheMetricsRegistrarConfiguration 不在 classpath。修复=三 pom 显式加 starter-cache(坑㉜ 的重 install esp-cache 只是顺带清掉旧 fat-jar,非真因)。
+- **坑㉝(22-24)learning-worker 启动 OOM(致命)**:新 worker pod crash-loop `OutOfMemoryError: Java heap space`(Dubbo ServiceConfig.export 阶段)。**根因**:`LearningEventConsumer.handleRegistered` 调 `masteryRepo.findAll()`(JpaRepository 默认)加载 user_mastery **全表 4,998,730 行**进堆 → 2G heap 撑爆。触发路径:user.registered Pulsar topic 有 backlog,worker @PostConstruct 订阅即收消息→handleRegistered→findAll→OOM。次要:`initMastery` 逐条 save(10,000 次顺序 INSERT 往返)。**修复**(3 处):① `UserMasteryRepository` 加投影 `findKpIdsByUserId`(只查 kpId 列);② `handleRegistered` 用 Set 去重仅 init 缺失 kp;③ `LearningService.initMastery` 改批量 `saveAll`。learning-java 1.8.4→1.8.5。修后 worker `55c859f84b-jmfjs` 1/1 Running RESTARTS=0。**教训**:JpaRepository `findAll()` 在大表(千万行级)上是隐式全表扫描炸弹,业务去重必须用投影查询;消费者 @PostConstruct 订阅有 backlog 的 topic 时,首条消息就可能触发重逻辑,启动期内存预算要留余量。
+
+### 恢复锚点(跨会话必读)
+- **当前子步骤**:P1 6 项全部闭合✅(verify_p1.sh 8/8 PASS:注册/refresh rotation 旧 refresh 401/幂等同 key 同 body/logout 后 access 401/cache.gets COUNT=1.0/outbox 表 0 行/worker 1/1 RESTARTS=0)。坑㉖ worker OOM 修复(1.8.5)已 deploy 稳定。P1 待 git commit。
+- **已改文件**:① esp-cache:`IdempotencyFilter`/`IdempotentResponseWrapper`/`CacheConfig`(recordStats+setCacheNames)/`CacheService`(tryIdempotent);② bff-java:`JwtService`(3-arg+黑名单+refresh)/`RateLimitFilter`/`SentinelRuleBootstrap`/`ProxyController`+3 测试 mock + pom(starter-cache);③ learning-java:`LearningEventDisruptor`(5-arg+outbox)/`OutboxRelay`/`LearningEventConsumer`(@ConditionalOnProperty+handleRegistered 投影去重)/`UserMasteryRepository`(findKpIdsByUserId)/`LearningService`(initMastery 批量 saveAll)+ pom(starter-cache)+ application.yml;④ teacher-java:测试 mock + pom(starter-cache);⑤ gateway-go:main.go(sessions SetNX);⑥ writing-py:grade/polish nx=True;⑦ deploy:`40b-traefik-ratelimit.yaml`/`40-ingress.yaml`/`21-learning-worker.yaml`(1.8.5)/`20-learning-java.yaml`(1.8.5)/`15-bff-java.yaml`(1.7.5)/`30-other-services.yaml`(teacher 1.7.6);⑧ TiDB:`learning_event_outbox` 表。
+- **下一步**:① git commit P1 全量(任务#72 进行中);② 评估进 P2(7 项:P2-13 DDD充血化/P2-14 gateway瘦身/P2-15 读写异步化/P2-16 缓存防护/P2-17 前端monorepo/P2-18 目录重组/P2-19 工程化补齐)——每波结束评估避免单会话上下文溢出,前端完整重构并入第三波。
+- **Redis 锚点**:`esp:ctx:hot:refactor-p1`(待更新:镜像 tag→1.8.5/1.7.5/1.7.6 + 坑㉖ OOM 真因 + P1-12 starter-cache 真因 + verify 8/8)。
+- **网络可达性备忘**:host 经 `192.168.5.15` 不可达,验证一律走 `127.0.0.1`(RD host localhost 转发),traefik /api/** → bff-java:8090,/ws/ → gateway-go。
+
+---
+
+## 历史 (2026-08-14 会话22-22 P0 第一波安全红线 6 项全部修复验证✅)
 
 **第一波 P0(安全红线,6 项)全部构建+部署+回归验证通过✅**。综合架构评分 5.9/10 的最大短板(安全封控 3.5/10)闭合。6 服务镜像全部 build 成功并滚动上线,6 点验证清单全绿。
 

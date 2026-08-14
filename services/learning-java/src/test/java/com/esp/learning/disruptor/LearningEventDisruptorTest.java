@@ -1,6 +1,7 @@
 package com.esp.learning.disruptor;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 
 class LearningEventDisruptorTest {
 
@@ -25,8 +27,9 @@ class LearningEventDisruptorTest {
             }
         };
 
-        // 用小 buffer 与 batch 加速 flush 触发
-        LearningEventDisruptor d = new LearningEventDisruptor(1024, 50, 100, consumer);
+        // 用小 buffer 与 batch 加速 flush 触发。writeJdbc 传 mock(outbox 兜底路径不被命中)。
+        JdbcTemplate mockJdbc = mock(JdbcTemplate.class);
+        LearningEventDisruptor d = new LearningEventDisruptor(1024, 50, 100, consumer, mockJdbc);
         d.start();
         try {
             int n = 500;
@@ -51,7 +54,8 @@ class LearningEventDisruptorTest {
         AtomicInteger total = new AtomicInteger();
         LearningEventConsumer consumer = (events, offset, length) -> total.addAndGet(length);
 
-        LearningEventDisruptor d = new LearningEventDisruptor(65536, 500, 200, consumer);
+        JdbcTemplate mockJdbc = mock(JdbcTemplate.class);
+        LearningEventDisruptor d = new LearningEventDisruptor(65536, 500, 200, consumer, mockJdbc);
         d.start();
         try {
             int threads = 8;

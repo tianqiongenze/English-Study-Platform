@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"esp/gateway-go/src/asr"
@@ -38,6 +39,7 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
+	rdb       *redis.ClusterClient // P1-8: 写接口幂等 SETNX
 	sessions  *session.Manager
 	scenarios *scenario.Repository
 	engine    *dialog.Engine
@@ -77,6 +79,7 @@ func main() {
 	}
 
 	srv := &Server{
+		rdb:       rdb,
 		sessions:  session.NewManager(rdb, 2*time.Hour),
 		scenarios: scenario.NewRepository(),
 		engine:    &dialog.Engine{LLM: llm.New(), HintIdle: 8 * time.Second},
@@ -152,6 +155,18 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", 401)
 		return
 	}
+	// P1-8 写接口幂等:POST /api/sessions 带 Idempotency-Key 时,SETNX 占键;命中则 replay 上次响应。
+	// 缺 header 时不拦截(向后兼容)。TTL 300s,降级(Redis 不可用)直接放行。
+	idemKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idemKey != "" && s.rdb != nil {
+		redisKey := fmt.Sprintf("esp:idem:gateway:sessions:%s", idemKey)
+		if cached, err := s.rdb.Get(r.Context(), redisKey).Result(); err == nil && cached != "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte(cached))
+			return
+		}
+	}
 	sess := &session.Session{
 		ID:         newID(),
 		UserID:     userID,
@@ -165,7 +180,14 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gwlog.AppLog("INFO", "api.sessions.create", userID, map[string]any{"session_id": sess.ID, "scenario": sc.Code}, r.Context())
-	writeJSON(w, map[string]any{"session_id": sess.ID, "scenario": sc})
+	resp, _ := json.Marshal(map[string]any{"session_id": sess.ID, "scenario": sc})
+	// P1-8: 写入幂等缓存(nx=true 仅当 key 不存在,防并发双写;ex=300s)
+	if idemKey != "" && s.rdb != nil {
+		redisKey := fmt.Sprintf("esp:idem:gateway:sessions:%s", idemKey)
+		_ = s.rdb.SetNX(r.Context(), redisKey, string(resp), 300*time.Second).Err()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(resp)
 }
 
 // handleListSessionHistory 列出当前用户会话历史(GET /api/sessions/history?limit=)。

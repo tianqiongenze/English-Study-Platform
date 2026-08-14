@@ -96,6 +96,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+        <!-- P1-12 缓存可观测:esp-cache 将 spring-boot-starter-cache 声明为 provided,
+             使用方必须显式引入,否则 SB4 的 CacheAutoConfiguration + CacheMetricsRegistrarConfiguration
+             (位于 spring-boot-cache-4.0.7.jar)不在 classpath → 无 CacheMetricsRegistrar bean
+             绑定 CaffeineCacheMetrics → /actuator/caches 404 + 无 cache_* 指标。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
         <!-- esp-cache 的跨实例失效依赖 Pulsar;
              排除 bouncy-castle-bc:pkg(内含 bcprov 1.78.1,CRIT CVE-2025-14813),
              由下方显式声明的 bcprov-jdk18on 1.84 替代 -->

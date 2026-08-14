@@ -359,3 +359,20 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
   INDEX idx_service_time (service, created_at),
   INDEX idx_status (status, created_at)
 );
+
+-- P1-10 Disruptor outbox(关键学情事件可靠投递,防 RingBuffer DROP 丢数据)
+-- 当 Disruptor RingBuffer 满时(背压丢弃),关键业务事件落本表兜底,
+-- 由 OutboxRelay 异步轮询重投 Disruptor(或直接落 learning_events)。
+-- 仅关键事件(security/教务/计费类)入 outbox;埋点类可保持 DROP。
+CREATE TABLE IF NOT EXISTS learning_event_outbox (
+  id BIGINT NOT NULL AUTO_RANDOM PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  event_type VARCHAR(32) NOT NULL,
+  payload JSON NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'pending',  -- pending/done/failed
+  retry_count INT NOT NULL DEFAULT 0,
+  next_retry_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_status_retry (status, next_retry_at),
+  KEY idx_user_time (user_id, created_at)
+);

@@ -17,6 +17,7 @@ import org.apache.pulsar.client.api.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -39,7 +40,10 @@ import java.util.concurrent.TimeUnit;
  * </ul>
  */
 @Component
-@Lazy
+@ConditionalOnProperty(name = "esp.pulsar.consumer-enabled", havingValue = "true", matchIfMissing = true)
+// P1-11 修复:原 @Component @Lazy 在无人注入时永不实例化 → @PostConstruct 订阅从未启动
+//(worker 模式无人注入此 bean,四个 topic 全部未订阅)。改为按 consumer-enabled 开关装配:
+//worker(PULSAR_CONSUMER_ENABLED=true)启动即订阅;入口(false)不装配,天然防循环。
 public class LearningEventConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(LearningEventConsumer.class);
@@ -107,15 +111,16 @@ public class LearningEventConsumer {
         try {
             long userId = ev.getUserId();
             List<Long> kpIds = jdbc.queryForList("SELECT id FROM knowledge_points", Long.class);
-            // 幂等:过滤已存在的 (userId, kpId)
-            List<UserMastery> exist = masteryRepo.findAll().stream()
-                    .filter(m -> m.getUserId() == userId).toList();
-            if (exist.size() >= kpIds.size()) {
+            // 幂等:仅查该用户已初始化的 kpId 投影(原 findAll 全表 500万行→OOM,坑㉖)
+            java.util.Set<Long> existKp = new java.util.HashSet<>(
+                    masteryRepo.findKpIdsByUserId(userId));
+            List<Long> missing = kpIds.stream().filter(k -> !existKp.contains(k)).toList();
+            if (missing.isEmpty()) {
                 log.info("user.registered already inited, skip userId={}", userId);
                 return;
             }
-            learningService.initMastery(userId, kpIds, 0.0);
-            log.info("user.registered handled: userId={}, kpCount={}", userId, kpIds.size());
+            learningService.initMastery(userId, missing, 0.0);
+            log.info("user.registered handled: userId={}, kpCount={}", userId, missing.size());
         } catch (Exception ex) {
             log.warn("user.registered handle failed userId={} err={}", ev.getUserId(), ex.toString());
         }
@@ -173,7 +178,8 @@ public class LearningEventConsumer {
                         .subscribe();
                 if (topic.equals(EventTopics.USER_REGISTERED)) regConsumer = uncheckedCast(c);
                 else if (topic.equals(EventTopics.TEACHER_FINALIZED)) finConsumer = uncheckedCast(c);
-                else endConsumer = uncheckedCast(c);
+                else if (topic.equals(EventTopics.SESSION_ENDED)) endConsumer = uncheckedCast(c);
+                else reportConsumer = uncheckedCast(c);
                 log.info("learning EDA consumer started, topic={}", topic);
                 while (running && !Thread.currentThread().isInterrupted()) {
                     Message<T> msg = c.receive(2, TimeUnit.SECONDS);

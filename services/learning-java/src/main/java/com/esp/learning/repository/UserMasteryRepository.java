@@ -18,4 +18,8 @@ public interface UserMasteryRepository extends JpaRepository<UserMastery, UserMa
     /** 薄弱知识点:按掌握度升序(读副本)。 */
     @Query("select m from UserMastery m where m.userId = :uid order by m.masteryScore asc")
     List<UserMastery> findWeakest(@Param("uid") Long userId);
+
+    /** user.registered 幂等去重:仅查该用户已初始化的 kpId 集合(投影,避免全表 findAll)。 */
+    @Query("select m.kpId from UserMastery m where m.userId = :uid")
+    List<Long> findKpIdsByUserId(@Param("uid") Long userId);
 }

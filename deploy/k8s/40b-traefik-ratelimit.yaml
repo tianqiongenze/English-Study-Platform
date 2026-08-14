@@ -1,0 +1,18 @@
+# P1-7 入口限流:traefik RateLimit middleware(CRD)。
+# 按 source IP 全局速率闸:averate 100 req/s, burst 200, period 1s。
+# 超限 traefik 直接返 429,不进后端(bff-java),保护下游。
+# 业务级细粒度限流由 bff-java Sentinel RateLimitFilter(api-learning-event/api-writing-grade)兜底。
+# 引用方式:ingress annotation traefik.ingress.kubernetes.io/router.middlewares: esp-prod-esp-ratelimit@kubernetescrd
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: esp-ratelimit
+  namespace: esp-prod
+spec:
+  rateLimit:
+    average: 100        # 每秒平均 100 req/s(全局,所有 ingress 共享本 middleware)
+    burst: 200          # 突发 200(容 WS 握手/页面冷启动瞬时尖刺)
+    period: 1s
+    sourceCriterion:
+      ipStrategy:
+        depth: 0        # 用真实客户端 IP(Rancher Desktop 无前置代理,depth=0 即 remoteAddr)

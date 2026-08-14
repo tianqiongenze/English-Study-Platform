@@ -5,12 +5,16 @@ import io.jsonwebtoken.JwtException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.esp.cache.CacheService;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * JwtService 单测(ADR-12 安全核心,RS256 非对称密钥)。
@@ -28,7 +32,11 @@ class JwtServiceTest {
     void setUp() throws Exception {
         privateKeyPem = Files.readString(Path.of(RSA_DIR, "private.pem"));
         publicKeyPem = Files.readString(Path.of(RSA_DIR, "public.pem"));
-        jwt = new JwtService(privateKeyPem, publicKeyPem);
+        // P1-9: JwtService 现需 CacheService(黑名单)。单测用 mock,且 stub 为 disabled,
+        // 跳过黑名单校验(关注签发/验签往返,不测注销场景)。
+        CacheService cache = mock(CacheService.class);
+        when(cache.isEnabled()).thenReturn(false);
+        jwt = new JwtService(privateKeyPem, publicKeyPem, cache);
     }
 
     @Test
@@ -57,7 +65,9 @@ class JwtServiceTest {
         // 生成一对不同的 key 来签发,用本 jwt 的公钥解析应失败。
         String otherPrivPem = generateInMemoryKeyPairPem("private");
         String otherPubPem = generateInMemoryKeyPairPem("public");
-        JwtService otherIssuer = new JwtService(otherPrivPem, otherPubPem);
+        CacheService otherCache = mock(CacheService.class);
+        when(otherCache.isEnabled()).thenReturn(false);
+        JwtService otherIssuer = new JwtService(otherPrivPem, otherPubPem, otherCache);
         String foreignToken = otherIssuer.issue(9L, "x@y.com", "z", "admin");
         assertThrows(JwtException.class, () -> jwt.parse(foreignToken), "不同密钥对签发的 token 应校验失败");
     }

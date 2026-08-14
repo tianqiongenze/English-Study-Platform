@@ -12,10 +12,13 @@ spec:
     spec:
       containers:
       - name: learning-java
-        image: esp/learning-java:1.7.2   # P0-2 接 JwtValidator+Filter 鉴权
+        image: esp/learning-java:1.8.5   # 坑㉖修 worker OOM:findKpIdsByUserId 投影替代 findAll 全表 + saveAll 批量
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
         env:
+        - {name: ESP_ROLE, value: "api"}                       # P1-11: HTTP/Dubbo 入口角色
+        - {name: ESP_DISRUPTOR_ENABLED, value: "true"}          # P1-11: 入口仍进程内 Disruptor(单节点一体化);worker 模式下改 false
+        - {name: PULSAR_CONSUMER_ENABLED, value: "false"}       # P1-11 防循环:入口不订阅 LEARNING_EVENT_REPORT(否则入口发→入口收→reportEvent→再发,无限循环)
         - {name: WRITE_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_learning?useSSL=false&allowPublicKeyRetrieval=true"}
         - {name: READ_DB_URL, value: "jdbc:mysql://tidb-follower:4000/esp_learning?useSSL=false&allowPublicKeyRetrieval=true"}
         # app_logs 跨 schema:app_logs 在 esp_shared,业务读写指 esp_learning,独立连接池写/读 app_logs

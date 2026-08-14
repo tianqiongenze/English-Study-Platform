@@ -82,8 +82,28 @@ async def grade(data: Annotated[GradeRequest, Body()], request: Request) -> Grad
 
 
 @post("/api/writing/polish", status_code=HTTP_200_OK)
-async def polish(data: Annotated[PolishRequest, Body()]) -> PolishResponse:
-    return await _service.polish(data)
+async def polish(data: Annotated[PolishRequest, Body()], request: Request) -> PolishResponse:
+    # P1-8 写接口幂等:polish 同为 LLM 改写类写操作,复用 grade 范式(X-Request-Id + SETNX)
+    rid = request.headers.get("x-request-id") or str(uuid.uuid4())
+    idem_key = f"esp:idem:writing:polish:{rid}"
+    redis = await _get_idem_redis() if _get_idem_redis else None
+    if redis is not None:
+        try:
+            cached = await redis.get(idem_key)
+            if cached:
+                logger.info("polish idempotent replay: rid=%s", rid)
+                return PolishResponse(**json.loads(cached)["resp"])
+        except Exception as exc:
+            logger.warning("polish idem read failed (non-fatal): %s", exc)
+
+    resp = await _service.polish(data)
+    if redis is not None:
+        try:
+            await redis.set(idem_key, json.dumps({"resp": resp.model_dump()}, default=str),
+                            nx=True, ex=_IDEM_TTL)
+        except Exception as exc:
+            logger.warning("polish idem write failed (non-fatal): %s", exc)
+    return resp
 
 
 @post("/api/writing/translate", status_code=HTTP_200_OK)

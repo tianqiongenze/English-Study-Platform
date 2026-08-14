@@ -99,8 +99,7 @@ public class EdgeAuthHandler extends SimpleChannelInboundHandler<FullHttpRequest
             if (auth == null || !auth.startsWith("Bearer ")) {
                 edgeSpan.setStatus(StatusCode.ERROR, "missing/invalid authorization");
                 respond401(ctx);
-                ReferenceCountUtil.release(req);
-                return;
+                return;   // SimpleChannelInboundHandler autoRelease 已释放,无需显式 release(修复 double-release)
             }
             try {
                 Claims c = jwt.parse(auth.substring(7));
@@ -114,7 +113,6 @@ public class EdgeAuthHandler extends SimpleChannelInboundHandler<FullHttpRequest
                 log.debug("JWT parse failed: {}", e.getMessage());
                 edgeSpan.setStatus(StatusCode.ERROR, "jwt parse failed");
                 respond401(ctx);
-                ReferenceCountUtil.release(req);
             }
         } finally {
             edgeSpan.end();
@@ -130,7 +128,7 @@ public class EdgeAuthHandler extends SimpleChannelInboundHandler<FullHttpRequest
         payload.set(channelId, retained, otelContext);
         boolean offered = inlet.publish(payload);
         if (!offered) {
-            ReferenceCountUtil.release(retained);
+            ReferenceCountUtil.release(retained);   // retained 是额外 retain 的一份,release 一次抵消
             respond503(ctx);
         }
     }

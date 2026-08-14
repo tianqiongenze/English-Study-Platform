@@ -17,6 +17,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.*;
 
 /**
@@ -37,7 +39,9 @@ class AuthControllerTest {
     void setUp() throws Exception {
         String priv = Files.readString(Path.of(RSA_DIR, "private.pem"));
         String pub = Files.readString(Path.of(RSA_DIR, "public.pem"));
-        jwt = new JwtService(priv, pub);
+        CacheService jwtCache = mock(CacheService.class);
+        when(jwtCache.isEnabled()).thenReturn(false);
+        jwt = new JwtService(priv, pub, jwtCache);
         jdbc = mock(JdbcTemplate.class);
         cache = mock(CacheService.class);
         events = mock(EventPublisher.class);

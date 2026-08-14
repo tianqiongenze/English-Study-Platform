@@ -78,16 +78,20 @@ public class LearningService {
 
     /**
      * FR-2.1 初测:批量写入 mastery 基线(写主库)。写后失效 due/weak 缓存。
+     * 批量 saveAll(原逐条 save 在 kpIds 多时 N 次 INSERT 往返,坑㉖)。
      */
     @DataSource(DataSourceType.WRITE)
     public void initMastery(long userId, List<Long> kpIds, double initialScore) {
+        Instant now = Instant.now();
+        java.util.List<UserMastery> batch = new java.util.ArrayList<>(kpIds.size());
         for (Long kpId : kpIds) {
             UserMastery m = new UserMastery(userId, kpId);
             m.setMasteryScore(BigDecimal.valueOf(initialScore));
             m.setReviewCount(0);
-            m.setLastReviewAt(Instant.now());
-            masteryRepo.save(m);
+            m.setLastReviewAt(now);
+            batch.add(m);
         }
+        masteryRepo.saveAll(batch);
         evictUserCache(userId);
     }
 

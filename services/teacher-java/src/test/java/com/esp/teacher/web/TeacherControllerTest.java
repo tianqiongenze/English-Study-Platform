@@ -4,6 +4,8 @@ import com.esp.api.dubbo.KpStat;
 import com.esp.api.dubbo.LearningRpcService;
 import com.esp.teacher.service.LessonPlanGenerator;
 import com.esp.teacher.service.TeacherService;
+import com.esp.teacher.config.JwtValidator;
+import com.esp.cache.CacheService;
 import org.apache.dubbo.rpc.RpcException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +35,8 @@ class TeacherControllerTest {
 
     @MockitoBean TeacherService teacherService;
     @MockitoBean LearningRpcService learningRpc;
+    @MockitoBean CacheService cacheService;
+    @MockitoBean JwtValidator jwtValidator;
 
     @Test
     void lessonPlan_returnsGeneratedPlan() throws Exception {
@@ -84,7 +88,9 @@ class TeacherControllerTest {
         when(learningRpc.userStats(1L)).thenReturn(List.of(
                 new KpStat(10L, 3.5, 2, "2026-08-01T00:00:00Z")));
 
-        mvc.perform(get("/api/teacher/1/kp-stats"))
+        mvc.perform(get("/api/teacher/1/kp-stats")
+                        .requestAttr("userId", "1")
+                        .requestAttr("role", "teacher"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].kpId").value(10))
                 .andExpect(jsonPath("$[0].masteryScore").value(3.5))
@@ -97,8 +103,21 @@ class TeacherControllerTest {
         when(learningRpc.userStats(anyLong()))
                 .thenThrow(new RpcException("learning service unavailable"));
 
-        mvc.perform(get("/api/teacher/2/kp-stats"))
+        mvc.perform(get("/api/teacher/2/kp-stats")
+                        .requestAttr("userId", "2")
+                        .requestAttr("role", "teacher"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.error").value("learning service unavailable"));
+    }
+
+    /** P0-3 IDOR:learner 查他人 kp-stats → 403。 */
+    @Test
+    void kpStats_forbidden_whenLenderQueriesOtherUser() throws Exception {
+        mvc.perform(get("/api/teacher/2/kp-stats")
+                        .requestAttr("userId", "1")
+                        .requestAttr("role", "learner"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("forbidden"));
+        verifyNoInteractions(learningRpc);
     }
 }

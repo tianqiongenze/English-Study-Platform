@@ -12,7 +12,10 @@ metadata:
   namespace: esp-prod
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web
-    traefik.ingress.kubernetes.io/router.middlewares: ""
+    # P1-7 入口限流:traefik RateLimit middleware,按 source IP 全局速率闸。
+    # 业务级细粒度限流由 bff-java Sentinel RateLimitFilter(api-learning-event/api-writing-grade)兜底。
+    # averate=100 req/s,period=1s,burst=200(容 WS 握手/页面冷启动瞬时尖刺)。
+    traefik.ingress.kubernetes.io/router.middlewares: esp-prod-esp-ratelimit@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:

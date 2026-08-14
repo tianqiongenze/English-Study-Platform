@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: bff-java
-        image: esp/bff-java:1.7.2   # P0-4 register 锁 role(强制 learner)
+        image: esp/bff-java:1.7.5   # P1-12 缓存指标修复:加 spring-boot-starter-cache 依赖拉入 SB4 CacheMetricsRegistrarConfiguration(CacheAutoConfiguration 移至 spring-boot-cache 独立 jar);ProxyController 补业务代理断链+EdgeAuth double-release 修复
         imagePullPolicy: IfNotPresent
         ports:
         - {containerPort: 8090,  name: mvc}

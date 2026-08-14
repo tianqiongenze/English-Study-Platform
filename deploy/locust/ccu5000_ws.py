@@ -6,23 +6,22 @@
 可支撑大量并发长连接。本脚本建立 5000 条 WebSocket 连接到 /ws/speech/<session>,
 每条连接保持存活并周期性发送心跳帧,统计稳态在线数与掉线率。
 
-前置:先用 REST 创建会话拿到 session_id 列表(脚本内置创建)。
-运行:
-  python deploy/locust/ccu5000_ws.py --target ws://192.168.64.6:31032/ws/speech \
-      --users 5000 --spawn-rate 100 --duration 120 --host esp.example.com
+前置:BFF(bff-java:8090)与 gateway-go 集群内可达;每条 worker 向 BFF 换 RS256 JWT(ADR-12)。
+运行(集群内 python:3.12-slim pod):
+  python deploy/locust/ccu5000_ws.py --target ws://gateway-go:80/ws/speech \
+      --http-host gateway-go:80 --bff http://bff-java:8090 \
+      --users 5000 --spawn-rate 100 --duration 120
 """
 from __future__ import annotations
 
 import argparse
-import base64
-import hashlib
-import hmac
 import json
-import os
 import random
 import threading
 import time
+import urllib.request
 from collections import Counter
+from urllib.parse import quote
 
 try:
     import websocket  # websocket-client
@@ -31,26 +30,32 @@ except ImportError:
 
 SCENARIOS = ["airport", "interview", "cafe"]
 
-# gateway-go 鉴权:HS256 JWT(sub=userID),secret 经 ESP_JWT_SECRET 注入(来自 esp-secrets,不入库)。
-# WS 路径用 ?token= 传 JWT,且 token 的 userID 必须等于会话归属 UserID,故每条连接 mint 独立 token。
-_JWT_SECRET = os.environ.get("ESP_JWT_SECRET", "").encode()
 
-
-def _b64url(b: bytes) -> bytes:
-    return base64.urlsafe_b64encode(b).rstrip(b"=")
-
-
-def mint_jwt(sub: str) -> str:
-    if not _JWT_SECRET:
-        return ""
-    h = _b64url(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
-    p = _b64url(json.dumps({"sub": sub}, separators=(",", ":")).encode())
-    sig = hmac.new(_JWT_SECRET, h + b"." + p, hashlib.sha256).digest()
-    return (h + b"." + p + b"." + _b64url(sig)).decode()
+# gateway-go 鉴权(ADR-12):RS256 公钥校验 BFF 签发的 JWT。不再接受自 mint 的 HS256 token。
+# 每 worker 向 BFF(/api/auth/register 失败则 /api/auth/login)换真实 RS256 JWT,
+# 再用该 token 创建会话 + 连 WS(?token= 传同一 JWT,owner 校验 sub==sess.UserID)。
+def bff_token(bff_host: str, uid: int) -> str:
+    email = f"ws_{uid}@loadtest.com"
+    for path, body in (
+        ("/api/auth/register", {"email": email, "password": "test123", "name": email, "role": "learner"}),
+        ("/api/auth/login", {"email": email, "password": "test123"}),
+    ):
+        req = urllib.request.Request(
+            f"{bff_host}{path}",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                tok = json.loads(r.read()).get("token")
+                if tok:
+                    return tok
+        except Exception:
+            continue
+    return ""
 
 
 def create_session(http_host: str, host_header: str, token: str) -> str | None:
-    import urllib.request
     code = random.choice(SCENARIOS)
     body = json.dumps({"scenario_code": code}).encode()
     headers = {"Content-Type": "application/json", "Host": host_header}
@@ -84,15 +89,16 @@ class Stats:
 
 
 def worker(ws_url: str, host_header: str, stats: Stats, stop_evt: threading.Event):
-    uid = str(random.randint(1, 5000))
-    token = mint_jwt(uid)  # 会话归属该 uid;WS 连接必须用同 token 才通过 owner 校验
+    uid = random.randint(1, 5000)
+    token = bff_token(args.bff, uid)  # BFF 签发的 RS256 JWT;会话归属该 uid
+    if not token:
+        return
     sid = create_session(args.http_host, host_header, token)
     if not sid:
         return
-    url = f"{ws_url}/{sid}" + (f"?token={token}" if token else "")
+    url = f"{ws_url}/{sid}" + (f"?token={quote(token, safe='')}" if token else "")
     try:
-        ws = websocket.create_connection(url, timeout=10,
-                                         header=[f"Host: {host_header}"])
+        ws = websocket.create_connection(url, timeout=10)
         stats.inc_online()
         # heartbeat: send a text frame every 5s, keep alive until stop
         while not stop_evt.is_set():
@@ -108,9 +114,10 @@ def worker(ws_url: str, host_header: str, stats: Stats, stop_evt: threading.Even
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--target", default="ws://192.168.64.6:31032/ws/speech")
-    p.add_argument("--http-host", default="192.168.64.6:31032")
-    p.add_argument("--host", default="esp.example.com", help="Host header for ingress routing")
+    p.add_argument("--target", default="ws://gateway-go:80/ws/speech")
+    p.add_argument("--http-host", default="gateway-go:80")
+    p.add_argument("--bff", default="http://bff-java:8090", help="BFF host for RS256 JWT")
+    p.add_argument("--host", default="gateway-go", help="Host header for routing")
     p.add_argument("--users", type=int, default=5000)
     p.add_argument("--spawn-rate", type=int, default=100, help="new conns per second")
     p.add_argument("--duration", type=int, default=120, help="steady-state seconds")

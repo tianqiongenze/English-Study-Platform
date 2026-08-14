@@ -4,9 +4,60 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 >
-> **当前✅(2026-08-14 会话22-16 统一 Portal v1.1.0 + 全后端功能测全绿 + 条件性 GO)**:补建统一多端 Portal(frontend-portal nginx,NodePort 30070,绕过不可达 traefik LB 直连 8 后端 ClusterIP),Mac 经 SSH 隧道可达。Go/Rust 8 服务 TC-GR-1~9 全 200(长驻 probe-keep pod 修临时 pod iptables race)。Portal TC-P-1~4 全绿。**关键根因**:① traefik ingress controller pod 未运行(svc endpoints `<none>`)→ portal /api 改直连后端 ClusterIP 复刻 esp-ingress 9 path 规则;② RD NodePort Mac 不可达(VM IP 192.168.5.15 ping 100% 丢包,无 svclb bridge)→ SSH 隧道 `ssh -f -N -L 30070:localhost:30070 -F "$RD_LIMA" lima-0`;③ 临时 curl pod iptables/DNS race(connection refused 3ms)→ 长驻 probe-keep pod。**已知数据缺口**:writing-coach 500 = `esp_writing.writing_templates` 表空(db_query 实证表在 esp_writing 库非 esp 库),非代码 bug,非阻断。**下一步**:k6 基线重跑(用 ConfigMap 挂脚本替代 /dev/stdin)、Locust WS 交叉验证、前端 GUI 人工浏览器 TC-W/H、git commit。
+> **当前✅(2026-08-14 会话22-18 k6 基线 529rps + Locust WS 鉴权双修 70/100 + Redis Cluster 自愈 + 前端 build 全绿 + portal 隧道就绪)**:① k6go 基线(本地 golang:1.25-alpine 编静态二进制 + busybox:1.36 hostPath 跑,绕开 3128 proxy)50VUS/15874 请求/100% 成功/529.1rps/平均 1.61ms。② Locust WS smoke 100 用户:修复 token URL 编码(JWT signature 含 +/_-,必须 `quote(token, safe='')`)+ 去 Host header → peak_online=70 established=85 dropped=15(70%)。③ Redis Cluster 自愈(坑㉓复发:nodes.conf 持久化旧 PodIP 致 cluster_state:fail),CLUSTER MEET ×5 + CONFIG SET cluster-announce-ip → cluster_state:ok slots_ok:16384,gateway-go create_session 500→200。④ 前端 build 全绿(frontend-react tsc+vite RC=0;frontend-h5 vite+PWA v1.3.0 RC=0)。⑤ portal SSH 隧道 30070 就绪,portal/web/h5/api 全 200 供用户人工 TC-W/H。**遗留**:用户人工浏览器 TC-W/H(隧道已就绪 http://localhost:30070/);3128 proxy 根因已定位待答(lima.yaml setproxy + allowed-images MITM 白名单);git commit 待做;plan `indexed-honking-spring` 未启动。
 
-## 当前热区 (2026-08-14 会话22-16 统一 Portal + 全后端功能测)
+## 当前热区 (2026-08-14 会话22-18 压测+前端收尾)
+
+### k6go 基线压测(成功✅)
+- **方案**:用本地 `golang:1.25-alpine` 编纯 Go 压测程序为静态二进制,`busybox:1.36`(本地有)挂 hostPath 跑,绕开 3128 proxy 拒绝非白名单镜像拉取。
+- **关键修**:bff-java ClusterIP svc 只有 8090(mvc)/9090(edge)/50090(dubbo)三端口**无 port 80**;k6go 默认 `-bff=http://bff-java:80` 错,必须 8090。register() 尝试 /api/auth/register 失败则 /api/auth/login 拿 token,vu() 循环 GET /api/scenarios。
+- **结果**:50 VUS/15874 请求/100% 成功/529.1 rps/平均 1.61ms。
+
+### Locust WS 鉴权双修(成功✅)
+- **第一阻塞:create_session 500**。根因=Redis Cluster `cluster_state:fail`(坑㉓复发:nodes.conf 持久化旧 PodIP,VM 重启后 Pod IP 漂移,redis7.2 不认 hostname)。session.Manager.Create 的 rdb.Set 失败(main.go:132 handleCreateSession → 500)。日志被 traces export 噪音淹没。
+- **Redis 自愈**:`CLUSTER MEET <live-IP> 6379` ×5 + `CONFIG SET cluster-announce-ip <真实IP>`(pod-0 announce 停旧 IP 时)。自愈后 cluster_state:ok slots_ok:16384,create_session 恢复 200。
+- **第二阻塞:WS peak_online=0 established=0**(Redis 自愈后仍失败)。根因双:① `url = f"...?token={token}"` 未 URL 编码,JWT signature 含 +/_- 字符→gateway-go `r.URL.Query().Get("token")` 解析失败→400;② 多余 `header=["Host: gateway-go"]` 致 400(pod 内 DNS 已解析,加 Host 反致问题)。
+- **修复**:`from urllib.parse import quote` + `url = f"{ws_url}/{sid}" + (f"?token={quote(token, safe='')}" if token else "")` + 去 Host header。重跑 peak_online=70 established=85 dropped=15,70/100 (70.0%)。
+
+### 前端 build + portal 隧道(成功✅)
+- **frontend-react**:tsc + vite build RC=0。**frontend-h5**:vite + PWA v1.3.0 build RC=0。
+- **portal SSH 隧道**:`ssh -f -N -L 30070:localhost:30070 -F "$RD_LIMA" lima-0`。验证:portal root 200;/web/ /h5/ 反代生效;/api/scenarios 200。URL http://localhost:30070/ 供用户人工 TC-W/H。
+
+### 恢复锚点(跨会话)
+- **当前子步骤**:会话22-18 压测+前端收尾已完成(k6go 529rps / Locust WS 70% / Redis 自愈 / 前端 build 全绿 / portal 隧道)。
+- **已确认根因**:① 3128 proxy 拒绝=lima.yaml setproxy 给 docker/containerd init 加 HTTPS_PROXY=openresty 3128,3129 SSL MITM 查 allowed-images.conf 白名单(仅 pause 3 条)非白名单返 403;② create_session 500=Redis cluster_state:fail;③ WS 400=token 未 URL 编码 + 多余 Host header。
+- **已改文件**:deploy/locust/ccu5000_ws.py(quote 编码 + 去 Host header)、deploy/k6/k6go/main.go(bff 默认 8090,上一会话)。
+- **下一步**:① 用户人工浏览器 TC-W/H(隧道已就绪);② 3128 proxy 根因答用户;③ git commit;④ plan `indexed-honking-spring`(平台底座+图向量库)。
+
+---
+
+## 历史 (2026-08-14 会话22-17 RD VM 扩容 8G→30G/4核→9核 全绿 + 坑㉔诊断推翻 + 全量清理僵尸pod)
+
+### 扩容验证结果(全绿✅)
+- **VM 运行态**:`pgrep -fl qemu` 显 `-m 30720 -smp 9,cores=9`;`free -h` 29.3G;`nproc`=9。lima.yaml `memory:32212254720`/`cpus:9`/`disk:360GiB` 已落盘。
+- **k3s**:重启后未自启,手动 `sudo rc-service k3s restart`(初次 start 卡在 start_pre 镜像加载 hook,restart 完成加载全部 bundled 镜像含 pause:3.6),node Ready(v1.34.6+k3s1)。
+- **6443 隧道**:RD 重启把 SSH localPort 从 53281 改到 59195,旧隧道失效;`pkill -f "6443:localhost:6443"; ssh -f -N -L 6443:localhost:6443 -F "$RD_LIMA" lima-0` 重建。
+- **esp-prod**:21/22 deploy AVAILABLE(learning-worker 0 副本按设计),0 非Running pod。bff/learning/teacher 三服务此前因双 RS 并存卡就绪,删旧 RS 后新 pod 10min 内转 1/1。
+
+### 关键清理(扩容后必要动作)
+- **孤儿 ReplicaSet 堆积**:扩容前多服务经历了 rollout,旧 RS(desired=1)与新 RS 并存,两套都创建 pod 抢资源+探针竞争。bff-java 曾有 3 个 RS、learning/teacher 各 2 个。删非 current 且 desired>0 的旧 RS 解决。**Why**:单节点资源紧时双 RS 各拉一个 pod,内存/CPU 双倍消耗,新 pod 起不来旧 pod 又不退出。
+- **跨 ns 僵尸 pod force-delete**:扩容前 8G 内存耗尽时,education-platform 14 个 pod 被打成 `ContainerStatusUnknown`(占 2550m CPU+4608Mi requests 但实际死的)、ekb-m2-aws 3 个(tidb/tiflash/tikv)、default extract-config。force-delete 后节点 CPU 99%→93%,腾出空间给 esp-prod 调度。
+- **坑㉔ 修正记忆**:`memory/esp-k3s-containerd-image-isolation.md` 已记 k3s 用 moby/docker CRI,docker build 镜像本就 k3s 可见,无需搬运。
+
+### 风险与铁律遵守
+- RD 自身重启**不在**坑㉑禁列(禁的是停 colima/动 lima 网络,会抽 RD 底盘)。仅 `rdctl shutdown/start`,不动 k3s 配置、不 pkill、不 Factory Reset。
+- 坑㉓ 预置:VM 重启后必查 pause 镜像,否则 sandbox 建不起来全集群瘫。
+- 坑㉔ 修正后,Task#27 "根治 k3s containerd 构建流水线"**前提不成立**——docker build 即 k3s 可见,无需额外流水线。已关闭该任务。
+- **monitor 判定坑**:`awk '$2==$4'` 对 `kubectl get deploy` 输出(READY/AVAILABLE 字段)因 `1/1` vs `1` 类型不一致恒为假,导致误报 "available=0"。恢复判定应以**第4列 AVAILABLE==1**为准。
+
+### 恢复锚点(跨会话)
+- **当前子步骤**:会话22-17 扩容全绿已完成;下一步=会话22-16 遗留(k6 ConfigMap 重跑 → Locust WS 交叉验证 → 前端 GUI TC-W/H → git commit)或 plan `indexed-honking-spring`(平台底座+图向量库)。
+- **已确认根因**:pod 全挂=VM 8G 内存耗尽(非镜像清空);扩容后双 RS 竞争+跨ns僵尸pod占 CPU 是卡就绪的真因。
+- **下一步**:见会话22-16 恢复锚点。
+
+---
+
+## 历史 (2026-08-14 会话22-16 统一 Portal v1.1.0 + 全后端功能测全绿 + 条件性 GO)
 
 ### 核心进展:4 任务批次(Portal/压测/人工测/commit)
 1. ✅ 统一 Portal(frontend-portal v1.1.0 构建部署,Mac 可达)

@@ -1,0 +1,176 @@
+{
+  "mode": "cockroachdb",
+  "time": "2026-08-15T05:38:43Z",
+  "results": {
+    "learning_event_write": [
+      {
+        "endpoint": "POST /api/learning/event",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 3.63,
+        "rps": 82.6,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 204.7,
+        "P95_ms": 403.1,
+        "P99_ms": 791.6,
+        "max_ms": 804.5,
+        "status": {
+          "202": 300
+        }
+      },
+      {
+        "endpoint": "POST /api/learning/event",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 7.99,
+        "rps": 112.6,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 446.3,
+        "P95_ms": 877.1,
+        "P99_ms": 1694.4,
+        "max_ms": 2790.2,
+        "status": {
+          "202": 900
+        }
+      }
+    ],
+    "learning_review_read": [
+      {
+        "endpoint": "GET /api/learning/review",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 4.81,
+        "rps": 62.4,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 207.8,
+        "P95_ms": 797.3,
+        "P99_ms": 1217.6,
+        "max_ms": 1233.1,
+        "status": {
+          "200": 300
+        }
+      },
+      {
+        "endpoint": "GET /api/learning/review",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 4.01,
+        "rps": 224.4,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 197.6,
+        "P95_ms": 475.8,
+        "P99_ms": 1299.5,
+        "max_ms": 1388.0,
+        "status": {
+          "200": 900
+        }
+      }
+    ],
+    "teacher_kpstats_read": [
+      {
+        "endpoint": "GET /api/teacher/{uid}/kp-stats",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 7.73,
+        "rps": 38.8,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 440.0,
+        "P95_ms": 914.4,
+        "P99_ms": 1112.7,
+        "max_ms": 1260.3,
+        "status": {
+          "200": 300
+        }
+      },
+      {
+        "endpoint": "GET /api/teacher/{uid}/kp-stats",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 11.26,
+        "rps": 80.0,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 639.5,
+        "P95_ms": 1093.5,
+        "P99_ms": 1653.6,
+        "max_ms": 2345.7,
+        "status": {
+          "200": 900
+        }
+      }
+    ],
+    "bff_scenarios_read": [
+      {
+        "endpoint": "GET /api/scenarios (bff)",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 6.2,
+        "rps": 48.4,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 357.3,
+        "P95_ms": 802.9,
+        "P99_ms": 1017.3,
+        "max_ms": 1084.0,
+        "status": {
+          "200": 300
+        }
+      },
+      {
+        "endpoint": "GET /api/scenarios (bff)",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 9.53,
+        "rps": 94.4,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 554.1,
+        "P95_ms": 1326.9,
+        "P99_ms": 1459.9,
+        "max_ms": 1695.6,
+        "status": {
+          "200": 900
+        }
+      }
+    ],
+    "gw_scenarios_ref": [
+      {
+        "endpoint": "GET /api/scenarios (gateway, non-DB)",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 1.0,
+        "rps": 301.0,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 47.6,
+        "P95_ms": 100.7,
+        "P99_ms": 125.5,
+        "max_ms": 154.6,
+        "status": {
+          "200": 300
+        }
+      },
+      {
+        "endpoint": "GET /api/scenarios (gateway, non-DB)",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 2.46,
+        "rps": 366.0,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 92.6,
+        "P95_ms": 221.2,
+        "P99_ms": 289.0,
+        "max_ms": 460.5,
+        "status": {
+          "200": 900
+        }
+      }
+    ]
+  }
+}

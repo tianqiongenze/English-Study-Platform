@@ -1,0 +1,46 @@
+{
+ "run_at": "2026-08-15T06:06:21.052752",
+ "accounts": {
+  "learner": "tester_learner_20260815060618@esp-qa.com",
+  "teacher": "tester_teacher_20260815060618@esp-qa.com",
+  "uid": 8935141660704135713
+ },
+ "summary": {
+  "total": 5,
+  "PASS": 4,
+  "FAIL": 1,
+  "SKIP": 0
+ },
+ "results": [
+  {
+   "tc": "TC-W-1",
+   "name": "登录",
+   "status": "PASS",
+   "detail": "API模拟:login 200 返回 accessToken(JWT len=666)"
+  },
+  {
+   "tc": "TC-W-3",
+   "name": "写作批改",
+   "status": "PASS",
+   "detail": "score=24.0 keys=['score', 'feedback', 'grammar', 'coherence']"
+  },
+  {
+   "tc": "TC-W-4",
+   "name": "学习路径",
+   "status": "PASS",
+   "detail": "weak(list,0) review code=200"
+  },
+  {
+   "tc": "TC-W-8",
+   "name": "注册",
+   "status": "PASS",
+   "detail": "register 返回 token+user,email=tester_learner_20260815060618@esp-qa.com"
+  },
+  {
+   "tc": "SEC-7",
+   "name": "RBAC越权",
+   "status": "FAIL",
+   "detail": "预期 403 实际 200 {'passage': 'Passage about x (level B1). The text introduces key vocabulary and ideas.', 'exercises'"
+  }
+ ]
+}

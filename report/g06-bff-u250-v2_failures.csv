@@ -1,0 +1,2 @@
+Method,Name,Error,Occurrences,First Seen,Last Seen
+POST,POST /api/learning/event,CatchResponseError('event rejected: 503'),2314,2026-08-14T22:52:41Z,2026-08-14T22:52:55Z

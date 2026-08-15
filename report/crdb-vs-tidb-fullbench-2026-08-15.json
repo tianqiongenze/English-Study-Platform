@@ -1,0 +1,149 @@
+{
+  "title": "ESP #137 全服务 TiDB vs CockroachDB 应用层压测对比",
+  "generated": "2026-08-15",
+  "topology": "单节点 Rancher Desktop VM(9核/30G);TiDB 与 CRDB 均部署于同一 VM;压测 pod 集群内 ClusterIP 直连(避开网关代理链)",
+  "harness": "report/crdb_fullbench.py(认证 RS256,5 端点,并发阶梯 20/60)",
+  "servers": {
+    "tidb_leg": "learning 1.11.0 / bff 1.9.0 / teacher 1.9.0,esp.rw.storage.type=tidb;app_logs→TiDB;learning_events 直写",
+    "crdb_leg": "learning 1.11.1 / bff 1.10.0 / teacher 1.10.0,esp.rw.storage.type=cockroachdb;app_logs→CRDB esp_shared;learning_events 直写(修复 Instant→Timestamp 后)"
+  },
+  "caveats": [
+    "CRDB 腿 3 节点 CRDB 集群活跃于同一单节点 VM,占用 CPU/IO;gateway 非 DB 参考端点 ratio 0.80-1.00,说明存在 VM 争用噪声",
+    "CRDB 多区域/自动再平衡等能力在单节点拓扑无法体现,单节点对比天然不利于 CRDB",
+    "Instant→Timestamp 为 PG 驱动兼容修复,吞吐中性,仅消除 outbox 弹跳导致的失真"
+  ],
+  "results": {
+    "endpoints": {
+      "learning_event_write": [
+        {
+          "concurrency": 20,
+          "tidb_rps": 200.0,
+          "crdb_rps": 82.6,
+          "ratio_crdb_tidb": 0.413,
+          "tidb_P50": 67.1,
+          "crdb_P50": 204.7,
+          "tidb_P95": 269.8,
+          "crdb_P95": 403.1,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        },
+        {
+          "concurrency": 60,
+          "tidb_rps": 201.3,
+          "crdb_rps": 112.6,
+          "ratio_crdb_tidb": 0.559,
+          "tidb_P50": 206.8,
+          "crdb_P50": 446.3,
+          "tidb_P95": 433.3,
+          "crdb_P95": 877.1,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        }
+      ],
+      "learning_review_read": [
+        {
+          "concurrency": 20,
+          "tidb_rps": 146.8,
+          "crdb_rps": 62.4,
+          "ratio_crdb_tidb": 0.425,
+          "tidb_P50": 101.4,
+          "crdb_P50": 207.8,
+          "tidb_P95": 317.1,
+          "crdb_P95": 797.3,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        },
+        {
+          "concurrency": 60,
+          "tidb_rps": 360.7,
+          "crdb_rps": 224.4,
+          "ratio_crdb_tidb": 0.622,
+          "tidb_P50": 113.8,
+          "crdb_P50": 197.6,
+          "tidb_P95": 310.9,
+          "crdb_P95": 475.8,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        }
+      ],
+      "teacher_kpstats_read": [
+        {
+          "concurrency": 20,
+          "tidb_rps": 71.5,
+          "crdb_rps": 38.8,
+          "ratio_crdb_tidb": 0.543,
+          "tidb_P50": 232.5,
+          "crdb_P50": 440.0,
+          "tidb_P95": 444.5,
+          "crdb_P95": 914.4,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        },
+        {
+          "concurrency": 60,
+          "tidb_rps": 115.6,
+          "crdb_rps": 80.0,
+          "ratio_crdb_tidb": 0.692,
+          "tidb_P50": 244.9,
+          "crdb_P50": 639.5,
+          "tidb_P95": 904.0,
+          "crdb_P95": 1093.5,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        }
+      ],
+      "bff_scenarios_read": [
+        {
+          "concurrency": 20,
+          "tidb_rps": 145.1,
+          "crdb_rps": 48.4,
+          "ratio_crdb_tidb": 0.334,
+          "tidb_P50": 116.6,
+          "crdb_P50": 357.3,
+          "tidb_P95": 312.4,
+          "crdb_P95": 802.9,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        },
+        {
+          "concurrency": 60,
+          "tidb_rps": 132.5,
+          "crdb_rps": 94.4,
+          "ratio_crdb_tidb": 0.712,
+          "tidb_P50": 331.3,
+          "crdb_P50": 554.1,
+          "tidb_P95": 1601.6,
+          "crdb_P95": 1326.9,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        }
+      ],
+      "gw_scenarios_ref": [
+        {
+          "concurrency": 20,
+          "tidb_rps": 377.3,
+          "crdb_rps": 301.0,
+          "ratio_crdb_tidb": 0.798,
+          "tidb_P50": 38.1,
+          "crdb_P50": 47.6,
+          "tidb_P95": 77.2,
+          "crdb_P95": 100.7,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        },
+        {
+          "concurrency": 60,
+          "tidb_rps": 366.2,
+          "crdb_rps": 366.0,
+          "ratio_crdb_tidb": 0.999,
+          "tidb_P50": 88.2,
+          "crdb_P50": 92.6,
+          "tidb_P95": 229.9,
+          "crdb_P95": 221.2,
+          "tidb_fail": 0.0,
+          "crdb_fail": 0.0
+        }
+      ]
+    }
+  }
+}

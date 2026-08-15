@@ -1,0 +1,496 @@
+{
+ "run_at": "2026-08-15T06:08:17.074585",
+ "accounts": {
+  "learner": "tester_learner_20260815060742@esp-qa.com",
+  "teacher": "tester_teacher_20260815060742@esp-qa.com",
+  "uid": 8070450532249000494
+ },
+ "summary": {
+  "total": 80,
+  "PASS": 48,
+  "FAIL": 10,
+  "SKIP": 22
+ },
+ "results": [
+  {
+   "tc": "TC-W-1",
+   "name": "登录",
+   "status": "PASS",
+   "detail": "API模拟:login 200 返回 accessToken(JWT len=666)"
+  },
+  {
+   "tc": "TC-W-2",
+   "name": "口语+数字人",
+   "status": "PASS",
+   "detail": "API模拟:GET /api/scenarios 200 共10003场景;WS多轮见TC-E2E-7"
+  },
+  {
+   "tc": "TC-W-3",
+   "name": "写作批改",
+   "status": "PASS",
+   "detail": "score=24.0 keys=['score', 'feedback', 'grammar', 'coherence']"
+  },
+  {
+   "tc": "TC-W-4",
+   "name": "学习路径",
+   "status": "PASS",
+   "detail": "weak(list,0) review code=200"
+  },
+  {
+   "tc": "TC-W-5",
+   "name": "教师教案",
+   "status": "PASS",
+   "detail": "keys=['passage', 'exercises', 'games', 'discussion']"
+  },
+  {
+   "tc": "TC-W-6",
+   "name": "学情分析",
+   "status": "PASS",
+   "detail": "200 keys=list(Dubbo Triple 链路通)"
+  },
+  {
+   "tc": "TC-W-7",
+   "name": "作业评阅",
+   "status": "PASS",
+   "detail": "auto-grade 200 finalize 200"
+  },
+  {
+   "tc": "TC-W-8",
+   "name": "注册",
+   "status": "PASS",
+   "detail": "register 返回 token+user,email=tester_learner_20260815060742@esp-qa.com"
+  },
+  {
+   "tc": "TC-W-9",
+   "name": "写作润色",
+   "status": "PASS",
+   "detail": "keys=['polished', 'suggestions']"
+  },
+  {
+   "tc": "TC-W-10",
+   "name": "写作翻译",
+   "status": "PASS",
+   "detail": "keys=['translation', 'vocab']"
+  },
+  {
+   "tc": "TC-W-11",
+   "name": "LangGraph写作闭环",
+   "status": "FAIL",
+   "detail": "thread 建立 but status=polished"
+  },
+  {
+   "tc": "TC-W-12",
+   "name": "教师审阅恢复",
+   "status": "PASS",
+   "detail": "status=done notes=True"
+  },
+  {
+   "tc": "TC-W-13",
+   "name": "学习定级",
+   "status": "FAIL",
+   "detail": "code=401 "
+  },
+  {
+   "tc": "TC-W-14",
+   "name": "动态难度",
+   "status": "PASS",
+   "detail": "{'next_difficulty': 3, 'scaffolding': False, 'speed_multiplier': 1.1}"
+  },
+  {
+   "tc": "TC-W-15",
+   "name": "个性化推荐",
+   "status": "PASS",
+   "detail": "keys=['review', 'weak_points', 'similar_scenarios']"
+  },
+  {
+   "tc": "TC-W-16",
+   "name": "行为分析Top-N",
+   "status": "PASS",
+   "detail": "200 resp=[{'user_id': 1, 'cnt': 1}]"
+  },
+  {
+   "tc": "TC-W-17",
+   "name": "情绪感知",
+   "status": "PASS",
+   "detail": "emotion=negative"
+  },
+  {
+   "tc": "TC-W-18",
+   "name": "写作增强-模板",
+   "status": "PASS",
+   "detail": "200 模板数=0"
+  },
+  {
+   "tc": "TC-W-19",
+   "name": "写作增强-综合批改+方案",
+   "status": "PASS",
+   "detail": "assess keys=['base_score', 'dimensions', 'total', 'feedback'] plan keys=['id', 'user_id', 'weak_points', 'plan', 'status']"
+  },
+  {
+   "tc": "TC-W-FL-1",
+   "name": "Web全链路",
+   "status": "PASS",
+   "detail": "API模拟组合流: [('scenarios', 200), ('writing', 200), ('weak', 200), ('history', 200), ('lesson-plan', 200)]"
+  },
+  {
+   "tc": "TC-H-1",
+   "name": "H5登录",
+   "status": "PASS",
+   "detail": "API模拟:同 TC-W-1 登录链路 200 JWT(前端壳差异不测)"
+  },
+  {
+   "tc": "TC-H-2",
+   "name": "H5口语(竖屏)",
+   "status": "SKIP",
+   "detail": "GUI 竖屏布局/数字人渲染需浏览器,API 部分同 TC-W-2/TC-E2E-7"
+  },
+  {
+   "tc": "TC-H-3",
+   "name": "H5写作",
+   "status": "PASS",
+   "detail": "code=200 score=24.0"
+  },
+  {
+   "tc": "TC-H-4",
+   "name": "H5学习",
+   "status": "PASS",
+   "detail": "review=200 difficulty=200"
+  },
+  {
+   "tc": "TC-H-5",
+   "name": "H5情绪可视化",
+   "status": "PASS",
+   "detail": "code=200 {'image_url': 'https://placehold.co/600x400?text=happy', 'alt': \"Illustration for the word 'happy' i"
+  },
+  {
+   "tc": "TC-H-6",
+   "name": "H5会话历史",
+   "status": "PASS",
+   "detail": "code=200 user_id=8070450532249000494 会话数=0"
+  },
+  {
+   "tc": "TC-H-7",
+   "name": "H5数字人竖屏",
+   "status": "SKIP",
+   "detail": "数字人竖屏唇形渲染为 GUI 视觉项,需人工浏览器验证(~80%降级标准)"
+  },
+  {
+   "tc": "TC-H-FL-1",
+   "name": "H5全链路",
+   "status": "PASS",
+   "detail": "scenarios=200 writing=200 weak=200"
+  },
+  {
+   "tc": "TC-M-1",
+   "name": "wx.login",
+   "status": "SKIP",
+   "detail": "无微信开发者工具/Taro 编译环境(文档 §4 标注无环境跳过)"
+  },
+  {
+   "tc": "TC-M-2",
+   "name": "小程序口语",
+   "status": "SKIP",
+   "detail": "无微信开发者工具/Taro 编译环境(文档 §4 标注无环境跳过)"
+  },
+  {
+   "tc": "TC-M-3",
+   "name": "小程序写作",
+   "status": "SKIP",
+   "detail": "无微信开发者工具/Taro 编译环境(文档 §4 标注无环境跳过)"
+  },
+  {
+   "tc": "TC-M-4",
+   "name": "小程序学习",
+   "status": "SKIP",
+   "detail": "无微信开发者工具/Taro 编译环境(文档 §4 标注无环境跳过)"
+  },
+  {
+   "tc": "TC-X-1",
+   "name": "进度同步",
+   "status": "FAIL",
+   "detail": "history 未含新会话 sid=sess_1786745271567 create=200 hist_n=0(可能异步落库延迟)"
+  },
+  {
+   "tc": "TC-X-2",
+   "name": "数字人三端",
+   "status": "SKIP",
+   "detail": "三端数字人呈现为 GUI 视觉项,需浏览器/小程序环境"
+  },
+  {
+   "tc": "TC-X-3",
+   "name": "traceId贯通",
+   "status": "SKIP",
+   "detail": "Tempo trace 人工核验项;文档已标注单节点 Collector 实质贯通,正式判定留多节点"
+  },
+  {
+   "tc": "TC-GR-1",
+   "name": "course-path 路径查询",
+   "status": "PASS",
+   "detail": "code=200 code=200"
+  },
+  {
+   "tc": "TC-GR-2",
+   "name": "course-path 生成路径",
+   "status": "PASS",
+   "detail": "code=200 keys=['generated', 'message', 'path_id', 'status']"
+  },
+  {
+   "tc": "TC-GR-3",
+   "name": "course-path 节点解锁",
+   "status": "PASS",
+   "detail": "code=200 code=200"
+  },
+  {
+   "tc": "TC-GR-4",
+   "name": "listening 材料列表",
+   "status": "PASS",
+   "detail": "code=200 n=?"
+  },
+  {
+   "tc": "TC-GR-5",
+   "name": "listening 材料详情",
+   "status": "SKIP",
+   "detail": "材料列表为空,无 id 可查(无种子数据)"
+  },
+  {
+   "tc": "TC-GR-6",
+   "name": "listening 听写提交",
+   "status": "SKIP",
+   "detail": "材料列表为空(无种子数据)"
+  },
+  {
+   "tc": "TC-GR-7",
+   "name": "reading 篇章列表",
+   "status": "PASS",
+   "detail": "code=200 n=?"
+  },
+  {
+   "tc": "TC-GR-8",
+   "name": "reading 篇章详情",
+   "status": "SKIP",
+   "detail": "篇章列表为空(无种子数据)"
+  },
+  {
+   "tc": "TC-GR-9",
+   "name": "reading 答题提交",
+   "status": "FAIL",
+   "detail": "code=202 code=202"
+  },
+  {
+   "tc": "TC-GR-10",
+   "name": "reading 长难句解析",
+   "status": "PASS",
+   "detail": "code=200 code=200"
+  },
+  {
+   "tc": "TC-GR-11",
+   "name": "gamification 排行榜",
+   "status": "PASS",
+   "detail": "code=200 code=200"
+  },
+  {
+   "tc": "TC-GR-12",
+   "name": "gamification 画像",
+   "status": "PASS",
+   "detail": "code=200 code=200"
+  },
+  {
+   "tc": "TC-GR-13",
+   "name": "gamification 加分",
+   "status": "FAIL",
+   "detail": "code=202 code=202"
+  },
+  {
+   "tc": "TC-GR-14",
+   "name": "gamification 成就列表",
+   "status": "PASS",
+   "detail": "code=200 code=200"
+  },
+  {
+   "tc": "TC-GR-15",
+   "name": "gamification 授予成就",
+   "status": "FAIL",
+   "detail": "code=202 code=202"
+  },
+  {
+   "tc": "TC-GR-16",
+   "name": "tutor 可约时段",
+   "status": "SKIP",
+   "detail": "deploy/live-tutor-go 当前 0/0(scale 0),环境不具备"
+  },
+  {
+   "tc": "TC-GR-17",
+   "name": "tutor 预约",
+   "status": "SKIP",
+   "detail": "deploy/live-tutor-go 当前 0/0(scale 0),环境不具备"
+  },
+  {
+   "tc": "TC-GR-18",
+   "name": "media 片段列表",
+   "status": "SKIP",
+   "detail": "deploy/media-learn-rs 当前 0/0(scale 0),环境不具备"
+  },
+  {
+   "tc": "TC-GR-19",
+   "name": "media 字幕",
+   "status": "SKIP",
+   "detail": "deploy/media-learn-rs 当前 0/0(scale 0),环境不具备"
+  },
+  {
+   "tc": "TC-GR-20",
+   "name": "media 表达卡片",
+   "status": "SKIP",
+   "detail": "deploy/media-learn-rs 当前 0/0(scale 0),环境不具备"
+  },
+  {
+   "tc": "TC-GR-21",
+   "name": "pronunciation 评分",
+   "status": "FAIL",
+   "detail": "code=422 code=422"
+  },
+  {
+   "tc": "TC-GR-22",
+   "name": "pronunciation 反馈",
+   "status": "PASS",
+   "detail": "code=200 code=200"
+  },
+  {
+   "tc": "TC-GR-23",
+   "name": "assessment 建会",
+   "status": "PASS",
+   "detail": "code=200 keys=['session_id', 'user_id', 'status']"
+  },
+  {
+   "tc": "TC-GR-24",
+   "name": "assessment 会话详情",
+   "status": "SKIP",
+   "detail": "建会响应无 session_id"
+  },
+  {
+   "tc": "TC-GR-25",
+   "name": "assessment 提交答题",
+   "status": "SKIP",
+   "detail": "建会响应无 session_id"
+  },
+  {
+   "tc": "TC-GR-26",
+   "name": "assessment 结束测评",
+   "status": "SKIP",
+   "detail": "建会响应无 session_id"
+  },
+  {
+   "tc": "TC-GR-27",
+   "name": "assessment 诊断报告",
+   "status": "PASS",
+   "detail": "code=200 code=200"
+  },
+  {
+   "tc": "TC-P-1",
+   "name": "portal 门户页",
+   "status": "PASS",
+   "detail": "code=200 len=7742"
+  },
+  {
+   "tc": "TC-P-2",
+   "name": "portal→Web端",
+   "status": "PASS",
+   "detail": "code=200 /web/auth/login"
+  },
+  {
+   "tc": "TC-P-3",
+   "name": "portal→H5端",
+   "status": "PASS",
+   "detail": "code=200 /h5/login"
+  },
+  {
+   "tc": "TC-P-4",
+   "name": "portal 诊断",
+   "status": "SKIP",
+   "detail": "诊断按钮为浏览器 JS 动作,静态探测未找到可用诊断 API(ep=none code=0)"
+  },
+  {
+   "tc": "TC-E2E-1",
+   "name": "写作→批改→mastery",
+   "status": "PASS",
+   "detail": "grade code=200 score=24.0;Pulsar事件/DB核验需人工(writing.graded→teacher→user_mastery)"
+  },
+  {
+   "tc": "TC-E2E-2",
+   "name": "教师终审→mastery",
+   "status": "PASS",
+   "detail": "finalize 200(幂等 SETNX)"
+  },
+  {
+   "tc": "TC-E2E-3",
+   "name": "学习事件→Disruptor",
+   "status": "PASS",
+   "detail": "code=202 resp={'accepted': True}(learning_events 落库为异步,Disruptor)"
+  },
+  {
+   "tc": "TC-E2E-4",
+   "name": "Dubbo Triple 学情汇总",
+   "status": "PASS",
+   "detail": "code=200"
+  },
+  {
+   "tc": "TC-E2E-5",
+   "name": "writing-coach 跨服务",
+   "status": "PASS",
+   "detail": "code=200 keys=['base_score', 'dimensions', 'total', 'feedback']"
+  },
+  {
+   "tc": "TC-E2E-6",
+   "name": "加分→排行榜",
+   "status": "FAIL",
+   "detail": "points=202 leaderboard=200 user773上榜=True"
+  },
+  {
+   "tc": "TC-E2E-7",
+   "name": "WS 口语完整会话",
+   "status": "PASS",
+   "detail": "sid=sess_1786745290665 收帧类型=['ai_reply', 'hint_resp'] end确认=True"
+  },
+  {
+   "tc": "TC-E2E-8",
+   "name": "会话历史查询",
+   "status": "PASS",
+   "detail": "code=200 n=0"
+  },
+  {
+   "tc": "TC-E2E-9",
+   "name": "JWKS 验签闭环",
+   "status": "PASS",
+   "detail": "code=200 kid='esp-rs256-1'"
+  },
+  {
+   "tc": "TC-E2E-10",
+   "name": "优雅停机",
+   "status": "SKIP",
+   "detail": "文档标注:单节点单副本不可达,多节点重测"
+  },
+  {
+   "tc": "TC-E2E-11",
+   "name": "5000 CCU 压测",
+   "status": "SKIP",
+   "detail": "文档标注:单节点 533rps 不可达,多节点重测"
+  },
+  {
+   "tc": "SEC-6",
+   "name": "限流429",
+   "status": "FAIL",
+   "detail": "40 次高频登录未触发 429(仅 {401}),Sentinel 规则未生效或阈值更高"
+  },
+  {
+   "tc": "SEC-7",
+   "name": "RBAC越权",
+   "status": "FAIL",
+   "detail": "预期 403 实际 200 {'passage': 'Passage about x (level B1). The text introduces key vocabulary and ideas.', 'exercises'"
+  },
+  {
+   "tc": "SEC-8",
+   "name": "SQL注入探测",
+   "status": "PASS",
+   "detail": "code=200 无全表泄露(参数化防护生效)"
+  }
+ ]
+}

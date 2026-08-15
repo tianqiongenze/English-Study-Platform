@@ -1,0 +1,177 @@
+{
+  "mode": "tidb",
+  "time": "2026-08-15T04:58:57Z",
+  "results": {
+    "learning_event_write": [
+      {
+        "endpoint": "POST /api/learning/event",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 1.5,
+        "rps": 200.0,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 67.1,
+        "P95_ms": 269.8,
+        "P99_ms": 450.4,
+        "max_ms": 463.9,
+        "status": {
+          "202": 300
+        }
+      },
+      {
+        "endpoint": "POST /api/learning/event",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 4.47,
+        "rps": 201.3,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 206.8,
+        "P95_ms": 433.3,
+        "P99_ms": 1223.9,
+        "max_ms": 1299.1,
+        "status": {
+          "202": 900
+        }
+      }
+    ],
+    "learning_review_read": [
+      {
+        "endpoint": "GET /api/learning/review",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 2.04,
+        "rps": 146.8,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 101.4,
+        "P95_ms": 317.1,
+        "P99_ms": 409.2,
+        "max_ms": 461.3,
+        "status": {
+          "200": 300
+        }
+      },
+      {
+        "endpoint": "GET /api/learning/review",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 2.5,
+        "rps": 360.7,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 113.8,
+        "P95_ms": 310.9,
+        "P99_ms": 1049.4,
+        "max_ms": 1167.5,
+        "status": {
+          "200": 900
+        }
+      }
+    ],
+    "teacher_kpstats_read": [
+      {
+        "endpoint": "GET /api/teacher/{uid}/kp-stats",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 4.2,
+        "rps": 71.5,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 232.5,
+        "P95_ms": 444.5,
+        "P99_ms": 509.4,
+        "max_ms": 552.2,
+        "status": {
+          "200": 300
+        }
+      },
+      {
+        "endpoint": "GET /api/teacher/{uid}/kp-stats",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 7.79,
+        "rps": 115.6,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 244.9,
+        "P95_ms": 904.0,
+        "P99_ms": 1336.6,
+        "max_ms": 1659.3,
+        "status": {
+          "200": 900
+        }
+      }
+    ],
+    "bff_scenarios_read": [
+      {
+        "endpoint": "GET /api/scenarios (bff)",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 2.07,
+        "rps": 145.1,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 116.6,
+        "P95_ms": 312.4,
+        "P99_ms": 374.6,
+        "max_ms": 380.4,
+        "status": {
+          "200": 300
+        }
+      },
+      {
+        "endpoint": "GET /api/scenarios (bff)",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 6.79,
+        "rps": 132.5,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 331.3,
+        "P95_ms": 1601.6,
+        "P99_ms": 1981.7,
+        "max_ms": 2177.4,
+        "status": {
+          "200": 900
+        }
+      }
+    ],
+    "gw_scenarios_ref": [
+      {
+        "endpoint": "GET /api/scenarios (gateway, non-DB)",
+        "concurrency": 20,
+        "total": 300,
+        "elapsed_s": 0.8,
+        "rps": 377.3,
+        "success": "300/300",
+        "fail_rate": 0.0,
+        "P50_ms": 38.1,
+        "P95_ms": 77.2,
+        "P99_ms": 89.6,
+        "max_ms": 124.1,
+        "status": {
+          "200": 300
+        }
+      },
+      {
+        "endpoint": "GET /api/scenarios (gateway, non-DB)",
+        "concurrency": 60,
+        "total": 900,
+        "elapsed_s": 2.46,
+        "rps": 366.2,
+        "success": "900/900",
+        "fail_rate": 0.0,
+        "P50_ms": 88.2,
+        "P95_ms": 229.9,
+        "P99_ms": 293.6,
+        "max_ms": 415.0,
+        "status": {
+          "200": 900
+        }
+      }
+    ]
+  },
+  "env": "单节点 RD VM(9核/30G);learning/teacher/bff 直连 ClusterIP;esp.rw.storage.type=tidb(缺省);ladder 20/60 并发"
+}

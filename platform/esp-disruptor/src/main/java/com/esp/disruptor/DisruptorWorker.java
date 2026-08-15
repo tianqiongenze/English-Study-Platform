@@ -58,6 +58,7 @@ public class DisruptorWorker<T> {
     private final com.lmax.disruptor.EventFactory<T> factory;
     private final com.lmax.disruptor.EventTranslatorOneArg<T, T> translator;
     private final EventHandler<T> handler;
+    private final EventHandler<T>[] poolHandlers;
     private final ExceptionHandler<T> exceptionHandler;
 
     private Disruptor<T> disruptor;
@@ -74,20 +75,30 @@ public class DisruptorWorker<T> {
         this.factory = b.factory;
         this.translator = b.translator;
         this.handler = b.handler;
+        this.poolHandlers = b.poolHandlers;
         this.exceptionHandler = b.exceptionHandler != null ? b.exceptionHandler : defaultExceptionHandler();
     }
 
     /** 启动 Disruptor(@PostConstruct 调用)。 */
     public void start() {
         disruptor = new Disruptor<>(factory, bufferSize, DaemonThreadFactory.INSTANCE, producerType, waitStrategy);
-        disruptor.handleEventsWith(handler);
+        if (poolHandlers != null && poolHandlers.length > 0) {
+            // 并行消费:多个 EventHandler 作为独立 BatchEventProcessor 并行消费同一 RingBuffer。
+            // 与 WorkerPool(3.x,4.0 已移)语义不同:这里每个 handler 都会收到每条事件(广播)。
+            // 因此 BatchEventHandler 需按消费者索引分片过滤(见 LearningEventDisruptor.start 注释),
+            // 实现每条事件只被一个消费者落库 —— 等效 WorkerPool 的瓜分语义,兼容 Disruptor 4.0。
+            disruptor.handleEventsWith(poolHandlers);
+        } else {
+            disruptor.handleEventsWith(handler);
+        }
         // 消费计数:在用户 handler 之外再挂一个只计数的事件处理器,顺序在 handler 之后
         disruptor.handleEventsWith((event, sequence, endOfBatch) -> consumed.incrementAndGet());
         disruptor.setDefaultExceptionHandler(exceptionHandler);
         disruptor.start();
         ringBuffer = disruptor.getRingBuffer();
-        log.info("DisruptorWorker[{}] started: bufferSize={}, producer={}, wait={}",
-                name, bufferSize, producerType, waitStrategy.getClass().getSimpleName());
+        log.info("DisruptorWorker[{}] started: bufferSize={}, producer={}, wait={}, consumers={}",
+                name, bufferSize, producerType, waitStrategy.getClass().getSimpleName(),
+                poolHandlers != null ? poolHandlers.length : 1);
     }
 
     /**
@@ -144,6 +155,7 @@ public class DisruptorWorker<T> {
         private com.lmax.disruptor.EventFactory<T> factory;
         private com.lmax.disruptor.EventTranslatorOneArg<T, T> translator;
         private EventHandler<T> handler;
+        private EventHandler<T>[] poolHandlers;
         private ExceptionHandler<T> exceptionHandler;
 
         public Builder<T> name(String name) { this.name = name; return this; }
@@ -162,12 +174,22 @@ public class DisruptorWorker<T> {
         public Builder<T> factory(com.lmax.disruptor.EventFactory<T> f) { this.factory = f; return this; }
         public Builder<T> translator(com.lmax.disruptor.EventTranslatorOneArg<T, T> t) { this.translator = t; return this; }
         public Builder<T> handler(EventHandler<T> h) { this.handler = h; return this; }
+
+        /** 并行消费:传入多个 EventHandler 并行处理。Disruptor 4.0 已移除 WorkerPool/WorkHandler,
+         *  这里用多 EventHandler(每条广播给所有 handler)。调用方负责在 handler 内按 sequence 分片
+         *  过滤,使每条事件只被一个消费者实际落库(等效 WorkerPool 瓜分语义)。与 {@link #handler} 互斥。 */
+        @SafeVarargs
+        public final Builder<T> poolHandlers(EventHandler<T>... hs) { this.poolHandlers = hs; return this; }
+
         public Builder<T> exceptionHandler(ExceptionHandler<T> e) { this.exceptionHandler = e; return this; }
 
         public DisruptorWorker<T> build() {
             if (factory == null) throw new IllegalStateException("factory required");
             if (translator == null) throw new IllegalStateException("translator required");
-            if (handler == null) throw new IllegalStateException("handler required");
+            boolean singleMode = handler != null;
+            boolean poolMode = poolHandlers != null && poolHandlers.length > 0;
+            if (!singleMode && !poolMode) throw new IllegalStateException("handler or poolHandlers required");
+            if (singleMode && poolMode) throw new IllegalStateException("handler and poolHandlers are mutually exclusive");
             return new DisruptorWorker<>(this);
         }
     }

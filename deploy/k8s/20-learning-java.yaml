@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: learning-java
-        image: esp/learning-java:1.8.9   # #112 /recommend 第4维 emotion_aware(近7天情绪事件分析+难度适配场景)
+        image: esp/learning-java:1.9.0   # #126 Disruptor 4.0 兼容:多 EventHandler 分片并行消费(打破单消费者串行INSERT)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
         env:

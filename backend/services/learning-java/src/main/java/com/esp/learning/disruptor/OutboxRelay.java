@@ -74,17 +74,26 @@ public class OutboxRelay {
             } catch (Exception ex) {
                 fail++;
                 int nextRetry = retry + 1;
-                if (nextRetry >= MAX_RETRY) {
-                    writeJdbc.update(
-                            "UPDATE learning_event_outbox SET status='dead', retry_count=? WHERE id=?",
-                            nextRetry, id);
-                    log.error("outbox row dead (max retry): id={} type={}", id, eventType);
-                } else {
-                    long backoffMs = backoffMs(nextRetry);
-                    Timestamp nextAt = Timestamp.from(Instant.now().plusMillis(backoffMs));
-                    writeJdbc.update(
-                            "UPDATE learning_event_outbox SET retry_count=?, next_retry_at=? WHERE id=?",
-                            nextRetry, nextAt, id);
+                // 兜底也包一层:UPDATE 失败不能打断本批剩余行的处理(否则该行下次仍 pending,
+                // 且后续行本周期得不到处理,累积滞后)。记日志,本周期放弃该行,下轮重试。
+                try {
+                    if (nextRetry >= MAX_RETRY) {
+                        writeJdbc.update(
+                                "UPDATE learning_event_outbox SET status='dead', retry_count=? WHERE id=?",
+                                nextRetry, id);
+                        log.error("outbox row dead (max retry): id={} type={} err={}", id, eventType, ex.toString());
+                    } else {
+                        long backoffMs = backoffMs(nextRetry);
+                        Timestamp nextAt = Timestamp.from(Instant.now().plusMillis(backoffMs));
+                        writeJdbc.update(
+                                "UPDATE learning_event_outbox SET retry_count=?, next_retry_at=? WHERE id=?",
+                                nextRetry, nextAt, id);
+                        log.warn("outbox row retry id={} type={} nextRetry={} err={}",
+                                id, eventType, nextRetry, ex.toString());
+                    }
+                } catch (Exception updateEx) {
+                    log.error("outbox retry-mark FAILED id={} type={} (will retry next cycle) err={}",
+                            id, eventType, updateEx.toString());
                 }
             }
         }

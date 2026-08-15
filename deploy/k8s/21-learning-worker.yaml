@@ -27,7 +27,7 @@ spec:
     spec:
       containers:
       - name: learning-worker
-        image: esp/learning-java:1.8.9   # #112 /recommend 第4维 emotion_aware(复用 learning-java 镜像)
+        image: esp/learning-java:1.9.0   # #126 Disruptor 4.0 兼容:多 EventHandler 分片并行消费(复用 learning-java 镜像)
         imagePullPolicy: IfNotPresent
         env:
         - {name: ESP_ROLE, value: "worker"}

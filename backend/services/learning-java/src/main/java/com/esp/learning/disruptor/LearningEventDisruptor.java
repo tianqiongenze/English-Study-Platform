@@ -14,6 +14,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -24,7 +26,10 @@ import java.util.Set;
  * 并保留对外 publish()/publishedCount()/droppedCount() API(供 LearningService 调用)。
  *
  * <p>多生产者:Netty worker / REST 线程并发投递 -> {@link ProducerType#MULTI}。
- * 单消费者:BatchEventHandler 顺序批量落库(保持原有顺序语义)。
+ * 多消费者:分片并行模式,N 个 BatchEventHandler 并行批量落库(打破单消费者串行 INSERT 上限,
+ * 参数 {@code esp.disruptor.consumers},默认 4)。Disruptor 4.0 已移除 WorkerPool/WorkHandler,
+ * 这里用多 EventHandler(每条事件广播给所有 handler)+ handler 内按 {@code sequence % shardCount == shardIndex}
+ * 分片过滤,实现每条事件只被一个消费者落库(等效 WorkerPool 瓜分语义)。
  *
  * <p>原内联 Disruptor 实现已删除,统一复用 com.esp:esp-disruptor:1.0.0。
  *
@@ -44,11 +49,12 @@ public class LearningEventDisruptor {
     private final int bufferSize;
     private final int batchSize;
     private final long flushIntervalMs;
+    private final int consumerCount;
     private final LearningEventConsumer consumer;
     private final JdbcTemplate writeJdbc;
 
     private DisruptorWorker<LearningEvent> worker;
-    private BatchEventHandler handler;
+    private final List<BatchEventHandler> handlers = new ArrayList<>();
 
     /**
      * translator 输入复用槽:DisruptorWorker.publish(T) 接收一个 payload 对象,
@@ -69,36 +75,51 @@ public class LearningEventDisruptor {
             @Value("${esp.disruptor.buffer-size:65536}") int bufferSize,
             @Value("${esp.disruptor.batch-size:200}") int batchSize,
             @Value("${esp.disruptor.flush-interval-ms:500}") long flushIntervalMs,
+            @Value("${esp.disruptor.consumers:4}") int consumerCount,
             LearningEventConsumer consumer,
             JdbcTemplate writeJdbc) {
         this.bufferSize = bufferSize;
         this.batchSize = batchSize;
         this.flushIntervalMs = flushIntervalMs;
+        // 至少 1 个消费者;上限 16(单节点 RD 防线程爆炸,TiDB 连接池容量约束)。
+        this.consumerCount = Math.max(1, Math.min(16, consumerCount));
         this.consumer = consumer;
         this.writeJdbc = writeJdbc;
     }
 
     @PostConstruct
     public void start() {
-        handler = new BatchEventHandler(consumer, batchSize, flushIntervalMs);
+        com.lmax.disruptor.EventHandler<LearningEvent>[] pool =
+                new com.lmax.disruptor.EventHandler[consumerCount];
+        for (int i = 0; i < consumerCount; i++) {
+            // 每个 handler 持有自己的分片索引(i)与总分片数(consumerCount),
+            // onEvent 内按 sequence % shardCount == shardIndex 过滤,实现瓜分语义。
+            BatchEventHandler h = new BatchEventHandler(consumer, batchSize, flushIntervalMs,
+                    i, consumerCount, "learning-batch-" + i);
+            handlers.add(h);
+            pool[i] = h;
+        }
         worker = DisruptorWorker.<LearningEvent>builder()
                 .name("learning-event")
                 .bufferSize(bufferSize)
                 .producerType(ProducerType.MULTI)
                 .waitStrategy(WaitStrategyType.BLOCKING)
                 .factory(LearningEvent::new)
-                .translator((LearningEvent slot, long sequence, LearningEvent src) -> {
-                    slot.clear();
-                    slot.setUserId(src.getUserId());
-                    slot.setEventType(src.getEventType());
-                    slot.setPayload(src.getPayload());
-                    slot.setCreatedAt(src.getCreatedAt());
+                .translator(new com.lmax.disruptor.EventTranslatorOneArg<LearningEvent, LearningEvent>() {
+                    @Override
+                    public void translateTo(LearningEvent slot, long sequence, LearningEvent src) {
+                        slot.clear();
+                        slot.setUserId(src.getUserId());
+                        slot.setEventType(src.getEventType());
+                        slot.setPayload(src.getPayload());
+                        slot.setCreatedAt(src.getCreatedAt());
+                    }
                 })
-                .handler(handler)
+                .poolHandlers(pool)
                 .build();
         worker.start();
-        log.info("DisruptorWorker[learning-event] started: bufferSize={}, batchSize={}, flushMs={}",
-                bufferSize, batchSize, flushIntervalMs);
+        log.info("DisruptorWorker[learning-event] started: bufferSize={}, batchSize={}, flushMs={}, consumers={}",
+                bufferSize, batchSize, flushIntervalMs, consumerCount);
     }
 
     /**
@@ -155,9 +176,11 @@ public class LearningEventDisruptor {
 
     @PreDestroy
     public void shutdown() {
-        log.info("DisruptorWorker[learning-event] shutting down, draining batch buffer...");
-        // 先 flush 批处理缓存,确保在途事件落库;worker.shutdown() 会阻塞至消费者追上。
-        if (handler != null) handler.drain();
+        log.info("DisruptorWorker[learning-event] shutting down, draining batch buffers...");
+        // 先 flush 所有并行消费者的批处理缓存,确保在途事件落库;worker.shutdown() 会阻塞至消费者追上。
+        for (BatchEventHandler h : handlers) {
+            h.drain();
+        }
         if (worker != null) worker.shutdown();
     }
 }

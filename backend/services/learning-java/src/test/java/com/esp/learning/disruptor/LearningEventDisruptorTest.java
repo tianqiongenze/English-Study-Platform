@@ -29,7 +29,7 @@ class LearningEventDisruptorTest {
 
         // 用小 buffer 与 batch 加速 flush 触发。writeJdbc 传 mock(outbox 兜底路径不被命中)。
         JdbcTemplate mockJdbc = mock(JdbcTemplate.class);
-        LearningEventDisruptor d = new LearningEventDisruptor(1024, 50, 100, consumer, mockJdbc);
+        LearningEventDisruptor d = new LearningEventDisruptor(1024, 50, 100, 1, consumer, mockJdbc);
         d.start();
         try {
             int n = 500;
@@ -55,7 +55,7 @@ class LearningEventDisruptorTest {
         LearningEventConsumer consumer = (events, offset, length) -> total.addAndGet(length);
 
         JdbcTemplate mockJdbc = mock(JdbcTemplate.class);
-        LearningEventDisruptor d = new LearningEventDisruptor(65536, 500, 200, consumer, mockJdbc);
+        LearningEventDisruptor d = new LearningEventDisruptor(65536, 500, 200, 4, consumer, mockJdbc);
         d.start();
         try {
             int threads = 8;

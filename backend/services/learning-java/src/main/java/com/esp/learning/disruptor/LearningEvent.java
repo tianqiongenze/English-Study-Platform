@@ -9,6 +9,8 @@ public class LearningEvent {
     private String eventType; // answer | speak | review ...
     private String payload;   // JSON
     private long createdAt;   // epoch millis
+    /** P1-8 幂等键:发布侧生成的 UUID,随 Pulsar 载荷透传;重投递同 messageId → ON CONFLICT 去重。 */
+    private String messageId;
 
     public long getUserId() { return userId; }
     public void setUserId(long userId) { this.userId = userId; }
@@ -22,11 +24,15 @@ public class LearningEvent {
     public long getCreatedAt() { return createdAt; }
     public void setCreatedAt(long createdAt) { this.createdAt = createdAt; }
 
+    public String getMessageId() { return messageId; }
+    public void setMessageId(String messageId) { this.messageId = messageId; }
+
     /** Disruptor 复用槽位时清空,避免脏数据。 */
     public void clear() {
         userId = 0;
         eventType = null;
         payload = null;
         createdAt = 0;
+        messageId = null;
     }
 }

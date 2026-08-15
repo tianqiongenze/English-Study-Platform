@@ -20,12 +20,17 @@ import java.util.List;
  *
  * <p>timeout flush:EventHandler.onEvent 带 {@code endOfBatch} 信号,本批次末尾若超时则触发 flush,
  * 不需独立守护线程(低频场景由 endOfBatch 兜底;高频由 batchSize 触发)。
+ *
+ * <p>G-06 修复:flush 不再【同步】调用 consumer.consume,而是把批次【深拷贝成独立
+ * List&lt;LearningEvent&gt;】后非阻塞投递到 {@link EventBatchQueue},由独立 DB writer 线程池异步
+ * batchUpdate。深拷贝必须在此边界完成 —— Disruptor 槽位会被后续 publish 复用,队列/DB writer
+ * 线程绝不能持有槽引用。
  */
 public class BatchEventHandler implements EventHandler<LearningEvent> {
 
     private static final Logger log = LoggerFactory.getLogger(BatchEventHandler.class);
 
-    private final LearningEventConsumer consumer;
+    private final EventBatchQueue batchQueue;
     private final int batchSize;
     private final long flushIntervalMs;
     private final int shardIndex;
@@ -35,13 +40,13 @@ public class BatchEventHandler implements EventHandler<LearningEvent> {
     private final String name;
 
     /** 单消费者兼容构造(shardCount=1,处理所有事件)。 */
-    public BatchEventHandler(LearningEventConsumer consumer, int batchSize, long flushIntervalMs) {
-        this(consumer, batchSize, flushIntervalMs, 0, 1, "batch-handler");
+    public BatchEventHandler(EventBatchQueue batchQueue, int batchSize, long flushIntervalMs) {
+        this(batchQueue, batchSize, flushIntervalMs, 0, 1, "batch-handler");
     }
 
-    public BatchEventHandler(LearningEventConsumer consumer, int batchSize, long flushIntervalMs,
+    public BatchEventHandler(EventBatchQueue batchQueue, int batchSize, long flushIntervalMs,
                              int shardIndex, int shardCount, String name) {
-        this.consumer = consumer;
+        this.batchQueue = batchQueue;
         this.batchSize = batchSize;
         this.flushIntervalMs = flushIntervalMs;
         this.shardIndex = shardIndex;
@@ -57,11 +62,13 @@ public class BatchEventHandler implements EventHandler<LearningEvent> {
         if (shardCount > 1 && (sequence % shardCount) != shardIndex) {
             return;
         }
+        // 深拷贝 RingBuffer 槽位:槽会被后续 publish 复用,缓冲绝不能持有槽引用。
         LearningEvent copy = new LearningEvent();
         copy.setUserId(event.getUserId());
         copy.setEventType(event.getEventType());
         copy.setPayload(event.getPayload());
         copy.setCreatedAt(event.getCreatedAt());
+        copy.setMessageId(event.getMessageId()); // P1-8 幂等键透传
         buffer.add(copy);
 
         long now = System.currentTimeMillis();
@@ -84,13 +91,12 @@ public class BatchEventHandler implements EventHandler<LearningEvent> {
             lastFlushTime = System.currentTimeMillis();
             return;
         }
-        LearningEvent[] arr = buffer.toArray(new LearningEvent[0]);
-        try {
-            consumer.consume(arr, 0, arr.length);
-        } catch (Exception ex) {
-            // consumer 内部已 catch 并记日志;此处兜底防 flush 抛出打断消费线程。
-            log.error("[{}] flush consume failed: {}", name, ex.toString());
-        }
+        // 生成独立批次列表(元素为 onEvent 深拷贝的独立对象),投递后 buffer.clear()。
+        // 入队边界 EventBatchQueue.offer 还会再深拷贝一次,确保队列/DB writer 线程绝不
+        // 持有 Disruptor 复用槽或本 handler 缓冲区的引用。
+        List<LearningEvent> batch = new ArrayList<>(buffer);
+        // 非阻塞投递:队列满 → 计数 DROP(EventBatchQueue 内部记 dropped),不阻塞 consumer 线程。
+        batchQueue.offer(batch);
         buffer.clear();
         lastFlushTime = System.currentTimeMillis();
     }

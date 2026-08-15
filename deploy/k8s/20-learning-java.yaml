@@ -12,19 +12,27 @@ spec:
     spec:
       containers:
       - name: learning-java
-        image: esp/learning-java:1.9.0   # #126 Disruptor 4.0 兼容:多 EventHandler 分片并行消费(打破单消费者串行INSERT)
+        image: esp/learning-java:1.11.3   # #145 CRDB 切库实测通过;#133 独立DB writer + #135 esp-web-common + #137 CRDB适配;#145 后同 1.11.2;#147 P1-8 幂等(messageId 透传 + ON CONFLICT DO NOTHING,worker-split 入口 publish-only)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
         env:
         - {name: ESP_ROLE, value: "api"}                       # P1-11: HTTP/Dubbo 入口角色
-        - {name: ESP_DISRUPTOR_ENABLED, value: "true"}          # P1-11: 入口仍进程内 Disruptor(单节点一体化);worker 模式下改 false
+        - {name: ESP_DISRUPTOR_ENABLED, value: "false"}         # #131 worker-split:入口 publish-only,事件经 Pulsar 由 worker 消费落库(单节点一体化模式改 true)
         - {name: PULSAR_CONSUMER_ENABLED, value: "false"}       # P1-11 防循环:入口不订阅 LEARNING_EVENT_REPORT(否则入口发→入口收→reportEvent→再发,无限循环)
-        - {name: WRITE_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_learning?useSSL=false&allowPublicKeyRetrieval=true"}
-        - {name: READ_DB_URL, value: "jdbc:mysql://tidb-follower:4000/esp_learning?useSSL=false&allowPublicKeyRetrieval=true"}
+        # #140 全服务切 CRDB:数据访问层走 CockroachDB(稳定,替代单节点 TiKV region 不稳);读 esp_learning + app_logs(esp_shared)
+        - {name: ESP_RW_STORAGE_TYPE,       value: "cockroachdb"}
+        - {name: ESP_RW_COCKROACHDB_HOST,   value: "crdb-public"}
+        - {name: ESP_RW_COCKROACHDB_READ_HOST, value: "crdb-public"}   # 单节点,follower-read 在连接参数层
+        - {name: ESP_RW_COCKROACHDB_PORT,   value: "26257"}
+        - {name: ESP_RW_COCKROACHDB_DB,     value: "esp_learning"}
+        - {name: ESP_RW_COCKROACHDB_SHARED_DB, value: "esp_shared"}   # app_logs 跨 schema
+        - {name: ESP_RW_COCKROACHDB_USER,   value: "root"}
+        - {name: WRITE_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_learning?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
+        - {name: READ_DB_URL, value: "jdbc:mysql://tidb-follower:4000/esp_learning?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
         # app_logs 跨 schema:app_logs 在 esp_shared,业务读写指 esp_learning,独立连接池写/读 app_logs
-        - {name: SHARED_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_shared?useSSL=false&allowPublicKeyRetrieval=true"}
-        - {name: DB_USER, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_USER}}}
-        - {name: DB_PASS, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_PASS}}}
+        - {name: SHARED_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_shared?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
+        - {name: DB_USER, value: "root"}
+        - {name: DB_PASS, value: ""}
         - {name: REDIS_HOST, value: "redis-cluster"}
         - {name: NACOS_HOST, value: "nacos"}
         - {name: DUBBO_GROUP, value: "esp"}

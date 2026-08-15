@@ -27,16 +27,25 @@ spec:
     spec:
       containers:
       - name: learning-worker
-        image: esp/learning-java:1.9.0   # #126 Disruptor 4.0 兼容:多 EventHandler 分片并行消费(复用 learning-java 镜像)
+        image: esp/learning-java:1.11.3   # #131:加 Pulsar 订阅 Shared(修 Exclusive 只能 1 消费者);#139 Timestamp 修复;#147 P1-8 幂等(messageId 透传 + ON CONFLICT DO NOTHING)
         imagePullPolicy: IfNotPresent
         env:
         - {name: ESP_ROLE, value: "worker"}
         - {name: ESP_DISRUPTOR_ENABLED, value: "true"}      # worker 启 Disruptor 消费
         - {name: PULSAR_CONSUMER_ENABLED, value: "true"}     # 订阅 LEARNING_EVENT_REPORT(入口已关消费,无循环)
-        - {name: WRITE_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"}
-        - {name: READ_DB_URL, value: "jdbc:mysql://tidb-follower:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"}
-        - {name: DB_USER, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_USER}}}
-        - {name: DB_PASS, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_PASS}}}
+        # #140 全服务切 CRDB:数据访问层走 CockroachDB(稳定,替代单节点 TiKV region 不稳);写 esp_learning
+        - {name: ESP_RW_STORAGE_TYPE,       value: "cockroachdb"}
+        - {name: ESP_RW_COCKROACHDB_HOST,   value: "crdb-public"}
+        - {name: ESP_RW_COCKROACHDB_READ_HOST, value: "crdb-public"}
+        - {name: ESP_RW_COCKROACHDB_PORT,   value: "26257"}
+        - {name: ESP_RW_COCKROACHDB_DB,     value: "esp_learning"}
+        - {name: ESP_RW_COCKROACHDB_SHARED_DB, value: "esp_shared"}
+        - {name: ESP_RW_COCKROACHDB_USER,   value: "root"}
+        - {name: WRITE_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_learning?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
+        - {name: READ_DB_URL, value: "jdbc:mysql://tidb-follower:4000/esp_learning?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
+        - {name: SHARED_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_shared?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
+        - {name: DB_USER, value: "root"}
+        - {name: DB_PASS, value: ""}
         - {name: REDIS_HOST, value: "redis-cluster"}
         - {name: NACOS_HOST, value: "nacos"}
         - {name: DUBBO_GROUP, value: "esp"}

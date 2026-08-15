@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class LearningService {
@@ -63,18 +64,26 @@ public class LearningService {
      *       由 learning-worker 订阅后进 Disruptor 落库。两条路径均非阻塞,失败降级只 warn。
      */
     public boolean reportEvent(long userId, String eventType, String payload) {
+        return reportEvent(userId, eventType, payload, UUID.randomUUID().toString());
+    }
+
+    /**
+     * P1-8 幂等投递:messageId 由调用方指定。消费侧(worker 收到 Pulsar 载荷)用载荷内透传的
+     * messageId,重投递同消息 → 同 messageId → 落库 {@code ON CONFLICT (message_id) DO NOTHING} 去重。
+     */
+    public boolean reportEvent(long userId, String eventType, String payload, String messageId) {
         if (disruptorEnabled && disruptor != null) {
-            return disruptor.publish(userId, eventType, payload);
+            return disruptor.publish(userId, eventType, payload, messageId);
         }
         // P2-2: 入口无 Disruptor Bean,走 Pulsar 跨进程投递。
         eventPublisher.publish(EventTopics.LEARNING_EVENT_REPORT,
-                new LearningEventReport(userId, eventType, payload));
+                new LearningEventReport(messageId, userId, eventType, payload));
         log.debug("learning event forwarded to pulsar (worker mode): user={} type={}", userId, eventType);
         return true;
     }
 
-    /** P2-2: Pulsar 事件体(与 learning-worker 反序列化对齐)。 */
-    public record LearningEventReport(long userId, String eventType, String payload) {}
+    /** P2-2: Pulsar 事件体(与 learning-worker 反序列化对齐)。messageId 为 P1-8 幂等键。 */
+    public record LearningEventReport(String messageId, long userId, String eventType, String payload) {}
 
     /**
      * FR-2.1 初测:批量写入 mastery 基线(写主库)。写后失效 due/weak 缓存。

@@ -50,10 +50,13 @@ public class LearningEventDisruptor {
     private final int batchSize;
     private final long flushIntervalMs;
     private final int consumerCount;
+    private final int writerCount;
+    private final int writerQueueCapacity;
     private final LearningEventConsumer consumer;
     private final JdbcTemplate writeJdbc;
 
     private DisruptorWorker<LearningEvent> worker;
+    private EventBatchQueue batchQueue;
     private final List<BatchEventHandler> handlers = new ArrayList<>();
 
     /**
@@ -71,11 +74,33 @@ public class LearningEventDisruptor {
     private static final Set<String> CRITICAL_EVENT_TYPES = Set.of(
             "session_ended", "placement_done", "difficulty_changed", "mastery_updated");
 
+    /**
+     * 兼容构造(测试/历史调用):writer 池与队列容量取默认值(writers=4, writer-queue=100)。
+     */
+    public LearningEventDisruptor(
+            int bufferSize,
+            int batchSize,
+            long flushIntervalMs,
+            int consumerCount,
+            LearningEventConsumer consumer,
+            JdbcTemplate writeJdbc) {
+        this(bufferSize, batchSize, flushIntervalMs, consumerCount, 4, 100, consumer, writeJdbc);
+    }
+
+    /**
+     * G-06:consumer 只入队,独立 DB writer 线程池异步 batchUpdate(背压有界队列)。
+     *
+     * @param writerCount        DB writer 线程数({@code esp.disruptor.writers},默认 4)
+     * @param writerQueueCapacity 有界队列容量,单位批({@code esp.disruptor.writer-queue},默认 100 ≈ 20000 事件)
+     */
+    @org.springframework.beans.factory.annotation.Autowired
     public LearningEventDisruptor(
             @Value("${esp.disruptor.buffer-size:65536}") int bufferSize,
             @Value("${esp.disruptor.batch-size:200}") int batchSize,
             @Value("${esp.disruptor.flush-interval-ms:500}") long flushIntervalMs,
             @Value("${esp.disruptor.consumers:4}") int consumerCount,
+            @Value("${esp.disruptor.writers:4}") int writerCount,
+            @Value("${esp.disruptor.writer-queue:100}") int writerQueueCapacity,
             LearningEventConsumer consumer,
             JdbcTemplate writeJdbc) {
         this.bufferSize = bufferSize;
@@ -83,18 +108,24 @@ public class LearningEventDisruptor {
         this.flushIntervalMs = flushIntervalMs;
         // 至少 1 个消费者;上限 16(单节点 RD 防线程爆炸,TiDB 连接池容量约束)。
         this.consumerCount = Math.max(1, Math.min(16, consumerCount));
+        this.writerCount = Math.max(1, Math.min(16, writerCount));
+        this.writerQueueCapacity = Math.max(1, writerQueueCapacity);
         this.consumer = consumer;
         this.writeJdbc = writeJdbc;
     }
 
     @PostConstruct
     public void start() {
+        // G-06:独立 DB writer 线程池 + 有界批次队列。consumer 线程只入队,writer 异步 batchUpdate。
+        batchQueue = new EventBatchQueue(consumer, writerQueueCapacity, writerCount);
+        batchQueue.start();
+
         com.lmax.disruptor.EventHandler<LearningEvent>[] pool =
                 new com.lmax.disruptor.EventHandler[consumerCount];
         for (int i = 0; i < consumerCount; i++) {
             // 每个 handler 持有自己的分片索引(i)与总分片数(consumerCount),
             // onEvent 内按 sequence % shardCount == shardIndex 过滤,实现瓜分语义。
-            BatchEventHandler h = new BatchEventHandler(consumer, batchSize, flushIntervalMs,
+            BatchEventHandler h = new BatchEventHandler(batchQueue, batchSize, flushIntervalMs,
                     i, consumerCount, "learning-batch-" + i);
             handlers.add(h);
             pool[i] = h;
@@ -113,13 +144,14 @@ public class LearningEventDisruptor {
                         slot.setEventType(src.getEventType());
                         slot.setPayload(src.getPayload());
                         slot.setCreatedAt(src.getCreatedAt());
+                        slot.setMessageId(src.getMessageId());
                     }
                 })
                 .poolHandlers(pool)
                 .build();
         worker.start();
-        log.info("DisruptorWorker[learning-event] started: bufferSize={}, batchSize={}, flushMs={}, consumers={}",
-                bufferSize, batchSize, flushIntervalMs, consumerCount);
+        log.info("DisruptorWorker[learning-event] started: bufferSize={}, batchSize={}, flushMs={}, consumers={}, writers={}, writerQueue={}",
+                bufferSize, batchSize, flushIntervalMs, consumerCount, writerCount, writerQueueCapacity);
     }
 
     /**
@@ -131,28 +163,37 @@ public class LearningEventDisruptor {
      * 防关键业务数据丢失;埋点类可接受 DROP(不影响业务正确性)。
      */
     public boolean publish(long userId, String eventType, String payload) {
+        return publish(userId, eventType, payload, java.util.UUID.randomUUID().toString());
+    }
+
+    /**
+     * P1-8 幂等发布:携带 messageId。入口单进程模式自动生成 UUID;worker 模式由调用方透传
+     * Pulsar 载荷的 messageId,使重投递同消息落同 messageId,落库 ON CONFLICT 去重。
+     */
+    public boolean publish(long userId, String eventType, String payload, String messageId) {
         LearningEvent src = translatorInput.get();
         src.setUserId(userId);
         src.setEventType(eventType);
         src.setPayload(payload);
         src.setCreatedAt(System.currentTimeMillis());
+        src.setMessageId(messageId);
         PublishResult r = worker.publish(src);
         if (r == PublishResult.PUBLISHED) {
             return true;
         }
         // DROP:关键事件落 outbox 兜底,非关键丢弃。
         if (CRITICAL_EVENT_TYPES.contains(eventType)) {
-            fallbackToOutbox(userId, eventType, payload);
+            fallbackToOutbox(userId, eventType, payload, messageId);
         }
         return false;
     }
 
-    /** P1-10:关键事件 DROP 时落 outbox(异步,不阻塞发布线程)。 */
-    private void fallbackToOutbox(long userId, String eventType, String payload) {
+    /** P1-10:关键事件 DROP 时落 outbox(异步,不阻塞发布线程)。messageId 透传保幂等键。 */
+    private void fallbackToOutbox(long userId, String eventType, String payload, String messageId) {
         try {
             writeJdbc.update(
-                    "INSERT INTO learning_event_outbox (user_id, event_type, payload, status) VALUES (?,?,?, 'pending')",
-                    userId, eventType, payload);
+                    "INSERT INTO learning_event_outbox (message_id, user_id, event_type, payload, status) VALUES (?,?,?,?, 'pending')",
+                    messageId, userId, eventType, payload);
             log.warn("critical event DROP-fallback to outbox: user={} type={}", userId, eventType);
         } catch (Exception ex) {
             // outbox 也失败(Redis/DB 双障)→ 尽力而为记日志,不抛(不阻断入口响应)。
@@ -177,10 +218,22 @@ public class LearningEventDisruptor {
     @PreDestroy
     public void shutdown() {
         log.info("DisruptorWorker[learning-event] shutting down, draining batch buffers...");
-        // 先 flush 所有并行消费者的批处理缓存,确保在途事件落库;worker.shutdown() 会阻塞至消费者追上。
+        // 先 flush 所有并行消费者的批处理缓存,确保在途事件入队;worker.shutdown() 会阻塞至消费者追上。
         for (BatchEventHandler h : handlers) {
             h.drain();
         }
         if (worker != null) worker.shutdown();
+        // 最后停 DB writer 线程池(排空剩余批次后退出),防优雅关闭丢在途事件。
+        if (batchQueue != null) batchQueue.shutdown();
+    }
+
+    /** 独立 DB writer 队列(有界批次队列)的 DROP 计数(Queue 满丢弃,与 RingBuffer 满 DROP 同语义)。 */
+    public long writerDroppedCount() {
+        return batchQueue == null ? 0L : batchQueue.droppedCount();
+    }
+
+    /** 独立 DB writer 队列当前积压批次数。 */
+    public int writerQueueSize() {
+        return batchQueue == null ? 0 : batchQueue.queueSize();
     }
 }

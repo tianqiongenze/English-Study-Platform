@@ -14,6 +14,7 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.Schema;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -100,7 +101,9 @@ public class LearningEventConsumer {
      */
     private void handleEventReport(LearningService.LearningEventReport ev) {
         try {
-            learningService.reportEvent(ev.userId(), ev.eventType(), ev.payload());
+            // P1-8:透传载荷 messageId,重投递同消息 → 同 messageId → ON CONFLICT 去重。
+            // 传 4 参重载(非 3 参:3 参会重新生成 UUID,幂等失效)。
+            learningService.reportEvent(ev.userId(), ev.eventType(), ev.payload(), ev.messageId());
         } catch (Exception ex) {
             log.warn("learning.event.report handle failed userId={} err={}", ev.userId(), ex.toString());
         }
@@ -152,7 +155,9 @@ public class LearningEventConsumer {
     /** session.ended:口语会话结束 → 经 Disruptor 记 session_ended 学情事件(驱动复习调度)。 */
     private void handleSessionEnded(SessionEndedEvent ev) {
         try {
-            learningService.reportEvent(ev.getUserId(), "session_ended", ev.getSessionId());
+            // P1-8:确定性 messageId(基于 sessionId),session.ended 事件 Pulsar 重投递 → 同 messageId → 去重。
+            String messageId = "session_ended:" + ev.getUserId() + ":" + ev.getSessionId();
+            learningService.reportEvent(ev.getUserId(), "session_ended", ev.getSessionId(), messageId);
             log.info("session.ended handled: userId={}, sessionId={}", ev.getUserId(), ev.getSessionId());
         } catch (Exception ex) {
             log.warn("session.ended handle failed err={}", ex.toString());
@@ -173,6 +178,9 @@ public class LearningEventConsumer {
                 Consumer<T> c = client.newConsumer(schema)
                         .topic(topic)
                         .subscriptionName(subName)
+                        // #131:默认 Exclusive 同一订阅名仅 1 消费者,worker 1→3→5 分片时
+                        // 第 2/3 副本 ConsumerBusyException 订阅失败;Shared 支持多副本共享消费(每消息 1 消费者)。
+                        .subscriptionType(SubscriptionType.Shared)
                         .subscribe();
                 if (topic.equals(EventTopics.USER_REGISTERED)) regConsumer = uncheckedCast(c);
                 else if (topic.equals(EventTopics.TEACHER_FINALIZED)) finConsumer = uncheckedCast(c);

@@ -30,6 +30,7 @@
 - [Observability Architecture](#observability-architecture)
 - [Test System](#test-system)
 - [Measured Performance Data](#measured-performance-data)
+- [Engineering Status Scorecard](#engineering-status-scorecard)
 - [Roadmap](#roadmap)
 - [Contribution Conventions](#contribution-conventions)
 
@@ -111,6 +112,18 @@ flowchart LR
     Services --> NACOS
     BFFJ --> SEATA
 ```
+
+### Architecture at a Glance (measured numbers)
+
+| Metric | Value |
+|---|---|
+| Business services | 19 (Java 3 / Go 8 / Python 3 / Rust 4 + integration-tests) |
+| Deployments (esp-prod) | 21+ (business + SCA) |
+| Disruptor in production | bff-java **2-stage** (`parse` 65536 → `forward` 16384); learning-java single ring 65536 with **4 sharded consumers**; teacher-java not wired |
+| RW-split pools (learning-java) | HikariCP write 20 + read 20 + shared 10 |
+| Cache | Caffeine L1 + Redis Cluster ×6; warm-up 23,000 keys in 1.5 s |
+| Storage | TiDB primary/follower :4000 (MySQL wire); CockroachDB ×3 in `ns esp-crdb` (`crdb-public:26257`, PG wire) as measured benchmark alternative |
+| Edge | NettyEdgeServer :9090 (SO_BACKLOG 8192) + gateway-go WS :8080 (NodePort 30080) |
 
 > Infrastructure is reused cross-namespace via ExternalName short names (`tidb-primary`/`tidb-follower`/`redis-cluster`/`pulsar-broker`) — see `deploy/k8s/05-infra-reuse.yaml` and `deploy/k8s/05b-platform-infra-externalnames.yaml`.
 
@@ -306,6 +319,29 @@ sequenceDiagram
     end
 ```
 
+**Multi-level pipeline abstraction (arbitrary stage count).** `platform/esp-disruptor`'s `DisruptorPipeline` chains any number of levels: `DisruptorPipeline.named("flow").stage("s1", ...).stage("s2", ...).build()`. Each stage is an **independent RingBuffer + independent consumer thread(s)** with its own bufferSize / producerType / waitStrategy, so per-stage backpressure (`tryPublishEvent` → `DROPPED` when that stage's ring is full) isolates the speed difference between parse / forward / sink stages. Inter-stage handoff is `forward(fromStage, payload)`; shutdown runs in reverse order so upstream stops publishing before downstream drains.
+
+Production wiring (measured, 2026-08-15):
+
+| Service | Pipeline | Levels | Ring / consumers | Wait strategies |
+|---|---|---|---|---|
+| bff-java | `bff-inlet` | **2** (parse → forward); a 3rd "respond" stage is a reserved `ForwardRespondHandler` extension point (not implemented) | 65536 LITE_BLOCKING → 16384 BLOCKING | LITE_BLOCKING / BLOCKING |
+| learning-java | `learning-event` | **1** (single RingBuffer) | 65536; **4** sharded `BatchEventHandler` consumers (`esp.disruptor.consumers`, cap 16) | BLOCKING |
+| teacher-java | — | **not wired** (no Disruptor) | — | — |
+
+**Disruptor 4.0 parallel-consumer sharding.** Disruptor 4.0 removed WorkerPool/WorkHandler, so ESP emulates worker-pool "divide" semantics with **multiple EventHandlers as independent BatchEventProcessors consuming the same RingBuffer**: every handler receives every event (broadcast) and filters by `sequence % shardCount == shardIndex`, so exactly one consumer persists each event while each shard keeps its own batch (batchSize 200 / 500ms flush).
+
+```mermaid
+flowchart LR
+    P["producers (HTTP 202 / Netty edge)<br/>tryPublishEvent"] --> R["single RingBuffer 65536<br/>ProducerType.MULTI"]
+    R --> H0["BatchEventHandler #0<br/>sequence % 4 == 0"]
+    R --> H1["BatchEventHandler #1<br/>sequence % 4 == 1"]
+    R --> H2["BatchEventHandler #2<br/>sequence % 4 == 2"]
+    R --> H3["BatchEventHandler #3<br/>sequence % 4 == 3"]
+    H0 & H1 & H2 & H3 -->|"batch flush 200 / 500ms"| DB["TiDB learning_events<br/>batchUpdate, @DataSource(WRITE)"]
+    DB -.->|"sync batchUpdate blocks the consumer threads<br/>(no independent DB writer pool) = G-06 bottleneck"| R
+```
+
 ### 2. Read-Write Splitting + Disruptor Batched Writes (learning-java)
 
 - Ingress: HTTP 202 async; learning events enter the `LearningEvent` RingBuffer (65536);
@@ -333,6 +369,25 @@ sequenceDiagram
     end
     Note over P: cross-replica/async paths go through Pulsar; AOP closes routing within consumer threads
 ```
+
+**RoutingDataSource model (esp-rw-java).** The shared `esp-rw-java` library routes each request between write and read pools through a ThreadLocal routing context:
+
+```mermaid
+flowchart LR
+    M["@DataSource(READ) / (WRITE) / consistent=true"] --> A["DataSourceAspect<br/>(AOP set / proceed / clear)"]
+    A --> H["RoutingHolder<br/>(ThreadLocal&lt;DataSourceType&gt;, default WRITE)"]
+    H --> RDS["RoutingDataSource<br/>(AbstractRoutingDataSource<br/>determineCurrentLookupKey())"]
+    RDS -->|WRITE| W["HikariCP write pool 20<br/>tidb-primary:4000 (jdbc:mysql)"]
+    RDS -->|READ| RD["HikariCP read pool 20<br/>tidb-follower:4000 (jdbc:mysql)"]
+    RDS -.->|"consistent=true forces WRITE<br/>(write-then-read strong consistency)"| W
+    W & RD -->|"LazyConnectionDataSourceProxy<br/>(routing only on actual connection acquire)"| TX["JdbcTemplate / JPA / Repository"]
+```
+
+- Pool sizing (learning-java): HikariCP `maximum-pool-size` write 20 + read 20 + shared 10.
+- Feature flag: `esp.rw.enabled=false` skips the routing datasource entirely (single-primary fallback).
+- Virtual-thread verified (2026-08-15): routing is per-thread via ThreadLocal; the whole request (Jetty accept → virtual-thread handler → AOP set/proceed/clear) runs inside one virtual thread, and Pulsar consumer threads are their own closed loop — routing stays correct, no cross-thread leakage.
+
+**Storage-switchable by design (implemented, #132).** The routing targets are pluggable HikariCP pools, and a storage-type switch (`esp.rw.storage.type=tidb|cockroachdb`) re-points write/read/shared pools without touching business code — `cockroachdb` mode switches the pools to PostgreSQL-wire (`crdb-public:26257`, per-service `ESP_RW_COCKROACHDB_DB`, `esp_shared` for app_logs, CockroachDialect). Today production wires TiDB (`${WRITE_DB_URL}` / `${READ_DB_URL}` → `jdbc:mysql://tidb-primary|tidb-follower:4000/esp`). The full-service app-level re-benchmark (#137, 2026-08-15) measured CRDB at **0.33–0.71× TiDB on all DB paths** (an earlier micro-benchmark: 139.0 vs 259.3 insert/s, ratio 0.54) — see the [CRDB chapter](#crdb-vs-tidb-benchmarked-comparison--selection-decision).
 
 ### 3. JWT Security Convergence (RS256 Key Split)
 
@@ -472,6 +527,27 @@ flowchart LR
 | Elapsed | 28.77 s | 15.42 s | — |
 | **Write throughput** | **139.0 insert/s** | **259.3 insert/s** | **0.54** |
 
+### Full-Service App-Level Benchmark (#137, 2026-08-15)
+
+**Methodology** — `report/crdb_fullbench.py` run **inside the cluster** (ClusterIP direct, RS256-authenticated, bypassing the gateway/BFF proxy chain to isolate DB-path differences). Five paths across learning / teacher / bff / gateway, each at concurrency 20 then 60. Both legs ran on the same single-node VM; the CRDB leg had the 3-node CRDB cluster live (which itself consumes VM CPU/IO — the non-DB gateway reference dropped to 0.80× at c=20 as contention noise).
+
+| Path (service → table) | c | TiDB rps | CRDB rps | ratio CRDB/TiDB |
+|---|---|---|---|---|
+| learning event **write** (`learning_events`, Disruptor→writer pool) | 20 | 200.0 | 82.6 | 0.41 |
+| learning event write | 60 | 201.3 | 112.6 | 0.56 |
+| learning review read (`user_mastery`) | 20 | 146.8 | 62.4 | 0.42 |
+| learning review read | 60 | 360.7 | 224.4 | 0.62 |
+| teacher kp-stats read (`user_mastery`) | 20 | 71.5 | 38.8 | 0.54 |
+| teacher kp-stats read | 60 | 115.6 | 80.0 | 0.69 |
+| bff scenarios read (cross-domain) | 20 | 145.1 | 48.4 | 0.33 |
+| bff scenarios read | 60 | 132.5 | 94.4 | 0.71 |
+| gateway scenarios ref (non-DB) | 20 | 377.3 | 301.0 | 0.80 |
+| gateway scenarios ref | 60 | 366.2 | 366.0 | 1.00 |
+
+**Driver-compat fix required for the CRDB leg (#139).** PG JDBC 42.7.8 `setObject(int, java.time.Instant)` throws SQLState 07006 ("can't infer the SQL type to use for an instance of java.time.Instant"); TiDB's MySQL driver accepts `Instant`. In CRDB mode this made every `learning_events` batch insert fail and bounce through the outbox relay (~4 DB round-trips/event) and dropped app_logs telemetry — both would have distorted the comparison. Fix: bind `Timestamp` instead of `Instant` in `DbLearningEventConsumer` and `AppLogClient` (shared esp-web-common, rebuilt as learning 1.11.1 / bff 1.10.0 / teacher 1.10.0). Post-fix, CRDB writes are direct (zero outbox bounce) and app_logs lands in `esp_shared.app_logs` (verified end-to-end). Artifacts: `report/crdb-vs-tidb-fullbench-{tidb,cockroachdb}-2026-08-15.json`; comparison `report/crdb-vs-tidb-fullbench-2026-08-15.json`.
+
+**Full-service verdict (single node):** CRDB trails TiDB on **every** DB path — write 0.41–0.56×, reads 0.33–0.71× — consistent with the earlier micro-verdict (0.54×). CRDB's multi-region strengths (geo-distribution, RBR local reads, no TSO single-point) are not realizable on a single node, so **TiDB remains the production choice**; the CRDB leg is retained for re-run against a true multi-region cluster (3m+6w) per plan §4.
+
 ### Multi-Region Comparison Dimensions (plan level; true multi-node pending)
 
 Per the plan, a real multi-region comparison requires a **3-master + 6-worker** cluster (plan §4 methodology), covering:
@@ -508,6 +584,17 @@ This project assigns one of four languages to each of its 19 business services b
 | **Images** | eclipse-temurin:21-jre-alpine (prebuilt fat-jar) | golang:1.25-alpine builder → alpine:3.22 runtime | python:3.13-slim | rust:1.88-bookworm builder → debian:bookworm-slim runtime |
 | **Build time** | host mvn (single-node iron rule: serialized with cluster ops; precise value pending) | Very fast (precise value pending) | `pip install -e ".[test]"` fast | llm-orchestrator-rs docker build measured **1m44s** |
 | **Pitfalls hit** | SB3.5→4.0.7 three breaking changes; JaCoCo×JDK25 class-file-69 compatibility; esp-cache provided-scope trap | gvm GOROOT trap (`env -u GOROOT GOTOOLCHAIN=local`) | venv extras naming trap (`[test]` not `[dev]`); .venv symlinks broke docker build context (xattr) | Cargo path resolution trap (Dockerfile COPY paths); deb.debian.org egress flaky → switched to mirrors.ustc.edu.cn |
+
+### Concurrency-Model Scorecard (2026-08-15 architecture review)
+
+Per-service scoring by an internet-giant architect review (`report/architecture-review-2026-08-15.md`), scale 0–10. Weighted overall **5.2/10** — the stacks are modern, but engineering landing is incomplete (Dubbo Triple configured-but-not-wired, Disruptor consumer blocking on DB, WS without deadlines).
+
+| Language | Score (avg) | Representative services (score) | Weakest point |
+|---|---|---|---|
+| Python (Litestar) | **6.7** | emotion-svc 7 / writing-py 7 / writing-coach 6 | fully-async design is the most complete; LLM calls lack visible timeout/circuit-breaker |
+| Java (Spring Boot 4) | **5.7** | learning-java 6 / teacher-java 6 / bff-java 5 | Dubbo configured-not-wired; Disruptor consumer sync-blocks on DB; Netty bootstrap uses bare `new Thread` |
+| Go | **4.0** | vocab-srs 6 / conversation 5 / gamification 5 / gateway 4 / stubs 3 | WS no deadline; `sess_<unix_ms>` ID collision; Hub concurrent writes on a gorilla Conn |
+| Rust (axum) | **3.8** | llm-orchestrator 5 / assessment 4 / pronunciation 4 / media-learn 2 | 3 of 4 are stubs; sqlx pool untuned; last-insert-id race |
 
 ### Selection Principle: Which Language for Which Scenario
 
@@ -580,6 +667,29 @@ flowchart LR
 | Frontend audit | three-client build/blank-page/token paths | `docs/test/08-前端核查报告.md` |
 | E2E | Playwright smoke (home loads / no-token 401), scaffold level | `e2e/` |
 
+### Service-Level Coverage Matrix (2026-08-15 architecture review)
+
+| Service | Main source files | Test files | Coverage (qualitative) | Gap |
+|---|---|---|---|---|
+| gateway-go | 3 | 1 | minimal (<20%) | main/tracing untested; WS/JWT only validator-tested |
+| conversation-go | 15 | 8 | good (≥80%) | best on the Go side (8/9 packages paired) |
+| course-path-go / gamification-go | 1+1 | 1+1 | good | single-file fully paired |
+| listening-go / live-tutor-go / reading-go | 3 | 0 | none | stubs |
+| vocab-srs-go | 4 | 1 | minimal | only SM2 tested; 3 files untested |
+| bff-java | 20 | 7 | partial (~50%) | auth/edge/filter tested; Netty edge / InletDisruptor untested |
+| learning-java | 24 | 10 | good (≥80%) | disruptor/service/domain/rpc/web all tested |
+| teacher-java | 12 | 4 | partial (~50%) | controller/service/domain/contract tested |
+| assessment-rs / media-learn-rs / pronunciation-rs | 3 | 0 | none | stubs / zero tests + concurrency race |
+| llm-orchestrator-rs | 5 | 1 (inline) | minimal | only cache/mod.rs 6 inline tests |
+| emotion-svc | 7 | 2 | good | service + API tested |
+| writing-coach | 6 | 1 | minimal | only test_api.py |
+| writing-py | 11 | 4 | partial (~50%) | agent/service/api tested |
+| esp-disruptor / esp-cache / esp-rw-java | — | 3+7+4 | good | learning-side BatchEventHandler / DbLearningEventConsumer / OutboxRelay zero unit tests |
+| esp-common-go | 5 | 1 | minimal | only config tested |
+| esp-common-rs / esp-cache-py / esp-db-py | — | 0 | none | zero tests |
+
+**Overall: ~40% coverage.** Core Java shared modules meet the gate; learning-java / conversation-go / emotion-svc meet it; but **7 services are stubs with zero tests and 4 shared modules (esp-common-go/rs, esp-cache-py, esp-db-py) have zero tests**. Distance to the internet-giant ≥80% standard is significant — zero-tested shared infrastructure (RW-splitting pool, cache, DB pool) is a launch blocker.
+
 ---
 
 ## Measured Performance Data
@@ -595,14 +705,72 @@ flowchart LR
 | G-04 writing | ≥50 rps, P95<2s | writing/grade **24 rps, P95=95ms** (P95 met, rps missed) | Partially met |
 | G-06 learning events | ≥5000 ev/s | **2482 ev/s** (early 277 → 2482 after optimization; sustained 200VU at ~760 ev/s triggers designed 503 backpressure) | Missed (learning-worker 1→3→5 horizontal sharding is the multi-node prerequisite) |
 
+### Load-Test Bottleneck Root-Cause Deep Dive (G-04 WS / G-06 events)
+
+> Root causes verified against code in `report/architecture-review-2026-08-15.md`. Note: the SLO table above and the Locust README label the WS scenario **G-01**; the 2026-08-15 architecture review groups the same scenario as **G-04 WS**.
+
+**G-04 WS long connections (target 5000 CCU):**
+
+| Metric | Value |
+|---|---|
+| Peak concurrent (historical spike run) | **955 CCU** |
+| max_stable (500-user tier, 2026-08-14) | 500 target → **372 sustained** (436 established / 64 dropped, 74.4%) |
+| Pre-patch baseline (bff 1 core) | ~62 concurrent |
+| Post-patch (bff 2 cores) | ≥372 sustained; bff CPU peak ~1.3 core (not saturated) → bottleneck is elsewhere |
+| Root-cause chain | `sess_<unix_ms>` ID collision (same-millisecond → Redis key collision → 403) + gateway-go 1 pod 512Mi + WS no ping/pong/deadline (slow consumers head-of-line block the Hub) + Hub concurrent writes on a gorilla Conn (not concurrent-write safe) + `session.Manager.End` spawns an unbounded goroutine per session |
+| Post-refactor expected | UUIDv7 session ID + 1Gi × 3 replicas + WS read/write deadlines + per-conn Hub mutex + bounded archive goroutines → approach the 5000 CCU target (**pending multi-node retest**) |
+
+**G-06 learning events (target ≥5000 ev/s):**
+
+| Metric | Value |
+|---|---|
+| Peak (failing run, 1 pod / 1 CPU) | **370 ev/s** |
+| Early → first optimization (isolated burst) | 277 → 2482 ev/s |
+| Sustained at 200 VU | ~760 ev/s (designed 503 backpressure) |
+| Root-cause chain | bff→learning sync `RestClient` (Dubbo Triple configured-but-not-wired) + Disruptor consumer **sync** `batchUpdate` blocking the 4 consumer threads (no independent DB writer pool) + scale-2 replica CPU contention (~0.5 core/pod) + OutboxRelay single-thread row-by-row INSERT (N+1) + batch failure logged only (no DLQ) |
+| Post-refactor expected | consumer → bounded queue only; independent DB writer thread-pool async `batchUpdate`; wire Dubbo Triple to remove the sync HTTP chain → approach 5000 ev/s (**pending retest**) |
+
 ### Other Measured Baselines
 
 - **k6 baseline (bff-java /api/scenarios)**: 50 VUS 529 rps / avg 1.61ms; 100 VUS 903 rps / 98% / 19.83ms; 200 VUS 1392 rps / 99.95% / 74.72ms;
 - **Locust 200 VU mixed scenario** (140,430 reqs): avg 780 rps, **aggregate P95=95ms / P99=150ms**, all non-learning endpoints green;
-- **CRDB vs TiDB write throughput**: CRDB 139.0 insert/s vs TiDB 259.3 insert/s, ratio 0.54 → CRDB does not pay off at 5000 CCU scale (see [dedicated chapter](#crdb-vs-tidb-benchmarked-comparison--selection-decision));
+- **CRDB vs TiDB**: full-service app-level benchmark (#137, 2026-08-15) shows CRDB 0.33–0.71× TiDB on all DB paths (write 0.41–0.56×; earlier micro-bench 0.54×) → CRDB does not pay off at 5000 CCU scale on a single node (see [dedicated chapter](#crdb-vs-tidb-benchmarked-comparison--selection-decision));
 - **Redis warm-up**: 23,000 keys loaded in 1.5s;
 - **Seed data**: target 3 billion rows (TiDB high-frequency tables), progressing table by table (sessions at target; session_turns in the tens of millions — see the session22-8 series in git log);
 - **trace/exporter**: after OTel onboarding, 14 services logged 0 export errors over ~3 minutes (before: gateway-go one `export timeout` every 10~15s).
+
+---
+
+## Engineering Status Scorecard
+
+A read-only architecture review (`report/architecture-review-2026-08-15.md`) scored the platform against internet-giant standards (1B-user / 1M-concurrency bar):
+
+| Dimension | Score | Basis |
+|---|---|---|
+| Stack / framework modernity | **7/10** | SB4 + JDK 21 virtual threads + Disruptor 4 + tokio+axum + Litestar — stacks are large-giant modern |
+| Concurrency-model engineering landing | **4/10** | Dubbo configured-not-wired; WS no backpressure/deadline; Disruptor consumer blocking on DB |
+| Test coverage | **4/10** | core Java modules meet the gate; 7 stubs + 4 shared modules zero-tested; far from ≥80% |
+| Load-test root-cause accuracy | **7/10** | PROGRESS direction correct; missed WS no-deadline / Hub concurrent-write / Dubbo not-wired |
+| Code quality (Top-10 common defects) | **4/10** | zero global exception handling; non-UUID IDs; DB pools untuned; unstructured Go logs |
+| **Weighted overall** | **5.2/10** | "advanced stack, half-finished landing" |
+
+```mermaid
+xychart-beta
+    title "Engineering score (weighted 5.2/10)"
+    x-axis [Stack, Landing, Testing, Root-cause, Quality, Overall]
+    y-axis "score /10" 0 --> 10
+    bar [7, 4, 4, 7, 4, 5.2]
+```
+
+**Top-5 refactoring roadmap (ROI order):**
+
+| # | Action | Releases bottleneck | Effort class |
+|---|---|---|---|
+| 1 | Split learning-java Disruptor consumer: consumer → bounded queue → independent DB writer pool async `batchUpdate`; batch failure → DLQ | G-06 | M |
+| 2 | gateway-go WS: ping/pong + read/write deadlines + UUIDv7 session ID + per-conn Hub mutex | G-04 | M |
+| 3 | Wire Dubbo Triple to replace the bff→learning sync `RestClient` (or drop the Dubbo config) | G-06 + architecture debt | S |
+| 4 | Unit tests for shared infra (esp-common-go/rs, esp-cache-py, esp-db-py) + learning-java Disruptor classes | launch blocker | M |
+| 5 | Global exception handling (`@ControllerAdvice`) + env-driven DB pools + unified structured logs | observability / ops | S |
 
 ---
 

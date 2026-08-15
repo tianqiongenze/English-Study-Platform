@@ -55,6 +55,14 @@
             <version>${hikaricp.version}</version>
             <scope>provided</scope>
         </dependency>
+        <!-- PostgreSQL JDBC:CockroachDB 兼容 PostgreSQL wire(esp.rw.storage.type=cockroachdb 时使用)。
+             provided=使用方自带驱动(与 TiDB 路径 mysql-connector-j 同模式);type=tidb 时完全不被引用。 -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.8</version>
+            <scope>provided</scope>
+        </dependency>
         <!-- AOP:@DataSource 切面(SB4 移除独立 spring-boot-starter-aop,改引 aspectjweaver;spring-aop 由 spring-context 传递提供) -->
         <dependency>
             <groupId>org.aspectj</groupId>

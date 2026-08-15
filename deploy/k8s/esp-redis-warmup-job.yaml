@@ -1,7 +1,10 @@
-# Redis Cluster warm-up Job: TiDB 热点数据 -> Redis esp:cache:*
+# Redis Cluster warm-up Job: 数据源热点数据 -> Redis esp:cache:*
 # 一次性 Job。连 tidb-primary(短名经 05-infra-reuse -> platform-infra -> ekb-m2 底层)
 # + redis-cluster FQDN(redis-warmup.py 内置 redis-cluster-new-0... FQDN startup node)。
 # 镜像 python:3.12-slim(与 seed-3b 同),pip 装 pymysql + redis。
+# !! DEFUNCT (#140 后)!!:源数据已全量迁 CRDB,TiDB 关停后此 Job 无法运行。
+# 如需 warmup,应改为连 crdb-public:26257(psycopg2 方言),redis-warmup.py 同步改。
+# 保留本文件仅为参考,不再 apply。
 apiVersion: batch/v1
 kind: Job
 metadata:

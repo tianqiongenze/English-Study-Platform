@@ -18,8 +18,8 @@ use std::sync::Arc;
 const SERVICE_NAME: &str = "pronunciation-rs";
 
 pub struct AppState {
-    pub mysql_write: sqlx::MySqlPool,
-    pub mysql_read: sqlx::MySqlPool,
+    pub pg_write: sqlx::PgPool,
+    pub pg_read: sqlx::PgPool,
     pub redis: Option<redis::cluster_async::ClusterConnection>,
 }
 
@@ -33,8 +33,8 @@ async fn main() -> anyhow::Result<()> {
     let port: u16 = env::var("PORT").unwrap_or_else(|_| "8088".into()).parse()?;
     tracing::info!(%port, "[{}] starting", SERVICE_NAME);
 
-    // 读写分离 pool(env=WRITE_DB_URL/READ_DB_URL,缺省 tidb-primary/follower)
-    let (mysql_write, mysql_read) = esp_common::db::connect_rw("esp_pronunciation", SERVICE_NAME).await?;
+    // CRDB 读写 pool(env=WRITE_DB_URL/READ_DB_URL,缺省 crdb-public)
+    let (pg_write, pg_read) = esp_common::db::connect_rw("esp_pronunciation", SERVICE_NAME).await?;
 
     // redis:保留各服务原语义(env 缺省=不连,返回 None)。esp-common-rs::redisx::connect
     // 缺省会连 DEFAULT_ADDR,行为不同,故不抽(行为不变红线)。
@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
         Err(_) => None,
     };
 
-    let state = AppHandle(Arc::new(AppState { mysql_write, mysql_read, redis }));
+    let state = AppHandle(Arc::new(AppState { pg_write, pg_read, redis }));
 
     let app = Router::new()
         .route("/healthz", axum::routing::get(health))
@@ -74,7 +74,7 @@ async fn liveness() -> Json<Value> {
     Json(json!({"status": "UP"}))
 }
 async fn readiness(State(h): State<AppHandle>) -> Json<Value> {
-    let ok = sqlx::query("SELECT 1").execute(&h.0.mysql_read).await.is_ok();
+    let ok = sqlx::query("SELECT 1").execute(&h.0.pg_read).await.is_ok();
     Json(json!({"status": if ok {"UP"} else {"DOWN"}, "db_read": ok}))
 }
 
@@ -106,10 +106,9 @@ async fn score(State(h): State<AppHandle>, Json(req): Json<ScoreReq>) -> Result<
     let phoneme = req.phoneme_scores.unwrap_or(json!({}));
     let asr = req.asr_text.unwrap_or_default();
 
-    // TiDB AUTO_RANDOM 主键:INSERT 不会回传 id,需单独 LAST_INSERT_ID()。
-    // 注:fetch_one 要求 RETURNING,改 execute + 查 LAST_INSERT_ID 两步。
-    let insert_res = sqlx::query(
-        "INSERT INTO pronunciation_attempts (user_id, ref_type, ref_id, audio_url, score, phoneme_scores, asr_text, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    // CRDB(PG 协议)支持 RETURNING,INSERT 直接回传 id,无需 LAST_INSERT_ID/二次查询。
+    let attempt_id: (i64,) = sqlx::query_as(
+        "INSERT INTO pronunciation_attempts (user_id, ref_type, ref_id, audio_url, score, phoneme_scores, asr_text, duration_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
     )
     .bind(req.user_id)
     .bind(&req.ref_type)
@@ -119,19 +118,11 @@ async fn score(State(h): State<AppHandle>, Json(req): Json<ScoreReq>) -> Result<
     .bind(serde_json::to_string(&phoneme).unwrap_or_default())
     .bind(&asr)
     .bind(req.duration_ms)
-    .execute(&h.0.mysql_write)
+    .fetch_one(&h.0.pg_write)
     .await
     .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db insert: {e}")))?;
 
-    // 注:pronunciation_attempts.id 列 EXTRA=''(非 AUTO_RANDOM/AUTO_INCREMENT),
-    // LAST_INSERT_ID() 对非自增列返回 0。改用 ORDER BY id DESC LIMIT 1 取真实 id。
-    let attempt_id: (i64,) = sqlx::query_as("SELECT id FROM pronunciation_attempts ORDER BY id DESC LIMIT 1")
-        .fetch_one(&h.0.mysql_write)
-        .await
-        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db last_id: {e}")))?;
-
     let attempt_id = attempt_id.0 as u64;
-    let _ = insert_res;
 
     Ok(Json(ScoreResp { attempt_id, score }))
 }

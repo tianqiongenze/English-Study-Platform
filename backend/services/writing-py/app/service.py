@@ -4,8 +4,8 @@
 + L2 redis.asyncio(Redis Cluster)。相同输入必同结果,显著省 LLM 调用成本。
 LLM_MODE=mock 时缓存仍生效(确定性 mock 命中缓存);CACHE_ENABLED=false 直调。
 
-读写分离(esp-db-py):批改结果持久化到 TiDB writing_tasks 表(写主库 tidb-primary);
-查询用户历史作文走从库 tidb-follower(读副本)。与 Java 侧 @DataSource 语义对齐。
+读写分离(esp-db-py):批改结果持久化到 CRDB writing_tasks 表(写池 crdb-public/esp_writing);
+查询用户历史作文走读池(单端点阶段与写同址)。与 Java 侧 @DataSource 语义对齐。
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ class WritingService:
         self.llm = llm
 
     async def grade(self, req: GradeRequest) -> GradeResponse:
-        # 从库读用户历史(只读,走 tidb-follower);DB_ENABLED=false 时 no-op 返回空
+        # 读池读用户历史(只读,CRDB 单端点阶段与写同址);DB_ENABLED=false 时 no-op 返回空
         user_id = getattr(req, "user_id", 0) or 0
         if user_id:
             try:
@@ -67,7 +67,7 @@ class WritingService:
         cached = await get_or_load("writing:grade",
                                    (req.exam, req.prompt, req.essay), _load, cache_empty=False)
         result = GradeResponse(**cached) if cached else await _load()
-        # 持久化批改结果到 TiDB(写主库 tidb-primary);DB_ENABLED=false 时 no-op
+        # 持久化批改结果到 CRDB esp_writing(写池);DB_ENABLED=false 时 no-op
         if user_id:
             try:
                 await execute_write(

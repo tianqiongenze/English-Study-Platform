@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: bff-java
-        image: esp/bff-java:1.8.0   # #109 InletDisruptor 升两级 pipeline(parse 65536 LITE_BLOCKING → forward 16384 BLOCKING),InletNormalizer+DownstreamForwarder 双 stage;依赖 esp-disruptor DisruptorPipeline 多级能力从测试走向生产
+        image: esp/bff-java:1.10.0   # #145 CRDB 切库:ESP_RW_STORAGE_TYPE=cockroachdb 激活 esp-rw CockroachDbDataSourceConfig(PG 池);#135 esp-web-common + #137 CRDB 适配
         imagePullPolicy: IfNotPresent
         ports:
         - {containerPort: 8090,  name: mvc}
@@ -23,11 +23,20 @@ spec:
         - {name: NACOS_ADDR,    value: "nacos:8848"}
         - {name: NACOS_NS,      value: "public"}
         - {name: SENTINEL_DASH, value: "sentinel:8858"}
-        - {name: SEATA_ENABLED, value: "true"}
+        - {name: SEATA_ENABLED, value: "false"}   # #146 清理 Seata AT 死配置:TC 已 scale 0,关 Seata 启动(yaml 漂移修正:原 true 致新 pod 连不上 TC CrashLoop)
         - {name: JWT_SECRET,    valueFrom: {secretKeyRef: {name: esp-secrets, key: JWT_SECRET, optional: true}}}
-        - {name: WRITE_DB_URL,  value: "jdbc:mysql://tidb-primary:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"}
-        - {name: DB_USER,       valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_USER}}}
-        - {name: DB_PASS,       valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_PASS}}}
+        # #140/#145 切 CRDB:ESP_RW_STORAGE_TYPE=cockroachdb 激活 esp-rw-java 的 CockroachDbDataSourceConfig(@ConditionalOnProperty),
+        # 由 ESP_RW_COCKROACHDB_* 派生 jdbc:postgresql://crdb-public:26257/esp?sslmode=disable(PG 双池),yml 的 WRITE_DB_URL/READ_DB_URL(MySQL)被忽略。
+        # 保留 WRITE_DB_URL 仅为可回切 TiDB(改 ESP_RW_STORAGE_TYPE=tidb 即恢复 MySQL 池)。
+        - {name: ESP_RW_STORAGE_TYPE,       value: "cockroachdb"}
+        - {name: ESP_RW_COCKROACHDB_HOST,   value: "crdb-public"}
+        - {name: ESP_RW_COCKROACHDB_READ_HOST, value: "crdb-public"}   # 单节点 CRDB,读写同址(follower-read 由 esp-common-go/esp-rw 在连接参数层加 AS OF SYSTEM TIME)
+        - {name: ESP_RW_COCKROACHDB_PORT,   value: "26257"}
+        - {name: ESP_RW_COCKROACHDB_DB,     value: "esp"}
+        - {name: ESP_RW_COCKROACHDB_USER,   value: "root"}
+        - {name: WRITE_DB_URL,  value: "jdbc:mysql://tidb-primary:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
+        - {name: DB_USER,       value: "root"}
+        - {name: DB_PASS,       value: ""}
         - {name: REDIS_HOST,    value: "redis-cluster"}
         - {name: WX_LOGIN_ENABLED, value: "false"}
         # OTel 注入(ADR-observability-rebuild):javaagent 已在镜像 JAVA_OPTS 中(Dockerfile ENTRYPOINT),

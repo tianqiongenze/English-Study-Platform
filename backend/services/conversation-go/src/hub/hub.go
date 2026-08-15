@@ -20,7 +20,6 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
 
 	"esp/conversation-go/src/ws"
@@ -36,7 +35,7 @@ type Hub struct {
 	shardCount int
 
 	mu    sync.RWMutex
-	conns map[string]map[*websocket.Conn]struct{} // sessionID → conns set
+	conns map[string]map[*ws.SafeConn]struct{} // sessionID → conns set
 
 	pubsub *redis.PubSub
 }
@@ -49,7 +48,7 @@ func New(rdb redis.UniversalClient, shardCount int) *Hub {
 	h := &Hub{
 		rdb:        rdb,
 		shardCount: shardCount,
-		conns:      make(map[string]map[*websocket.Conn]struct{}),
+		conns:      make(map[string]map[*ws.SafeConn]struct{}),
 	}
 	return h
 }
@@ -89,10 +88,10 @@ func (h *Hub) dispatch(ctx context.Context) {
 }
 
 // Register 把 conn 注册到 sessionID 的本地连接集。返回反注册函数(defer 调用)。
-func (h *Hub) Register(sessionID string, conn *websocket.Conn) func() {
+func (h *Hub) Register(sessionID string, conn *ws.SafeConn) func() {
 	h.mu.Lock()
 	if h.conns[sessionID] == nil {
-		h.conns[sessionID] = make(map[*websocket.Conn]struct{})
+		h.conns[sessionID] = make(map[*ws.SafeConn]struct{})
 	}
 	h.conns[sessionID][conn] = struct{}{}
 	h.mu.Unlock()
@@ -100,7 +99,7 @@ func (h *Hub) Register(sessionID string, conn *websocket.Conn) func() {
 }
 
 // Unregister 移除连接;session 无连接时清空条目。
-func (h *Hub) Unregister(sessionID string, conn *websocket.Conn) {
+func (h *Hub) Unregister(sessionID string, conn *ws.SafeConn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if set, ok := h.conns[sessionID]; ok {
@@ -122,6 +121,7 @@ func (h *Hub) Broadcast(ctx context.Context, sessionID string, frame ws.Frame) e
 }
 
 // sendLocal 向本 Pod 内 sessionID 的所有连接写帧(非阻塞派发,写失败静默跳过)。
+// 写经 SafeConn.WriteBytes 串行化(与点对点 writeConn 共用 per-conn 互斥,解 G-04 并发写)。
 func (h *Hub) sendLocal(sessionID string, frame ws.Frame) {
 	b, err := frame.Encode()
 	if err != nil {
@@ -129,13 +129,13 @@ func (h *Hub) sendLocal(sessionID string, frame ws.Frame) {
 	}
 	h.mu.RLock()
 	set := h.conns[sessionID]
-	conns := make([]*websocket.Conn, 0, len(set))
+	conns := make([]*ws.SafeConn, 0, len(set))
 	for c := range set {
 		conns = append(conns, c)
 	}
 	h.mu.RUnlock()
 	for _, c := range conns {
-		if err := c.WriteMessage(websocket.TextMessage, b); err != nil {
+		if err := c.WriteBytes(b); err != nil {
 			slog.Debug("ws hub: write to conn failed (will unregister on close)", "err", err)
 		}
 	}

@@ -1,10 +1,10 @@
-"""结构化业务日志客户端 —— 异步写 TiDB app_logs 表(ADR-observability-rebuild)。
+"""结构化业务日志客户端 —— 异步写 CRDB esp_shared.app_logs 表(ADR-observability-rebuild)。
 
 设计:
 - 异步:后台线程 + 有界队列,不阻塞业务主路径(Litestar 请求处理)。
-- 降级:TiDB 不可用时仅 logging.warning,不抛异常(参考 esp-cache-py 降级)。
+- 降级:CRDB 不可用时仅 logging.warning,不抛异常(参考 esp-cache-py 降级)。
 - traceId:从 OTel 当前 span 提取(若已初始化 tracer)。
-- 连接:走 tidb-primary(主写),pymysql 直连(轻量,不引入 SQLAlchemy)。
+- 连接:走 crdb-public(主写),psycopg 直连(轻量,不引入 SQLAlchemy)。
 
 使用:
     from app.logging_client import app_log
@@ -20,7 +20,7 @@ import threading
 import time
 from typing import Any, Optional
 
-import pymysql
+import psycopg
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +31,13 @@ _LOCK = threading.Lock()
 _DROPPED = 0
 
 _DB_CONFIG = {
-    "host": os.environ.get("TIDB_HOST", "tidb-primary"),
-    "port": int(os.environ.get("TIDB_PORT", "4000")),
+    "host": os.environ.get("CRDB_HOST", "crdb-public"),
+    "port": int(os.environ.get("CRDB_PORT", "26257")),
     "user": os.environ.get("DB_USER", "root"),
     "password": os.environ.get("DB_PASS", ""),
-    "database": os.environ.get("APP_LOG_DB", "esp_shared"),
+    "dbname": os.environ.get("APP_LOG_DB", "esp_shared"),
     "autocommit": True,
     "connect_timeout": 2,
-    "read_timeout": 5,
-    "write_timeout": 5,
 }
 
 _SERVICE = os.environ.get("OTEL_SERVICE_NAME", "writing")
@@ -62,19 +60,24 @@ def _worker() -> None:
         if item is None:
             return
         try:
-            if conn is None or not conn.open:
-                conn = pymysql.connect(**_DB_CONFIG)
+            if conn is None or conn.closed or conn.broken:
+                conn = psycopg.connect(**_DB_CONFIG)
             payload_json = json.dumps(item["payload"]) if item.get("payload") else None
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO app_logs (ts, service, level, event, trace_id, user_id, payload) "
-                    "VALUES (NOW(3), %s, %s, %s, %s, %s, CAST(%s AS JSON))",
+                    "VALUES (now(), %s, %s, %s, %s, %s, %s::jsonb)",
                     (_SERVICE, item["level"], item["event"], item.get("trace_id"),
                      item.get("user_id"), payload_json),
                 )
         except Exception as ex:
             # 降级:仅 warn,不阻断
             logger.warning("app_logs insert failed (degraded): %s", ex)
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
             conn = None  # 下次重连
         finally:
             _QUEUE.task_done()

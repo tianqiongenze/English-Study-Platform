@@ -16,8 +16,8 @@ tower-http = { version = "0.5", features = ["trace", "cors"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# tidb (esp_assessment: assessment_sessions / assessment_answers)
-sqlx = { version = "0.7", features = ["mysql", "runtime-tokio-rustls", "macros", "chrono"] }
+# cockroachdb (esp_assessment: assessment_sessions / assessment_answers) — #140 全服务切 CRDB
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "macros", "chrono"] }
 
 # redis cluster (IRT θ 缓存 esp:assess:theta:{user_id})
 redis = { version = "0.26", features = ["tokio-comp", "aio", "connection-manager", "cluster", "cluster-async"] }

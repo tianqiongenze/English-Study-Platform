@@ -16,12 +16,14 @@ spring:
   main:
     allow-bean-definition-overriding: true   # SCA seata starter 传递 spring-boot-webclient:4.0.0,其 CodecsAutoConfiguration 与 SB3.5.16 defaultCodecCustomizer bean 重名,允许覆盖消解
   jpa:
-    database-platform: org.hibernate.dialect.MariaDBDialect
+    # CRDB 适配(会话22-29):dialect env 驱动 —— TiDB(缺省)MariaDBDialect 不变;
+    # CRDB 模式设 JPA_DATABASE_PLATFORM=org.hibernate.dialect.CockroachDialect(Hibernate 7.2 内置)
+    database-platform: ${JPA_DATABASE_PLATFORM:org.hibernate.dialect.MariaDBDialect}
     hibernate:
       ddl-auto: none
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.MariaDBDialect
+        dialect: ${JPA_DATABASE_PLATFORM:org.hibernate.dialect.MariaDBDialect}
         # DB吞吐优化(2026-08-15 会话22-27):批量写 saveAll 50条/往返 + 排序凑批
         # (方案 docs/design/db-access-throughput-optimization.md;坑㉖红线:禁findAll全表)
         jdbc:
@@ -115,6 +117,18 @@ esp:
     service-url: ${PULSAR_URL:pulsar://pulsar-broker:6650}
     topic: ${PULSAR_CACHE_TOPIC:esp-cache-invalidate}
     consumer-enabled: ${PULSAR_CONSUMER_ENABLED:true}
+  # 共用 Web 能力(esp-web-common):GlobalExceptionHandler 包范围 + AppLogClient service 名
+  web:
+    common:
+      base-packages: com.esp.teacher
+      app-log:
+        service: teacher
+        # CRDB 适配(会话22-29):teacher 的 AppLogClient 走路由池(连接 esp_teacher/esp_teaching),
+        # app_logs 在 esp_shared —— esp-web-common 默认 SQL 已用两段式 esp_shared.app_logs
+        # (TiDB/CRDB 均跨库可达),无需 shared 池;SQL 模板按 esp.rw.storage.type 自动选 JSON/JSONB。
+        # 如后续高频写 app_logs 需独立池,再仿 learning 引入 SharedDataSourceConfig +
+        # jdbc-template-name: sharedJdbcTemplate(注意:引入自定义 JdbcTemplate 后须同时显式定义
+        # 路由 jdbcTemplate bean,否则 SB 自动装配的 @Primary jdbcTemplate 会因 JdbcOperations 已存在而退避)。
 
 # ADR-12 JWT 校验(D2 修复):RS256 公钥验 BFF 签发的 JWT。envFrom secret esp-rsa-jwt 注入。
 jwt:

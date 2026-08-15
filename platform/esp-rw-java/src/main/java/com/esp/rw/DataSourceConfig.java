@@ -29,12 +29,15 @@ import java.util.Map;
  *     默认目标 = writeDataSource(未标注 @DataSource 的方法走主库,安全默认)。
  *
  * feature flag:esp.rw.enabled=false 时不创建路由数据源(回退为单主库,使用方自行配 spring.datasource.url)。
+ * 存储技术选择:esp.rw.storage.type=tidb(缺省,本配置生效)或 cockroachdb(见 CockroachDbDataSourceConfig);
+ * 两路径互斥激活,type=tidb 时不装配任何 CRDB 类。
  *
  * 包一层 LazyConnectionDataSourceProxy:保证仅在真正获取连接时才路由,
  * 使 @DataSource 注解(Service 层)与事务(Repository 层)解耦。
  */
 @Configuration
 @ConditionalOnProperty(name = "esp.rw.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "esp.rw.storage.type", havingValue = "tidb", matchIfMissing = true)
 public class DataSourceConfig {
 
     @Bean

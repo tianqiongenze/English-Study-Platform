@@ -29,7 +29,7 @@ pub struct AppState {
     // Redis Cluster 异步连接(支持 MOVED/ASK 自动重定向)。
     // ClusterConnection 实现 ConnectionLike + Clone,可直接 query_async。
     pub redis: redis::cluster_async::ClusterConnection,
-    pub mysql: sqlx::MySqlPool,
+    pub pg: sqlx::PgPool,
     pub providers: provider::ProviderRegistry,
 }
 
@@ -71,17 +71,15 @@ async fn init_state() -> AppState {
     let redis_addr = env::var("REDIS_ADDR").unwrap_or_else(|_| esp_common::redisx::DEFAULT_ADDR.into());
     let redis = esp_common::redisx::connect_required(&redis_addr, SERVICE_NAME).await;
 
-    // TiDB 单 pool(env=TIDB_DSN)。保留原默认 DSN 字面量(行为不变红线):
-    // 原为 "mysql://root@tidb-primary:4000/esp_llm"(无 :pwd 无 ssl-mode),
-    // 与 esp_common::db::default_write_dsn 的 "mysql://root:@...?ssl-mode=DISABLED" 不同,故不套用默认。
-    let default_dsn = "mysql://root@tidb-primary:4000/esp_llm".to_string();
-    let mysql = esp_common::db::connect("TIDB_DSN", default_dsn, SERVICE_NAME)
+    // CockroachDB 单 pool(env=LLM_DB_URL,缺省 crdb-public esp_llm)。#140 全服务切 CRDB。
+    let default_dsn = "postgres://root@crdb-public:26257/esp_llm?sslmode=disable".to_string();
+    let pg = esp_common::db::connect("LLM_DB_URL", default_dsn, SERVICE_NAME)
         .await
-        .expect("tidb esp_llm pool");
+        .expect("crdb esp_llm pool");
 
     let providers = provider::ProviderRegistry::from_env();
 
-    AppState { redis, mysql, providers }
+    AppState { redis, pg, providers }
 }
 
 // ---------------- health ----------------
@@ -100,11 +98,11 @@ async fn readiness(State(h): State<AppHandle>) -> Json<Value> {
     };
     checks.insert("redis".into(), json!(if redis_ok { "UP" } else { "DOWN" }));
 
-    // TiDB ping
-    let tidb_ok = sqlx::query("SELECT 1").execute(&h.0.mysql).await.is_ok();
-    checks.insert("tidb".into(), json!(if tidb_ok { "UP" } else { "DOWN" }));
+    // CRDB ping
+    let crdb_ok = sqlx::query("SELECT 1").execute(&h.0.pg).await.is_ok();
+    checks.insert("crdb".into(), json!(if crdb_ok { "UP" } else { "DOWN" }));
 
-    let ok = redis_ok && tidb_ok;
+    let ok = redis_ok && crdb_ok;
     Json(json!({"status": if ok { "UP" } else { "DOWN" }, "checks": checks}))
 }
 
@@ -182,7 +180,7 @@ async fn llm_chat(
     if let Some(cached) = cache::get(&h.0.redis, &req.prompt, req.model.as_deref(), &scene).await {
         tracing::info!(trace_id = %trace_id, "llm cache hit");
         cost::record(
-            &h.0.mysql,
+            &h.0.pg,
             &cost::CallLog {
                 trace_id: trace_id.clone(),
                 user_id: req.user_id,
@@ -235,7 +233,7 @@ async fn llm_chat(
 
     // 记成本(失败也记)
     let _ = cost::record(
-        &h.0.mysql,
+        &h.0.pg,
         &cost::CallLog {
             trace_id: trace_id.clone(),
             user_id: req.user_id,

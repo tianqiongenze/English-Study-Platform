@@ -1,10 +1,10 @@
 [project]
 name = "esp-db-py"
 version = "1.0.0"
-description = "ESP 读写分离数据访问公共包(Python 侧):主写(tidb-primary)+ 从读(tidb-follower),与 Java 侧 rw/ 语义对齐"
+description = "ESP 读写分离数据访问公共包(Python 侧):主写/从读 CockroachDB(crdb-public:26257),与 Java 侧 rw/ 语义对齐"
 requires-python = ">=3.10"
 dependencies = [
-    "aiomysql>=0.2.0",
+    "asyncpg>=0.29.0",
     "pydantic>=2.0",
 ]
 

@@ -1,5 +1,5 @@
-// Package scenario 提供场景仓库:启动时从 TiDB 加载场景(读从库 tidb-follower),
-// 回退到内存默认场景。运行时场景列表也可持久化到 TiDB(写主库 tidb-primary)。
+// Package scenario 提供场景仓库:启动时从 CRDB 加载场景(读池),回退到内存默认场景。
+// 数据访问统一走 esp-common-go/db 全局池(#140 全服务切 CRDB)。
 package scenario
 
 import (
@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"esp/conversation-go/src/db"
+	"esp/common-go/db"
 )
 
 // Scenario 是一个口语练习场景。
@@ -25,23 +25,23 @@ type Repository struct {
 	byCode map[string]Scenario
 }
 
-// NewRepository 返回含预置场景的仓库;若 TiDB 可用则从从库加载场景覆盖默认值。
+// NewRepository 返回含预置场景的仓库;若 CRDB 可用则从读池加载场景覆盖默认值。
 func NewRepository() *Repository {
 	r := &Repository{byCode: make(map[string]Scenario)}
 	for _, s := range defaultScenarios() {
 		r.byCode[s.Code] = s
 	}
-	// 从 TiDB 从库(tidb-follower)加载场景;DB 不可用时回退到内存默认值
+	// 从 CRDB 读池加载场景;DB 不可用时回退到内存默认值
 	r.loadFromDB()
 	return r
 }
 
-// loadFromDB 从 TiDB 从库读 scenarios 表,覆盖内存默认场景(只读,失败不阻断)。
+// loadFromDB 从 CRDB 读 scenarios 表,覆盖内存默认场景(只读,失败不阻断)。
 func (r *Repository) loadFromDB() {
 	ctx := context.Background()
 	rows, err := db.Read(ctx, "SELECT code, title, system_prompt, difficulty FROM scenarios", false)
 	if err != nil {
-		slog.Warn("scenario: load from TiDB follower failed, using defaults", "err", err)
+		slog.Warn("scenario: load from CRDB read pool failed, using defaults", "err", err)
 		return
 	}
 	if rows == nil {
@@ -63,7 +63,7 @@ func (r *Repository) loadFromDB() {
 	if err := rows.Err(); err != nil && err != sql.ErrNoRows {
 		slog.Warn("scenario: rows iteration warning", "err", err)
 	}
-	slog.Info("scenario: loaded from TiDB follower", "count", count)
+	slog.Info("scenario: loaded from CRDB", "count", count)
 }
 
 // List 返回全部场景。

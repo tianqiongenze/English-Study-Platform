@@ -4,8 +4,8 @@
 结果可复用,图像生成昂贵)。本期 mock 阶段 visual 仍走缓存以验证链路;sense_emotion 纯本地字符串
 匹配,计算成本纳秒级,不入缓存。
 
-读写分离(esp-db-py):情绪感知结果持久化到 learning_events(写主库 tidb-primary),
-供学习分析回溯;查询用户近期情绪历史走从库 tidb-follower。与 Java 侧 @DataSource 语义对齐。
+读写分离(esp-db-py):情绪感知结果持久化到 learning_events(写池 crdb-public/esp_learning),
+供学习分析回溯;查询用户近期情绪历史走读池(单端点阶段与写同址)。与 Java 侧 @DataSource 语义对齐。
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ POSITIVE = {"happy", "excited", "great", "good", "love", "confident", "proud", "
 def sense_emotion(text: str) -> SenseResponse:
     """FR-5.1 文本情绪感知:负面 -> 安慰;正面 -> 鼓励;中性 -> 通用鼓励。
 
-    结果通过 persist_emotion 异步落库 learning_events(写主库),非阻断。
+    结果通过 persist_emotion 异步落库 learning_events(写池),非阻断。
     """
     low = (text or "").lower()
     if any(w in low for w in NEGATIVE):
@@ -62,7 +62,7 @@ def sense_emotion(text: str) -> SenseResponse:
 
 
 async def persist_emotion(user_id: int, text: str, emotion: str) -> None:
-    """情绪感知结果持久化到 learning_events(写主库 tidb-primary)。
+    """情绪感知结果持久化到 learning_events(写池 crdb-public/esp_learning)。
 
     非阻断:失败只 warn,不影响情绪感知主链路。DB_ENABLED=false 时 no-op。
     """
@@ -80,7 +80,7 @@ async def persist_emotion(user_id: int, text: str, emotion: str) -> None:
 
 
 async def recent_emotions(user_id: int, limit: int = 10) -> list[dict]:
-    """查询用户近期情绪事件(从库 tidb-follower 读)。DB_ENABLED=false 返回空。"""
+    """查询用户近期情绪事件(读池读)。DB_ENABLED=false 返回空。"""
     if not user_id:
         return []
     try:

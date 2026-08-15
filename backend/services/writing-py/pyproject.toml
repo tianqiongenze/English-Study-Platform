@@ -15,8 +15,9 @@ dependencies = [
     "langgraph-checkpoint>=1.0",
     # 多级缓存:公共包 esp-cache-py(L1 cachetools + L2 redis.asyncio)
     "esp-cache-py>=1.0.0",
-    # 读写分离数据访问:公共包 esp-db-py(主写 tidb-primary / 从读 tidb-follower)
+    # 读写分离数据访问:公共包 esp-db-py(asyncpg,CRDB crdb-public:26257)+ 直连 psycopg(app_logs)
     "esp-db-py>=1.0.0",
+    "psycopg[binary]>=3.1",
     # OpenTelemetry (tracing → OTel Collector via OTLP gRPC)
     # 松绑:原 ==1.30.0 精确锁版与 langgraph>=1.0 / litestar 间接依赖 ResolutionImpossible。
     # 改为兼容范围,允许 resolver 选择与 langgraph 1.x / litestar 2.x 共存的 OTel 版本。

@@ -18,19 +18,15 @@ spec:
     spec:
       containers:
       - name: pronunciation-rs
-        image: esp/pronunciation-rs:0.2.0
+        image: esp/pronunciation-rs:0.3.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8088}]
         env:
         - {name: PORT, value: "8088"}
-        - {name: TIDB_HOST, value: "tidb-primary"}
-        - {name: TIDB_READ_HOST, value: "tidb-follower"}
-        - {name: TIDB_PORT, value: "4000"}
-        - {name: TIDB_USER, value: "root"}
-        - {name: TIDB_PASSWORD, value: ""}
+        # CRDB esp_pronunciation(#140 全服务切 CRDB;tidb TIDB_* 残留仅探针兼容,代码读 WRITE_DB_URL/READ_DB_URL)
         - {name: TIDB_DB, value: "esp_pronunciation"}
-        - {name: WRITE_DB_URL, value: "mysql://root:@tidb-primary:4000/esp_pronunciation?ssl-mode=DISABLED"}
-        - {name: READ_DB_URL, value: "mysql://root:@tidb-follower:4000/esp_pronunciation?ssl-mode=DISABLED"}
+        - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_pronunciation?sslmode=disable"}
+        - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_pronunciation?sslmode=disable"}
         - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "pronunciation-rs"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
@@ -70,13 +66,13 @@ spec:
     spec:
       containers:
       - name: listening-go
-        image: esp/listening-go:0.2.0
+        image: esp/listening-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8089}]
         env:
         - {name: PORT, value: "8089"}
-        - {name: READ_DB_URL, value: "root:@tcp(tidb-follower:4000)/esp_listening?parseTime=true"}
-        - {name: WRITE_DB_URL, value: "root:@tcp(tidb-primary:4000)/esp_listening?parseTime=true"}
+        - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_listening?sslmode=disable"}
+        - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_listening?sslmode=disable"}
         - {name: OTEL_SERVICE_NAME, value: "listening-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         startupProbe:   {httpGet: {path: /livez, port: 8089}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
@@ -115,14 +111,15 @@ spec:
     spec:
       containers:
       - name: assessment-rs
-        image: esp/assessment-rs:0.2.0
+        image: esp/assessment-rs:0.3.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8090}]
         env:
         - {name: PORT, value: "8090"}
+        # CRDB esp_assessment(#140 全服务切 CRDB;代码读 WRITE_DB_URL/READ_DB_URL)
         - {name: TIDB_DB, value: "esp_assessment"}
-        - {name: WRITE_DB_URL, value: "mysql://root:@tidb-primary:4000/esp_assessment?ssl-mode=DISABLED"}
-        - {name: READ_DB_URL, value: "mysql://root:@tidb-follower:4000/esp_assessment?ssl-mode=DISABLED"}
+        - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_assessment?sslmode=disable"}
+        - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_assessment?sslmode=disable"}
         - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "assessment-rs"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
@@ -162,13 +159,13 @@ spec:
     spec:
       containers:
       - name: reading-go
-        image: esp/reading-go:0.2.0
+        image: esp/reading-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8091}]
         env:
         - {name: PORT, value: "8091"}
-        - {name: READ_DB_URL, value: "root:@tcp(tidb-follower:4000)/esp_reading?parseTime=true"}
-        - {name: WRITE_DB_URL, value: "root:@tcp(tidb-primary:4000)/esp_reading?parseTime=true"}
+        - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_reading?sslmode=disable"}
+        - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_reading?sslmode=disable"}
         - {name: OTEL_SERVICE_NAME, value: "reading-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
         startupProbe:   {httpGet: {path: /livez, port: 8091}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
@@ -207,13 +204,13 @@ spec:
     spec:
       containers:
       - name: gamification-go
-        image: esp/gamification-go:0.2.0
+        image: esp/gamification-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8092}]
         env:
         - {name: PORT, value: "8092"}
-        - {name: READ_DB_URL, value: "root:@tcp(tidb-follower:4000)/esp_gamification?parseTime=true"}
-        - {name: WRITE_DB_URL, value: "root:@tcp(tidb-primary:4000)/esp_gamification?parseTime=true"}
+        - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_gamification?sslmode=disable"}
+        - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_gamification?sslmode=disable"}
         - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "gamification-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}

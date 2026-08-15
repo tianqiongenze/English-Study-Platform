@@ -16,8 +16,8 @@ use std::sync::Arc;
 const SERVICE_NAME: &str = "assessment-rs";
 
 pub struct AppState {
-    pub mysql_write: sqlx::MySqlPool,
-    pub mysql_read: sqlx::MySqlPool,
+    pub pg_write: sqlx::PgPool,
+    pub pg_read: sqlx::PgPool,
     pub redis: Option<redis::cluster_async::ClusterConnection>,
 }
 
@@ -31,8 +31,8 @@ async fn main() -> anyhow::Result<()> {
     let port: u16 = env::var("PORT").unwrap_or_else(|_| "8090".into()).parse()?;
     tracing::info!(%port, "[{}] starting", SERVICE_NAME);
 
-    // 读写分离 pool(env=WRITE_DB_URL/READ_DB_URL,缺省 tidb-primary/follower)
-    let (mysql_write, mysql_read) = esp_common::db::connect_rw("esp_assessment", SERVICE_NAME).await?;
+    // CRDB 读写 pool(env=WRITE_DB_URL/READ_DB_URL,缺省 crdb-public)
+    let (pg_write, pg_read) = esp_common::db::connect_rw("esp_assessment", SERVICE_NAME).await?;
 
     // redis:保留各服务原语义(env 缺省=不连,返回 None)。esp-common-rs::redisx::connect
     // 缺省会连 DEFAULT_ADDR,行为不同,故不抽(行为不变红线)。
@@ -47,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
         Err(_) => None,
     };
 
-    let state = AppHandle(Arc::new(AppState { mysql_write, mysql_read, redis }));
+    let state = AppHandle(Arc::new(AppState { pg_write, pg_read, redis }));
 
     let app = Router::new()
         .route("/actuator/health", get(health))
@@ -74,7 +74,7 @@ async fn liveness() -> Json<Value> {
     Json(json!({"status": "UP"}))
 }
 async fn readiness(State(h): State<AppHandle>) -> Json<Value> {
-    let ok = sqlx::query("SELECT 1").execute(&h.0.mysql_read).await.is_ok();
+    let ok = sqlx::query("SELECT 1").execute(&h.0.pg_read).await.is_ok();
     Json(json!({"status": if ok {"UP"} else {"DOWN"}, "db_read": ok}))
 }
 
@@ -93,26 +93,21 @@ struct SessionResp {
 }
 
 /// 创建测评会话(scaffold):写 assessment_sessions(status=in_progress)
-/// TiDB AUTO_RANDOM 主键:INSERT 不回传 id,需 execute + LAST_INSERT_ID 两步。
+/// CRDB(PG 协议)支持 RETURNING,INSERT 直接回传 id。
 async fn create_session(
     State(h): State<AppHandle>,
     Json(req): Json<CreateSessionReq>,
 ) -> Result<Json<SessionResp>, (axum::http::StatusCode, String)> {
-    let _insert_res = sqlx::query(
-        "INSERT INTO assessment_sessions (user_id, goal, status) VALUES (?, ?, 'in_progress')",
+    let row: (i64,) = sqlx::query_as(
+        "INSERT INTO assessment_sessions (user_id, goal, status) VALUES ($1, $2, 'in_progress') RETURNING id",
     )
     .bind(req.user_id)
     .bind(req.goal.unwrap_or_else(|| "CEFR".into()))
-    .execute(&h.0.mysql_write)
+    .fetch_one(&h.0.pg_write)
     .await
     .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db insert: {e}")))?;
 
-    let row: (u64,) = sqlx::query_as("SELECT LAST_INSERT_ID()")
-        .fetch_one(&h.0.mysql_write)
-        .await
-        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db last_id: {e}")))?;
-
-    Ok(Json(SessionResp { session_id: row.0, user_id: req.user_id, status: "in_progress".into() }))
+    Ok(Json(SessionResp { session_id: row.0 as u64, user_id: req.user_id, status: "in_progress".into() }))
 }
 
 /// 读取会话状态
@@ -121,10 +116,10 @@ async fn get_session(
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, String)> {
     let row: Option<(i64, Option<String>, Option<String>, String)> = sqlx::query_as(
-        "SELECT id, goal, cefr_result, status FROM assessment_sessions WHERE id = ?",
+        "SELECT id, goal, cefr_result, status FROM assessment_sessions WHERE id = $1",
     )
     .bind(id)
-    .fetch_optional(&h.0.mysql_read)
+    .fetch_optional(&h.0.pg_read)
     .await
     .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
 
@@ -145,31 +140,26 @@ struct AnswerReq {
 }
 
 /// 提交单题答案(scaffold):写 assessment_answers
-/// TiDB AUTO_RANDOM 主键:execute + LAST_INSERT_ID 两步。
+/// CRDB(PG 协议)支持 RETURNING,INSERT 直接回传 id。
 async fn submit_answer(
     State(h): State<AppHandle>,
     Path(session_id): Path<i64>,
     Json(req): Json<AnswerReq>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, String)> {
     let correct = req.is_correct.unwrap_or(false) as i8;
-    let _insert_res = sqlx::query(
-        "INSERT INTO assessment_answers (session_id, question_id, answer_json, is_correct, skill_tag) VALUES (?, ?, ?, ?, ?)",
+    let row: (i64,) = sqlx::query_as(
+        "INSERT INTO assessment_answers (session_id, question_id, answer_json, is_correct, skill_tag) VALUES ($1, $2, $3, $4, $5) RETURNING id",
     )
     .bind(session_id)
     .bind(req.question_id)
     .bind(serde_json::to_string(&req.answer_json).unwrap_or_else(|_| "{}".into()))
     .bind(correct)
     .bind(req.skill_tag.unwrap_or_default())
-    .execute(&h.0.mysql_write)
+    .fetch_one(&h.0.pg_write)
     .await
     .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db insert: {e}")))?;
 
-    let row: (u64,) = sqlx::query_as("SELECT LAST_INSERT_ID()")
-        .fetch_one(&h.0.mysql_write)
-        .await
-        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db last_id: {e}")))?;
-
-    Ok(json!({"answer_id": row.0, "is_correct": correct != 0}).into())
+    Ok(json!({"answer_id": row.0 as u64, "is_correct": correct != 0}).into())
 }
 
 /// 结算会话(scaffold):status=finished + cefr_result 占位
@@ -178,12 +168,12 @@ async fn finalize_session(
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, String)> {
     let res = sqlx::query(
-        "UPDATE assessment_sessions SET status='finished', finished_at=NOW(), cefr_result=?, score=? WHERE id=?",
+        "UPDATE assessment_sessions SET status='finished', finished_at=NOW(), cefr_result=$1, score=$2 WHERE id=$3",
     )
     .bind("B2") // scaffold 占位定级
     .bind(75.0_f64)
     .bind(id)
-    .execute(&h.0.mysql_write)
+    .execute(&h.0.pg_write)
     .await
     .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db update: {e}")))?;
 
@@ -199,10 +189,10 @@ async fn diagnostic_report(
     Path(user_id): Path<i64>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, String)> {
     let sessions: Vec<(i64, Option<String>, Option<String>, String)> = sqlx::query_as(
-        "SELECT id, goal, cefr_result, status FROM assessment_sessions WHERE user_id=? ORDER BY started_at DESC LIMIT 5",
+        "SELECT id, goal, cefr_result, status FROM assessment_sessions WHERE user_id=$1 ORDER BY started_at DESC LIMIT 5",
     )
     .bind(user_id)
-    .fetch_all(&h.0.mysql_read)
+    .fetch_all(&h.0.pg_read)
     .await
     .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
 

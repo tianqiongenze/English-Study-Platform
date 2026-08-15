@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/redis/go-redis/v9"
 
 	"esp/common-go/config"
@@ -40,9 +39,9 @@ func main() {
 	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 	log.Printf("[%s] starting on :%s", serviceName, port)
 
-	readDB = db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("tidb-follower:4000", "esp_gamification")), serviceName)
-	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("tidb-primary:4000", "esp_gamification")), serviceName)
-	log.Printf("[%s] TiDB pools ready (read+write)", serviceName)
+	readDB = db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_gamification")), serviceName)
+	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_gamification")), serviceName)
+	log.Printf("[%s] CRDB pools ready (read+write)", serviceName)
 
 	// Redis Cluster:排行榜 ZSET 主存(esp:gamif:leaderboard:{period})
 	rdb = redisx.MustNewCluster(config.Getenv("REDIS_CLUSTER", ""), serviceName)
@@ -102,7 +101,7 @@ func getProfile(c *gin.Context) {
 	var currentDays, longestDays int64
 	var lastActive sql.NullString
 	_ = readDB.QueryRowContext(c.Request.Context(),
-		"SELECT current_days, longest_days, last_active FROM user_streaks WHERE user_id=?", uid).
+		"SELECT current_days, longest_days, last_active FROM user_streaks WHERE user_id=$1", uid).
 		Scan(&currentDays, &longestDays, &lastActive)
 
 	c.JSON(200, gin.H{
@@ -113,7 +112,7 @@ func getProfile(c *gin.Context) {
 	})
 }
 
-// 加分:更新连胜(user_streaks upsert)+ Redis ZSET 同步(双写,Redis 主、TiDB 周期快照)
+// 加分:更新连胜(user_streaks upsert)+ Redis ZSET 同步(双写,Redis 主、CRDB 周期快照)
 // scaffold:积分暂以连胜 current_days+1 体现(真实积分表待 esp_gamification 扩展 profiles)
 func addPoints(c *gin.Context) {
 	var body struct {
@@ -125,9 +124,9 @@ func addPoints(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	// DB:user_streaks upsert(current_days 累加,体现活跃)
+	// DB:user_streaks upsert(current_days 累加,体现活跃);CRDB PG 方言 ON CONFLICT。
 	_, err := writeDB.ExecContext(c.Request.Context(),
-		"INSERT INTO user_streaks (user_id, current_days, longest_days, last_active, updated_at) VALUES (?, 1, 1, CURDATE(), NOW()) ON DUPLICATE KEY UPDATE current_days=current_days+1, longest_days=GREATEST(longest_days, current_days+1), last_active=CURDATE(), updated_at=NOW()",
+		"INSERT INTO user_streaks (user_id, current_days, longest_days, last_active, updated_at) VALUES ($1, 1, 1, CURRENT_DATE, now()) ON CONFLICT (user_id) DO UPDATE SET current_days = user_streaks.current_days + 1, longest_days = GREATEST(user_streaks.longest_days, user_streaks.current_days + 1), last_active = CURRENT_DATE, updated_at = now()",
 		body.UserID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -162,7 +161,7 @@ func leaderboard(c *gin.Context) {
 func listAchievements(c *gin.Context) {
 	uid := c.Param("user_id")
 	rows, err := readDB.QueryContext(c.Request.Context(),
-		"SELECT achievement_id, unlocked_at FROM user_achievements WHERE user_id=? ORDER BY unlocked_at DESC", uid)
+		"SELECT achievement_id, unlocked_at FROM user_achievements WHERE user_id=$1 ORDER BY unlocked_at DESC", uid)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -189,7 +188,7 @@ func grantAchievement(c *gin.Context) {
 		return
 	}
 	_, err := writeDB.ExecContext(c.Request.Context(),
-		"INSERT IGNORE INTO user_achievements (user_id, achievement_id, unlocked_at) VALUES (?,?,NOW())",
+		"INSERT INTO user_achievements (user_id, achievement_id, unlocked_at) VALUES ($1, $2, now()) ON CONFLICT DO NOTHING",
 		body.UserID, body.AchievementID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})

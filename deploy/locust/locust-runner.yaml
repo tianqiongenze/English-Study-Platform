@@ -26,7 +26,7 @@ spec:
       env:
         - name: JWT_RSA_PRIVATE_KEY_PEM
           valueFrom:
-            secretKeyRef: {name: esp-rsa-jwt, key: JWT_RSA_PRIVATE_KEY_PEM}
+            secretKeyRef: {name: esp-rsa-jwt-sign, key: JWT_RSA_PRIVATE_KEY_PEM}   # P0-1 私钥收敛:压测签发方改用 sign secret(esp-rsa-jwt 已删除)
         - name: ESP_JWT_SECRET
           valueFrom:
             secretKeyRef: {name: esp-secrets, key: JWT_SECRET}

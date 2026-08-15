@@ -87,8 +87,17 @@ spec:
           env:
             - name: POD_IP
               valueFrom:
+                  fieldRef:
+                    fieldPath: status.podIP
+            # 方案C locality 标签化:每个 pod 按 ordinal 注入 zone,使 follower-read 路由有锚点。
+            # 单节点 VM 下 3 zone 共享物理资源,但代码路径(双池 + AS OF SYSTEM TIME)与多节点零差异,
+            # 多节点落地仅改 affinity topologyKey=zone/region 即可真正分散。
+            # 注:StatefulSet 的 args 模板无法直接读 POD_NAME ordinal,故用 initContainer 写 locality 文件,
+            #     主容器读 LOCALITY_FILE 注入 --locality。
+            - name: NODE_NAME
+              valueFrom:
                 fieldRef:
-                  fieldPath: status.podIP
+                  fieldPath: metadata.name
           resources:
             requests:
               cpu: 500m
@@ -101,11 +110,20 @@ spec:
             - -ec
           args:
             - |
+              # 按 pod ordinal 推导 zone(方案C:crdb-0→z1, crdb-1→z2, crdb-2→z3)
+              ORDINAL=${NODE_NAME##*-}
+              case $ORDINAL in
+                0) ZONE=z1 ;;
+                1) ZONE=z2 ;;
+                2) ZONE=z3 ;;
+                *) ZONE=z$ORDINAL ;;
+              esac
               exec /cockroach/cockroach start \
                 --insecure \
                 --advertise-addr=$(POD_IP):26257 \
                 --http-addr=$(POD_IP):8080 \
                 --join=crdb-0.crdb,crdb-1.crdb,crdb-2.crdb \
+                --locality=zone=$ZONE \
                 --cache=.25Gi \
                 --max-sql-memory=.25Gi
           livenessProbe:

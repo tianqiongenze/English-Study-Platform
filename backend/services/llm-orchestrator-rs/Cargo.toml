@@ -30,8 +30,8 @@ reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], defau
 # 注意:feature 名是 "cluster-async"(依赖 cluster + aio),不是 "cluster"(后者只含同步 cluster)。
 redis = { version = "0.26", features = ["tokio-comp", "aio", "connection-manager", "cluster", "cluster-async"] }
 
-# tidb (esp_llm: llm_call_logs / dialogue_*)
-sqlx = { version = "0.7", features = ["mysql", "runtime-tokio-rustls", "macros", "chrono", "bigdecimal"] }
+# cockroachdb (esp_llm: llm_call_logs / dialogue_*) — #140 全服务切 CRDB
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "macros", "chrono", "bigdecimal"] }
 
 # tracing
 tracing = "0.1"

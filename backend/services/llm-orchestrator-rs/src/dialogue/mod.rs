@@ -10,7 +10,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::mysql::MySqlPool;
+use sqlx::PgPool;
 
 use crate::AppHandle;
 
@@ -96,18 +96,18 @@ pub async fn list_sessions(
         match q.user_id {
             Some(uid) => sqlx::query_as(
                 "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
-                 FROM dialogue_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                 FROM dialogue_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
             )
             .bind(uid)
             .bind(limit)
-            .fetch_all(&h.0.mysql)
+            .fetch_all(&h.0.pg)
             .await,
             None => sqlx::query_as(
                 "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
-                 FROM dialogue_sessions ORDER BY created_at DESC LIMIT ?",
+                 FROM dialogue_sessions ORDER BY created_at DESC LIMIT $1",
             )
             .bind(limit)
-            .fetch_all(&h.0.mysql)
+            .fetch_all(&h.0.pg)
             .await,
         };
     match rows {
@@ -135,13 +135,13 @@ pub async fn create_session(
 ) -> Response {
     let res: Result<(i64,), _> = sqlx::query_as(
         "INSERT INTO dialogue_sessions (user_id, scenario_id, persona_id, cefr_level, status) \
-         VALUES (?, ?, ?, ?, 'active') RETURNING id",
+         VALUES ($1, $2, $3, $4, 'active') RETURNING id",
     )
     .bind(req.user_id)
     .bind(req.scenario_id)
     .bind(req.persona_id)
     .bind(&req.cefr_level)
-    .fetch_one(&h.0.mysql)
+    .fetch_one(&h.0.pg)
     .await;
     match res {
         Ok((id,)) => Json(json!({"id": id, "status": "active"})).into_response(),
@@ -156,10 +156,10 @@ pub async fn get_session(
     let res: Result<(i64, i64, Option<i64>, Option<i64>, Option<String>, String), _> =
         sqlx::query_as(
             "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
-             FROM dialogue_sessions WHERE id = ?",
+             FROM dialogue_sessions WHERE id = $1",
         )
         .bind(id)
-        .fetch_one(&h.0.mysql)
+        .fetch_one(&h.0.pg)
         .await;
     match res {
         Ok(r) => Json(json!(SessionDto {
@@ -176,10 +176,10 @@ pub async fn list_turns(
 ) -> Response {
     let rows: Result<Vec<(i64, i64, String, String, i32, i32, i32)>, _> = sqlx::query_as(
         "SELECT id, session_id, role, content, tokens_in, tokens_out, latency_ms \
-         FROM dialogue_turns WHERE session_id = ? ORDER BY created_at ASC",
+         FROM dialogue_turns WHERE session_id = $1 ORDER BY created_at ASC",
     )
     .bind(session_id)
-    .fetch_all(&h.0.mysql)
+    .fetch_all(&h.0.pg)
     .await;
     match rows {
         Ok(rs) => {
@@ -219,11 +219,11 @@ pub async fn chat_sse(
     // 1. 落 user turn
     let _ = sqlx::query(
         "INSERT INTO dialogue_turns (session_id, role, content, tokens_in, tokens_out, latency_ms) \
-         VALUES (?, 'user', ?, 0, 0, 0)",
+         VALUES ($1, 'user', $2, 0, 0, 0)",
     )
     .bind(req.session_id)
     .bind(&req.content)
-    .execute(&h.0.mysql)
+    .execute(&h.0.pg)
     .await;
 
     // 2. 调 provider(非流式简化实现;流式见 provider SSE 解析)
@@ -240,12 +240,12 @@ pub async fn chat_sse(
             // 3. 落 assistant turn
             let _ = sqlx::query(
                 "INSERT INTO dialogue_turns (session_id, role, content, tokens_in, tokens_out, latency_ms) \
-                 VALUES (?, 'assistant', ?, 0, 0, ?)",
+                 VALUES ($1, 'assistant', $2, 0, 0, $3)",
             )
             .bind(req.session_id)
             .bind(&r.content)
             .bind(latency_ms)
-            .execute(&h.0.mysql)
+            .execute(&h.0.pg)
             .await;
 
             // 4. SSE 单帧返回(完整内容;真正逐 token 流式可后续从 provider stream 改造)
@@ -278,7 +278,7 @@ pub async fn list_personas(State(h): State<AppHandle>) -> Response {
             "SELECT id, name, persona_prompt, voice_id, accent, cefr_level \
              FROM dialogue_personas ORDER BY id ASC LIMIT 100",
         )
-        .fetch_all(&h.0.mysql)
+        .fetch_all(&h.0.pg)
         .await;
     match rows {
         Ok(rs) => {
@@ -305,14 +305,14 @@ pub async fn create_persona(
 ) -> Response {
     let res: Result<(i64,), _> = sqlx::query_as(
         "INSERT INTO dialogue_personas (name, persona_prompt, voice_id, accent, cefr_level) \
-         VALUES (?, ?, ?, ?, ?) RETURNING id",
+         VALUES ($1, $2, $3, $4, $5) RETURNING id",
     )
     .bind(&req.name)
     .bind(&req.persona_prompt)
     .bind(&req.voice_id)
     .bind(&req.accent)
     .bind(&req.cefr_level)
-    .fetch_one(&h.0.mysql)
+    .fetch_one(&h.0.pg)
     .await;
     match res {
         Ok((id,)) => Json(json!({"id": id})).into_response(),
@@ -330,10 +330,10 @@ fn err_response(status: u16, msg: &str) -> Response {
         .into_response()
 }
 
-/// 允许在别处访问 MySqlPool(预留)
+/// 允许在别处访问 PgPool(预留)
 #[allow(dead_code)]
-pub fn pool_of(h: &AppHandle) -> &MySqlPool {
-    &h.0.mysql
+pub fn pool_of(h: &AppHandle) -> &PgPool {
+    &h.0.pg
 }
 
 #[allow(dead_code)]

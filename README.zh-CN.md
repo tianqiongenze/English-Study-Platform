@@ -30,6 +30,7 @@
 - [可观测性架构](#可观测性架构)
 - [测试体系](#测试体系)
 - [性能实测数据](#性能实测数据)
+- [工程化现状评分](#工程化现状评分)
 - [路线图](#路线图)
 - [贡献约定](#贡献约定)
 
@@ -111,6 +112,18 @@ flowchart LR
     Services --> NACOS
     BFFJ --> SEATA
 ```
+
+### 架构数字化摘要(实测数字)
+
+| 指标 | 数值 |
+|---|---|
+| 业务服务 | 19(Java 3 / Go 8 / Python 3 / Rust 4 + integration-tests) |
+| esp-prod Deployment | 21+(业务 + SCA) |
+| 生产 Disruptor | bff-java **两级**(parse 65536 → forward 16384);learning-java 单环 65536 + **4 分片消费者**;teacher-java 未接入 |
+| 读写分离连接池(learning-java) | HikariCP 写 20 + 读 20 + shared 10 |
+| 缓存 | Caffeine L1 + Redis Cluster ×6;预热 23000 键 1.5s |
+| 存储 | TiDB primary/follower :4000(MySQL wire);CockroachDB ×3 部署于 `ns esp-crdb`(`crdb-public:26257`,PG wire)作实测对比备选 |
+| 接入层 | NettyEdgeServer :9090(SO_BACKLOG 8192)+ gateway-go WS :8080(NodePort 30080) |
 
 > 基础设施通过 ExternalName 短名(`tidb-primary`/`tidb-follower`/`redis-cluster`/`pulsar-broker`)跨 namespace 复用,见 `deploy/k8s/05-infra-reuse.yaml`、`deploy/k8s/05b-platform-infra-externalnames.yaml`。
 
@@ -306,6 +319,29 @@ sequenceDiagram
     end
 ```
 
+**多级管线抽象(任意层级)**。`platform/esp-disruptor` 的 `DisruptorPipeline` 支持任意级数链式串联:`DisruptorPipeline.named("flow").stage("s1", ...).stage("s2", ...).build()`。每一级是**独立 RingBuffer + 独立消费线程**,各自可配 bufferSize / producerType / waitStrategy,级间通过 `tryPublishEvent` → `DROPPED`(该级环满)形成**逐级背压**,隔离 parse / forward / sink 各阶段的速度差;级间衔接用 `forward(fromStage, payload)`;停机逆序进行,保证上游先停、下游 drain 完。
+
+生产接入现状(实测,2026-08-15):
+
+| 服务 | 管线 | 级数 | 环 / 消费者 | Wait 策略 |
+|---|---|---|---|---|
+| bff-java | `bff-inlet` | **2 级**(parse → forward);第 3 级 respond(`ForwardRespondHandler`)为预留扩展点,未实现 | 65536 LITE_BLOCKING → 16384 BLOCKING | LITE_BLOCKING / BLOCKING |
+| learning-java | `learning-event` | **单级**(单 RingBuffer) | 65536;**4 个** `BatchEventHandler` 分片消费者(`esp.disruptor.consumers`,上限 16) | BLOCKING |
+| teacher-java | — | **未接入**(无 Disruptor) | — | — |
+
+**Disruptor 4.0 并行消费分片模型**。Disruptor 4.0 移除了 WorkerPool/WorkHandler,ESP 用**多个 EventHandler 作为独立 BatchEventProcessor 并行消费同一 RingBuffer** 复刻 WorkerPool 的"瓜分"语义:每个 handler 都会收到每条事件(广播),内部按 `sequence % shardCount == shardIndex` 过滤,保证每条事件只被一个消费者落库,同时每个分片各自保持批量(batchSize 200 / 500ms flush),DB 写并发随分片数水平扩展。
+
+```mermaid
+flowchart LR
+    P["producers(HTTP 202 / Netty 边缘)<br/>tryPublishEvent"] --> R["单 RingBuffer 65536<br/>ProducerType.MULTI"]
+    R --> H0["BatchEventHandler #0<br/>sequence % 4 == 0"]
+    R --> H1["BatchEventHandler #1<br/>sequence % 4 == 1"]
+    R --> H2["BatchEventHandler #2<br/>sequence % 4 == 2"]
+    R --> H3["BatchEventHandler #3<br/>sequence % 4 == 3"]
+    H0 & H1 & H2 & H3 -->|"批量 flush 200 / 500ms"| DB["TiDB learning_events<br/>batchUpdate, @DataSource(WRITE)"]
+    DB -.->|"同步 batchUpdate 阻塞 consumer 线程<br/>(无独立 DB writer 池)= G-06 瓶颈"| R
+```
+
 ### 2. 读写分离 + Disruptor 批量落库(learning-java)
 
 - 入口:HTTP 202 异步化,学情事件进 `LearningEvent` RingBuffer(65536);
@@ -333,6 +369,25 @@ sequenceDiagram
     end
     Note over P: 跨副本/异步链路经 Pulsar,consumer 线程内 AOP 闭环路由
 ```
+
+**RoutingDataSource 模型(esp-rw-java)**。共享 `esp-rw-java` 通过 ThreadLocal 路由上下文,将每个请求路由到写/读连接池:
+
+```mermaid
+flowchart LR
+    M["@DataSource(READ) / (WRITE) / consistent=true"] --> A["DataSourceAspect<br/>(AOP set / proceed / clear)"]
+    A --> H["RoutingHolder<br/>(ThreadLocal&lt;DataSourceType&gt;,默认 WRITE)"]
+    H --> RDS["RoutingDataSource<br/>(AbstractRoutingDataSource<br/>determineCurrentLookupKey())"]
+    RDS -->|WRITE| W["HikariCP 写池 20<br/>tidb-primary:4000 (jdbc:mysql)"]
+    RDS -->|READ| RD["HikariCP 读池 20<br/>tidb-follower:4000 (jdbc:mysql)"]
+    RDS -.->|"consistent=true 强制 WRITE<br/>(写后强一致读)"| W
+    W & RD -->|"LazyConnectionDataSourceProxy<br/>(真正取连接时才路由)"| TX["JdbcTemplate / JPA / Repository"]
+```
+
+- 连接池(learning-java):HikariCP `maximum-pool-size` 写 20 + 读 20 + shared 10。
+- Feature flag:`esp.rw.enabled=false` 时完全跳过路由数据源(回退单主库)。
+- 虚拟线程实证(2026-08-15):路由基于 ThreadLocal,请求全链路(Jetty accept → 虚拟线程处理 → AOP set/proceed/clear)在同一个虚拟线程内完成,Pulsar consumer 线程自成闭环——路由正确,无跨线程泄漏。
+
+**存储选型可配置(已实现,#132)**。路由目标是可插拔的 HikariCP 池,存储类型开关(`esp.rw.storage.type=tidb|cockroachdb`)可在不改业务代码的前提下把写/读/shared 池指向不同存储——`cockroachdb` 模式将池切为 PostgreSQL-wire(`crdb-public:26257`,按服务 `ESP_RW_COCKROACHDB_DB`,app_logs 走 `esp_shared`,配 CockroachDialect)。当前生产接的是 TiDB(`${WRITE_DB_URL}` / `${READ_DB_URL}` → `jdbc:mysql://tidb-primary|tidb-follower:4000/esp`)。全服务应用层复测(#137,2026-08-15)实测 CRDB 全部 DB 路径仅为 TiDB 的 **0.33~0.71 倍**(早前微基准 139.0 vs 259.3 insert/s,ratio 0.54)——详见[专章](#crdb-vs-tidb压测对比与选型决策实测)。
 
 ### 3. JWT 安全收敛(RS256 公私钥分离)
 
@@ -472,6 +527,27 @@ flowchart LR
 | 耗时 | 28.77 s | 15.42 s | — |
 | **写吞吐** | **139.0 insert/s** | **259.3 insert/s** | **0.54** |
 
+### 全服务应用层压测对比(#137,2026-08-15)
+
+**方法** — `report/crdb_fullbench.py` 于**集群内执行**(ClusterIP 直连、RS256 认证,绕过 gateway/BFF 代理链以隔离 DB 路径差异)。覆盖 learning / teacher / bff / gateway 五条路径,各以并发 20、60 两档。两腿均跑在同一个单节点 VM;CRDB 腿运行时 3 节点 CRDB 集群活跃(本身占用 VM CPU/IO——非 DB 的 gateway 参考端点在 c=20 跌到 0.80×,属争用噪声)。
+
+| 路径(服务 → 表) | c | TiDB rps | CRDB rps | ratio(CRDB/TiDB) |
+|---|---|---|---|---|
+| learning 事件**写**(`learning_events`,Disruptor→writer 池) | 20 | 200.0 | 82.6 | 0.41 |
+| learning 事件写 | 60 | 201.3 | 112.6 | 0.56 |
+| learning review 读(`user_mastery`) | 20 | 146.8 | 62.4 | 0.42 |
+| learning review 读 | 60 | 360.7 | 224.4 | 0.62 |
+| teacher kp-stats 读(`user_mastery`) | 20 | 71.5 | 38.8 | 0.54 |
+| teacher kp-stats 读 | 60 | 115.6 | 80.0 | 0.69 |
+| bff scenarios 读(跨域) | 20 | 145.1 | 48.4 | 0.33 |
+| bff scenarios 读 | 60 | 132.5 | 94.4 | 0.71 |
+| gateway scenarios 参考(非 DB) | 20 | 377.3 | 301.0 | 0.80 |
+| gateway scenarios 参考 | 60 | 366.2 | 366.0 | 1.00 |
+
+**CRDB 腿前置驱动兼容修复(#139)。** PG JDBC 42.7.8 `setObject(int, java.time.Instant)` 抛 SQLState 07006("Can't infer the SQL type to use for an instance of java.time.Instant");TiDB 的 MySQL 驱动接受 `Instant`。CRDB 模式下这导致每次 `learning_events` 批量落库失败、全部经 outbox 弹跳(~4 次 DB 往返/事件),且 app_logs 遥测被降级丢弃——两者都会扭曲对比。修复:把 `DbLearningEventConsumer` 与 `AppLogClient`(共享 esp-web-common)的时间参数绑定由 `Instant` 改为 `Timestamp`(重建为 learning 1.11.1 / bff 1.10.0 / teacher 1.10.0)。修复后 CRDB 写路径为直写(零 outbox 弹跳),app_logs 实落 `esp_shared.app_logs`(端到端验证)。产物:`report/crdb-vs-tidb-fullbench-{tidb,cockroachdb}-2026-08-15.json`;对比 `report/crdb-vs-tidb-fullbench-2026-08-15.json`。
+
+**全服务结论(单节点):** CRDB 在**全部** DB 路径落后 TiDB——写路径 0.41~0.56×,读路径 0.33~0.71×——与早前微基准(0.54×)一致。CRDB 的多区域优势(地理分布、RBR 本地读、无 TSO 单点)在单节点无法体现,因此**最终选型仍是 TiDB**;CRDB 腿保留,待真多区域集群(3m+6w)按 plan §4 复测。
+
 ### 多区域对比维度(方案层,待真多节点实测)
 
 按 plan 设计,真实多区域对比需 **3 master + 6 worker** 集群(plan §4 方法论),维度包括:
@@ -508,6 +584,17 @@ flowchart LR
 | **镜像** | eclipse-temurin:21-jre-alpine(prebuilt fat-jar) | golang:1.25-alpine builder → alpine:3.22 runtime | python:3.13-slim | rust:1.88-bookworm builder → debian:bookworm-slim runtime |
 | **构建时间** | 主机 mvn(单节点铁律:与集群操作串行;精确值实测待补) | 极快(精确值实测待补) | pip install -e ".[test]" 快 | llm-orchestrator-rs docker build 实测 **1m44s** |
 | **踩坑实录** | SB3.5→4.0.7 三破坏性变更;JaCoCo×JDK25 class file 69 兼容;esp-cache provided 坑 | gvm GOROOT 坑(`env -u GOROOT GOTOOLCHAIN=local`) | venv extras 命名坑(`[test]` 非 `[dev]`);.venv 符号链接致 docker context xattr 失败 | Cargo path 相对解析坑(Dockerfile COPY 路径);deb.debian.org 出口偶发不通换 mirrors.ustc.edu.cn |
+
+### 并发模型评分(2026-08-15 架构审查)
+
+按大厂资深架构师审查逐服务打分(`report/architecture-review-2026-08-15.md`),0–10 分;加权综合 **5.2/10**——栈选型先进,但工程化落地不彻底(Dubbo 配而未接、Disruptor consumer 同步阻塞 DB、WS 无 deadline)。
+
+| 语言 | 均分 | 代表服务(评分) | 最弱项 |
+|---|---|---|---|
+| Python(Litestar) | **6.7** | emotion-svc 7 / writing-py 7 / writing-coach 6 | 全 async 设计最完整;LLM 调用缺可见超时/熔断 |
+| Java(Spring Boot 4) | **5.7** | learning-java 6 / teacher-java 6 / bff-java 5 | Dubbo 配而未接;Disruptor consumer 同步阻塞 DB;Netty 裸 `new Thread` |
+| Go | **4.0** | vocab-srs 6 / conversation 5 / gamification 5 / gateway 4 / 空壳 3 | WS 无 deadline;`sess_<unix_ms>` ID 碰撞;Hub 并发写 gorilla Conn 不安全 |
+| Rust(axum) | **3.8** | llm-orchestrator 5 / assessment 4 / pronunciation 4 / media-learn 2 | 4 个里 3 个 stub;sqlx 池未调优;last-insert-id 并发竞态 |
 
 ### 选型原则:什么场景用什么语言
 
@@ -580,6 +667,29 @@ flowchart LR
 | 前端核查 | 三端 build/白屏/token 链路 | `docs/test/08-前端核查报告.md` |
 | E2E | Playwright 冒烟(首页加载/无 token 401)scaffold 级 | `e2e/` |
 
+### 服务级覆盖率矩阵(2026-08-15 架构审查)
+
+| 服务 | 主源文件数 | 测试文件数 | 覆盖率定性 | 缺口 |
+|---|---|---|---|---|
+| gateway-go | 3 | 1 | minimal(<20%) | main/tracing 未测;WS/JWT 仅 validator 测 |
+| conversation-go | 15 | 8 | good(≥80%) | Go 侧表现最好(8/9 包有配对测试) |
+| course-path-go / gamification-go | 1+1 | 1+1 | good | 单文件全配对 |
+| listening-go / live-tutor-go / reading-go | 3 | 0 | none | stub 零测试 |
+| vocab-srs-go | 4 | 1 | minimal | 仅 SM2 测,3 文件未测 |
+| bff-java | 20 | 7 | partial(~50%) | auth/edge/filter 有测;Netty edge / InletDisruptor 未测 |
+| learning-java | 24 | 10 | good(≥80%) | disruptor/service/domain/rpc/web 全有测 |
+| teacher-java | 12 | 4 | partial(~50%) | controller/service/domain/contract 有测 |
+| assessment-rs / media-learn-rs / pronunciation-rs | 3 | 0 | none | stub 零测试 + 并发竞态 |
+| llm-orchestrator-rs | 5 | 1(inline) | minimal | 仅 cache/mod.rs 6 个 inline test |
+| emotion-svc | 7 | 2 | good | service + API 有测 |
+| writing-coach | 6 | 1 | minimal | 仅 test_api.py |
+| writing-py | 11 | 4 | partial(~50%) | agent/service/api 有测 |
+| esp-disruptor / esp-cache / esp-rw-java | — | 3+7+4 | good | learning 侧 BatchEventHandler / DbLearningEventConsumer / OutboxRelay 零单测 |
+| esp-common-go | 5 | 1 | minimal | 仅 config 测 |
+| esp-common-rs / esp-cache-py / esp-db-py | — | 0 | none | 零测试 |
+
+**总体:约 40% 覆盖率**。核心 Java 共享模块达标;learning-java / conversation-go / emotion-svc 达标;但 **7 个服务是 stub 零测试 + 4 个共享模块(esp-common-go/rs、esp-cache-py、esp-db-py)零测试**。距大厂 ≥80% 标准差距显著——读写分离池/缓存/DB 池这些全栈基石零单测是上线阻断项。
+
 ---
 
 ## 性能实测数据
@@ -595,14 +705,72 @@ flowchart LR
 | G-04 写作 | ≥50 rps,P95<2s | writing/grade **24 rps,P95=95ms**(P95 达标,rps 未达) | 部分达标 |
 | G-06 学情事件 | ≥5000 ev/s | **2482 ev/s**(早期 277 → 优化后 2482;200VU 持续负载 ~760 ev/s 触发设计背压 503) | 未达(learning-worker 1→3→5 副本水平分片为多节点前置) |
 
+### 压测瓶颈根因深挖(G-04 WS / G-06 events)
+
+> 根因均按代码复核(`report/architecture-review-2026-08-15.md`)。注:上方 SLO 表与 Locust README 将 WS 场景标为 **G-01**;2026-08-15 架构审查将该场景归为 **G-04 WS**——同一场景。
+
+**G-04 WS 长连接(目标 5000 CCU):**
+
+| 指标 | 值 |
+|---|---|
+| 峰值(历史 spike 运行) | **955 CCU** |
+| max_stable(500 用户档,2026-08-14) | 目标 500 → **372 持续在线**(436 建立 / 64 掉落,74.4%) |
+| 2 核 patch 前基线(bff 1 核) | ~62 并发 |
+| 2 核 patch 后 | ≥372 持续;bff CPU 峰值 ~1.3 核(未饱和)→ 瓶颈在别处 |
+| 根因链 | `sess_<unix_ms>` ID 碰撞(同毫秒 → Redis key 碰撞 → 403)+ gateway-go 单 pod 512Mi + WS 无 ping/pong/deadline(慢消费者头线阻塞 Hub)+ Hub 并发写 gorilla Conn(非并发写安全)+ `session.Manager.End` 每会话无上限 goroutine |
+| 重构后预期 | UUIDv7 session ID + 1Gi × 3 副本 + WS 读写 deadline + per-conn Hub 互斥 + archive goroutine 有界 → 逼近 5000 CCU 目标(**待多节点复测**) |
+
+**G-06 学情事件(目标 ≥5000 ev/s):**
+
+| 指标 | 值 |
+|---|---|
+| 峰值(失败运行,1 pod / 1 CPU) | **370 ev/s** |
+| 早期 → 首轮优化(孤立突发) | 277 → 2482 ev/s |
+| 200 VU 持续 | ~760 ev/s(触发设计背压 503) |
+| 根因链 | bff→learning 同步 `RestClient`(Dubbo Triple 配而未接)+ Disruptor consumer **同步** `batchUpdate` 阻塞 4 个 consumer 线程(无独立 DB writer 池)+ scale 2 副本 CPU 争抢(~0.5 核/pod)+ OutboxRelay 单线程逐行 INSERT(N+1)+ batch 失败仅 log 无死信 |
+| 重构后预期 | consumer 只入有界队列 + 独立 DB writer 线程池异步 `batchUpdate` + 接线 Dubbo Triple 消除同步 HTTP 链 → 逼近 5000 ev/s(**待复测**) |
+
 ### 其他实测基线
 
 - **k6 基线(bff-java /api/scenarios)**:50 VUS 529 rps / 平均 1.61ms;100 VUS 903 rps / 98% / 19.83ms;200 VUS 1392 rps / 99.95% / 74.72ms;
 - **Locust 200 VU 混合场景**(140,430 reqs):平均 780 rps,**聚合 P95=95ms / P99=150ms**,非 learning 端点全绿;
-- **CRDB vs TiDB 写吞吐对比**:CRDB 139.0 insert/s vs TiDB 259.3 insert/s,ratio 0.54 → 5000 CCU 尺度 CRDB 收益不成立(详见[专章](#crdb-vs-tidb压测对比与选型决策实测));
+- **CRDB vs TiDB 对比**:全服务应用层压测(#137,2026-08-15)实测 CRDB 全部 DB 路径仅 TiDB 的 0.33~0.71 倍(写路径 0.41~0.56 倍;早前微基准 0.54 倍)→ 单节点 5000 CCU 尺度 CRDB 收益不成立(详见[专章](#crdb-vs-tidb压测对比与选型决策实测));
 - **Redis warm-up**:23000 键 1.5s 灌完;
 - **种子数据**:目标 30 亿行(TiDB 关键高频表),分表补灌推进中(sessions 达标;session_turns 补灌至千万级,见 git log 会话22-8 系列);
 - **trace/exporter**:OTel 接入后 14 服务近 3 分钟导出错误 0 条(改造前 gateway-go 每 10~15s 一条 export timeout)。
+
+---
+
+## 工程化现状评分
+
+只读架构审查(`report/architecture-review-2026-08-15.md`)按大厂标准(10 亿用户 / 100 万并发对标)打分:
+
+| 维度 | 评分 | 说明 |
+|---|---|---|
+| 语言/框架选型先进性 | **7/10** | SB4 + JDK21 虚拟线程 + Disruptor 4 + tokio+axum + Litestar,栈本身是大厂先进水平 |
+| 并发模型工程化落地 | **4/10** | Dubbo 配而未接;WS 无背压/deadline;Disruptor consumer 同步阻塞 DB |
+| 测试覆盖率 | **4/10** | 核心 Java 模块达标;7 个 stub + 4 个共享模块零测试;距 ≥80% 差距大 |
+| 压测瓶颈根因准确性 | **7/10** | PROGRESS 方向正确;漏了 WS 无 deadline / Hub 并发写 / Dubbo 未接线 |
+| 代码质量通病(Top 10) | **4/10** | 零全局异常处理;ID 非 UUID;DB 池未调优;Go 侧日志非结构化 |
+| **加权综合** | **5.2/10** | "先进栈 + 半成品落地" |
+
+```mermaid
+xychart-beta
+    title "工程化现状评分(加权 5.2/10)"
+    x-axis [栈选型, 并发落地, 测试覆盖, 根因准确, 代码质量, 加权综合]
+    y-axis "分数 /10" 0 --> 10
+    bar [7, 4, 4, 7, 4, 5.2]
+```
+
+**Top 5 重构路线(按 ROI 排序):**
+
+| # | 动作 | 释放瓶颈 | 工作量级 |
+|---|---|---|---|
+| 1 | learning-java Disruptor consumer 拆分:consumer → 有界队列 → 独立 DB writer 线程池异步 `batchUpdate`;batch 失败转死信 | G-06 | M |
+| 2 | gateway-go WS:ping/pong + 读写 deadline + UUIDv7 session ID + per-conn Hub 互斥 | G-04 | M |
+| 3 | 接线 Dubbo Triple 替换 bff→learning 同步 `RestClient`(或删 Dubbo 配置) | G-06 + 架构债 | S |
+| 4 | 补共享模块单测(esp-common-go/rs、esp-cache-py、esp-db-py)+ learning Disruptor 侧单测 | 上线阻断 | M |
+| 5 | 统一全局异常处理(`@ControllerAdvice`)+ DB 池 env 化 + 日志规范化 | 可观测/运维 | S |
 
 ---
 

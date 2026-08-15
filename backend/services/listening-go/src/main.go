@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/go-sql-driver/mysql"
 
 	"esp/common-go/config"
 	"esp/common-go/db"
@@ -40,9 +39,9 @@ func main() {
 	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 	log.Printf("[%s] starting on :%s", serviceName, port)
 
-	readDB = db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("tidb-follower:4000", "esp_listening")), serviceName)
-	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("tidb-primary:4000", "esp_listening")), serviceName)
-	log.Printf("[%s] TiDB pools ready (read+write)", serviceName)
+	readDB = db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_listening")), serviceName)
+	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_listening")), serviceName)
+	log.Printf("[%s] CRDB pools ready (read+write)", serviceName)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -89,7 +88,7 @@ func listMaterials(c *gin.Context) {
 		n = 10
 	}
 	rows, err := readDB.QueryContext(c.Request.Context(),
-		"SELECT id, title, cefr_level, duration_sec FROM listening_exercises ORDER BY id LIMIT ?", n)
+		"SELECT id, title, cefr_level, duration_sec FROM listening_exercises ORDER BY id LIMIT $1", n)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -114,7 +113,7 @@ func getMaterial(c *gin.Context) {
 	var duration int
 	var questionJSON sql.NullString
 	err := readDB.QueryRowContext(c.Request.Context(),
-		"SELECT title, audio_url, cefr_level, duration_sec, question_json FROM listening_exercises WHERE id=?", id).
+		"SELECT title, audio_url, cefr_level, duration_sec, question_json FROM listening_exercises WHERE id=$1", id).
 		Scan(&title, &audioURL, &level, &duration, &questionJSON)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "not found"})
@@ -139,7 +138,7 @@ func submitAttempt(c *gin.Context) {
 	}
 	ansJSON, _ := json.Marshal(body.Answers)
 	_, err := writeDB.ExecContext(c.Request.Context(),
-		"INSERT INTO listening_attempts (user_id, exercise_id, answers_json, score, duration_ms) VALUES (?, ?, ?, ?, ?)",
+		"INSERT INTO listening_attempts (user_id, exercise_id, answers_json, score, duration_ms) VALUES ($1, $2, $3::jsonb, $4, $5)",
 		body.UserID, body.ExerciseID, string(ansJSON), body.Score, body.DurationMs)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})

@@ -89,6 +89,12 @@
             <artifactId>esp-rw-java</artifactId>
             <version>1.0.0</version>
         </dependency>
+        <!-- ESP 共用 Web 能力(GlobalExceptionHandler + ApiError + TraceIdUtil + AppLogClient,铁律一共享包优先) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-web-common</artifactId>
+            <version>1.0.0</version>
+        </dependency>
 
         <!-- ===== Spring Cloud Alibaba 全套(最新)===== -->
         <!-- Nacos:服务注册与发现 + 配置中心 -->
@@ -195,6 +201,14 @@
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <version>9.1.0</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- CRDB 适配(会话22-29):PG driver —— esp-rw-java 的 postgresql 是 provided(不传递),
+             CRDB 模式路由池需 org.postgresql.Driver;TiDB 模式(type=tidb/缺省)不被引用,行为不变。 -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.8</version>
             <scope>runtime</scope>
         </dependency>
         <dependency>

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/go-sql-driver/mysql"
 
 	"esp/common-go/config"
 	"esp/common-go/db"
@@ -35,9 +34,9 @@ func main() {
 	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 	log.Printf("[%s] starting on :%s", serviceName, port)
 
-	readDB = db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("tidb-follower:4000", "esp_reading")), serviceName)
-	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("tidb-primary:4000", "esp_reading")), serviceName)
-	log.Printf("[%s] TiDB pools ready (read+write)", serviceName)
+	readDB = db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_reading")), serviceName)
+	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_reading")), serviceName)
+	log.Printf("[%s] CRDB pools ready (read+write)", serviceName)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -86,10 +85,10 @@ func listPassages(c *gin.Context) {
 	var rows *sql.Rows
 	if level != "" {
 		rows, err = readDB.QueryContext(c.Request.Context(),
-			"SELECT id, title, cefr_level, word_count FROM reading_passages WHERE cefr_level=? ORDER BY id LIMIT ?", level, limitN)
+			"SELECT id, title, cefr_level, word_count FROM reading_passages WHERE cefr_level=$1 ORDER BY id LIMIT $2", level, limitN)
 	} else {
 		rows, err = readDB.QueryContext(c.Request.Context(),
-			"SELECT id, title, cefr_level, word_count FROM reading_passages ORDER BY id LIMIT ?", limitN)
+			"SELECT id, title, cefr_level, word_count FROM reading_passages ORDER BY id LIMIT $1", limitN)
 	}
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -116,7 +115,7 @@ func getPassage(c *gin.Context) {
 	var sourceType sql.NullString
 	var questionsJSON sql.NullString
 	err := readDB.QueryRowContext(c.Request.Context(),
-		"SELECT title, content, word_count, cefr_level, source_type, questions_json FROM reading_passages WHERE id=?", id).
+		"SELECT title, content, word_count, cefr_level, source_type, questions_json FROM reading_passages WHERE id=$1", id).
 		Scan(&title, &content, &wc, &level, &sourceType, &questionsJSON)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "not found"})
@@ -141,7 +140,7 @@ func submitAttempt(c *gin.Context) {
 	}
 	ansJSON, _ := json.Marshal(body.Answers)
 	_, err := writeDB.ExecContext(c.Request.Context(),
-		"INSERT INTO reading_attempts (user_id, passage_id, answers_json, score, duration_ms) VALUES (?, ?, ?, ?, ?)",
+		"INSERT INTO reading_attempts (user_id, passage_id, answers_json, score, duration_ms) VALUES ($1, $2, $3::jsonb, $4, $5)",
 		body.UserID, body.PassageID, string(ansJSON), body.Score, body.DurationMs)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})

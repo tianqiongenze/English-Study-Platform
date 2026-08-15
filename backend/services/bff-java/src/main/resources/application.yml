@@ -112,6 +112,19 @@ esp:
     double-delete-delay-ms: 100
   pulsar:
     service-url: ${PULSAR_URL:pulsar://pulsar-broker:6650}
+  # 共用 Web 能力(esp-web-common):GlobalExceptionHandler 包范围 + AppLogClient service 名
+  web:
+    common:
+      base-packages: com.esp.bff
+      app-log:
+        service: bff
+        # CRDB 适配(会话22-29):bff 的 AppLogClient 走路由池(连接 esp/esp_auth),
+        # app_logs 在 esp_shared —— esp-web-common 默认 SQL 已用两段式 esp_shared.app_logs
+        # (TiDB/CRDB 均跨库可达),无需 shared 池;SQL 模板按 esp.rw.storage.type 自动选 JSON/JSONB。
+        # 如后续高频写 app_logs 需独立池,再仿 learning 引入 SharedDataSourceConfig +
+        # jdbc-template-name: sharedJdbcTemplate(注意:引入自定义 JdbcTemplate 后须同时显式定义
+        # 路由 jdbcTemplate bean,否则 SB 自动装配的 @Primary jdbcTemplate 会因 JdbcOperations 已存在而退避,
+        # bff AuthController 按类型注入 JdbcTemplate 将错绑 shared 池 —— 破坏 TiDB 模式,勿轻易加)。
 
 wx:
   login:

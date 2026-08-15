@@ -16,12 +16,14 @@ spring:
   main:
     allow-bean-definition-overriding: true   # SCA seata starter 传递 spring-boot-webclient:4.0.0,其 CodecsAutoConfiguration 与 SB3.5.16 defaultCodecCustomizer bean 重名,允许覆盖消解
   jpa:
-    database-platform: org.hibernate.dialect.MariaDBDialect
+    # CRDB 适配(会话22-29):dialect env 驱动 —— TiDB(缺省)MariaDBDialect 不变;
+    # CRDB 模式设 JPA_DATABASE_PLATFORM=org.hibernate.dialect.CockroachDialect(Hibernate 7.2 内置)
+    database-platform: ${JPA_DATABASE_PLATFORM:org.hibernate.dialect.MariaDBDialect}
     hibernate:
       ddl-auto: none
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.MariaDBDialect
+        dialect: ${JPA_DATABASE_PLATFORM:org.hibernate.dialect.MariaDBDialect}
         # DB吞吐优化(2026-08-15 会话22-27,方案见 docs/design/db-access-throughput-optimization.md):
         # 批量写:saveAll 逐条→50条/往返,写路径 DB 往返降~50x;order_* 同类型实体排序凑批。
         # 红线(坑㉖):禁 findAll 千万行全表,业务去重用投影查询。
@@ -56,6 +58,8 @@ spring:
         connection-init-sql: "SET SESSION tidb_read_consistency='strong'"
     # app_logs 跨 schema 专用数据源(schema-per-service:app_logs 在 esp_shared,
     # 业务读写分离连接指 esp_learning,需独立连接池供 AppLogClient 写 / BehaviorController 读 app_logs)。
+    # 仅 TiDB 模式生效(esp.rw.storage.type=tidb/缺省);CRDB 模式下 SharedDataSourceConfig
+    # 改用 esp.rw.cockroachdb.*(host/user 默认 crdb-public:26257)派生 PG 连接指向 esp_shared,本段不生效。
     shared:
       jdbc-url: ${SHARED_DB_URL:jdbc:mysql://tidb-primary:4000/esp_shared?useSSL=false&allowPublicKeyRetrieval=true}
       username: ${DB_USER:root}
@@ -100,6 +104,18 @@ esp:
     buffer-size: 65536
     batch-size: 200
     flush-interval-ms: 500
+    consumers: 4
+    # G-06:独立 DB writer 线程池 + 有界批次队列(consumer 线程只入队,writer 异步 batchUpdate)
+    writers: 4
+    writer-queue: 100
+  # 共用 Web 能力(esp-web-common):GlobalExceptionHandler 包范围 + AppLogClient service 名/DB 连接
+  web:
+    common:
+      base-packages: com.esp.learning
+      app-log:
+        service: learning
+        # app_logs 在 esp_shared 跨 schema 专用连接(见 config/SharedDataSourceConfig),非业务主库
+        jdbc-template-name: sharedJdbcTemplate
 # ADR-08 Dubbo Triple RPC(注册到 Nacos)
 dubbo:
   application:

@@ -36,15 +36,15 @@ spec:
     spec:
       containers:
       - name: llm-orchestrator-rs
-        image: esp/llm-orchestrator-rs:1.0.0
+        image: esp/llm-orchestrator-rs:1.1.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8086, name: http}]
         env:
         - {name: PORT, value: "8086"}
         # Redis Cluster seed:FQDN(对齐 31/32,避免短名跨 ns 解析偶发坑㉓)
         - {name: REDIS_ADDR, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
-        # TiDB esp_llm(代码 main.rs:82 default_dsn 无 ssl-mode 字面量,原样保留)
-        - {name: TIDB_DSN, value: "mysql://root@tidb-primary:4000/esp_llm"}
+        # CRDB esp_llm(#140 全服务切 CRDB;env key 由 TIDB_DSN 改为 LLM_DB_URL 对齐代码 main.rs)
+        - {name: LLM_DB_URL, value: "postgres://root@crdb-public:26257/esp_llm?sslmode=disable"}
         - {name: LLM_DEFAULT_MODEL, value: "gpt-4o-mini"}
         - {name: RUST_LOG, value: "info,llm_orchestrator_rs=debug"}
         # LLM provider 配置:secret llm-providers(空值占位,生产用 KMS/SealedSecret 注入真实 key)
@@ -109,19 +109,15 @@ spec:
     spec:
       containers:
       - name: vocab-srs-go
-        image: esp/vocab-srs-go:1.0.0
+        image: esp/vocab-srs-go:1.1.0   # #140 CRDB 切库:esp-common-go pgx + DAO 方言迁移(ON CONFLICT/RETURNING)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8087, name: http}]
         env:
         - {name: PORT, value: "8087"}
         - {name: GIN_MODE, value: "release"}
-        # 读写分离 TiDB(代码 main.go:58 buildDSN 用 TIDB_HOST/TIDB_HOST_READ)
-        - {name: TIDB_HOST, value: "tidb-primary"}
-        - {name: TIDB_HOST_READ, value: "tidb-follower"}
-        - {name: TIDB_PORT, value: "4000"}
-        - {name: TIDB_USER, value: "root"}
-        - {name: TIDB_PASSWORD, value: ""}
-        - {name: TIDB_DB, value: "esp_vocab"}
+        # CRDB esp_vocab(#140 全服务切 CRDB;代码 main.go 读 READ_DB_URL/WRITE_DB_URL,默认 crdb-public)
+        - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_vocab?sslmode=disable"}
+        - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_vocab?sslmode=disable"}
         # OTEL(新规范:FQDN,对齐 Dockerfile 默认值)
         - {name: OTEL_SERVICE_NAME, value: "vocab-srs-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}

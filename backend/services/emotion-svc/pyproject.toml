@@ -8,8 +8,9 @@ dependencies = [
     "pydantic>=2.7",
     # 多级缓存:公共包 esp-cache-py(L1 cachetools + L2 redis.asyncio)
     "esp-cache-py>=1.0.0",
-    # 读写分离数据访问:公共包 esp-db-py(主写 tidb-primary / 从读 tidb-follower)
+    # 读写分离数据访问:公共包 esp-db-py(asyncpg,CRDB crdb-public:26257)+ 直连 psycopg(app_logs)
     "esp-db-py>=1.0.0",
+    "psycopg[binary]>=3.1",
     # OpenTelemetry (tracing → OTel Collector via OTLP gRPC)
     "opentelemetry-api==1.30.0",
     "opentelemetry-sdk==1.30.0",

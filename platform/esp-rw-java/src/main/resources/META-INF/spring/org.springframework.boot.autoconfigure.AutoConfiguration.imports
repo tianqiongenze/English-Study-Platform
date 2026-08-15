@@ -1,1 +1,2 @@
 com.esp.rw.DataSourceConfig
+com.esp.rw.CockroachDbDataSourceConfig

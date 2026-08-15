@@ -1,10 +1,13 @@
-// Package log provides AppLogClient —— 结构化业务日志异步写 TiDB app_logs(ADR-observability-rebuild)。
+// Package log provides AppLogClient —— 结构化业务日志异步写 CRDB app_logs(ADR-observability-rebuild)。
 //
 // 设计:
 //   - 异步:后台 goroutine + 有界 channel,不阻塞业务主路径。
-//   - 降级:TiDB 不可用时仅 slog.Warn,不 panic(参考缓存降级)。
+//   - 降级:CRDB 不可用时仅 slog.Warn,不 panic(参考缓存降级)。
 //   - traceId:从 OTel 当前 span 提取(若已初始化 tracer)。
-//   - 连接:database/sql + go-sql-driver/mysql,直连 tidb-primary(主写)。
+//   - 连接:database/sql + pgx(CRDB postgres 协议),独立连接池直连 esp_shared 库(#140 切 CRDB)。
+//
+// 说明:esp-common-go 全局池连 esp_speaking(sessions/scenarios),app_logs 在 esp_shared,
+// 两者不同库,故本包保留独立池连 esp_shared(各写各库,避免跨库依赖)。
 //
 // 用法:
 //
@@ -22,7 +25,7 @@ import (
 	"os"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -49,11 +52,11 @@ func Init() {
 		return
 	}
 	svc = envDefault("OTEL_SERVICE_NAME", "gateway")
-	// app_logs 已迁 esp_shared(schema-per-service Phase1);保留 APP_LOG_DB env 可回退。
+	// app_logs 在 esp_shared(schema-per-service Phase1);保留 APP_LOG_DB env 可回退。
 	dbName := envDefault("APP_LOG_DB", "esp_shared")
-	dsn := "root:@tcp(" + envDefault("TIDB_HOST", "tidb-primary") + ":4000)/" + dbName + "?timeout=5s&writeTimeout=5s&autocommit=true"
+	dsn := "postgres://root@" + envDefault("CRDB_HOST", "crdb-public") + ":26257/" + dbName + "?sslmode=disable"
 	var err error
-	db, err = sql.Open("mysql", dsn)
+	db, err = sql.Open("pgx", dsn)
 	if err != nil {
 		slog.Warn("app_logs: sql.Open failed (degraded)", "err", err)
 		db = nil
@@ -70,7 +73,7 @@ func worker() {
 		payload, _ := json.Marshal(e.Payload)
 		_, err := db.ExecContext(context.Background(),
 			"INSERT INTO app_logs (ts, service, level, event, trace_id, user_id, payload) "+
-				"VALUES (NOW(3), ?, ?, ?, ?, ?, CAST(? AS JSON))",
+				"VALUES (now(), $1, $2, $3, $4, $5, $6::jsonb)",
 			e.Service, e.Level, e.Event, e.TraceID, e.UserID, string(payload),
 		)
 		if err != nil {

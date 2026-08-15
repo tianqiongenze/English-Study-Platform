@@ -2,8 +2,6 @@ package com.esp.bff.handler;
 
 import com.esp.bff.edge.RouteTable;
 import jakarta.servlet.http.HttpServletRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -32,8 +30,6 @@ import java.util.List;
  */
 @RestController
 public class ProxyController {
-
-    private static final Logger log = LoggerFactory.getLogger(ProxyController.class);
 
     /** 跳过的 hop-by-hop / 会引发下游连接复用问题的头。 */
     private static final List<String> SKIP_HEADERS = List.of(
@@ -95,10 +91,9 @@ public class ProxyController {
             return ResponseEntity.status(e.getStatusCode())
                     .headers(filterResponseHeaders(e.getResponseHeaders()))
                     .body(e.getResponseBodyAsByteArray());
-        } catch (Exception e) {
-            log.warn("proxy forward failed: {} -> {}: {}", path, downstream, e.getMessage());
-            return ResponseEntity.status(503).body(("upstream unavailable: " + downstream).getBytes());
         }
+        // 其余异常(连接失败/超时等 RestClientException)交由 GlobalExceptionHandler → 503 envelope,
+        // 替代原内联 catch(Exception) → 503(架构审查 Top5 #5 统一错误处理)。
     }
 
     private static HttpHeaders filterResponseHeaders(HttpHeaders in) {

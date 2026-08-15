@@ -16,14 +16,15 @@ EOF
 # build context = backend/(含 shared/esp-common-rs + services/assessment-rs)
 # Cargo.toml 的 esp-common-rs = { path = "../../shared/esp-common-rs" } → 需 /workspace/esp-common-rs
 WORKDIR /workspace/assessment-rs
-COPY shared/esp-common-rs /workspace/esp-common-rs
+COPY shared/esp-common-rs /shared/esp-common-rs
 COPY services/assessment-rs/Cargo.toml Cargo.lock* ./
 COPY services/assessment-rs/src ./src
 RUN cargo build --release
 
 # 运行阶段:debian:bookworm-slim(nonroot)
 FROM docker.1ms.run/library/debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 \
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g; s|security.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 65532 -r -s /usr/sbin/nologin nonroot
 WORKDIR /app

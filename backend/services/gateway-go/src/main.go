@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"esp/common-go/config"
+	"esp/common-go/db"
 	"esp/common-go/redisx"
 
 	"esp/conversation-go/src/asr"
@@ -36,7 +38,16 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
 	CheckOrigin:     func(r *http.Request) bool { return true },
+	// G-04:WS 握手超时,防慢速连接占满 goroutine。
+	HandshakeTimeout: 10 * time.Second,
 }
+
+// WS 心跳/超时参数(G-04 加固)。
+const (
+	wsWriteTimeout = 10 * time.Second // 单次写 deadline(普通帧 + 控制帧)
+	wsPongWait     = 60 * time.Second // 读 deadline:超过未收到任何帧/控制帧则判死
+	wsPingPeriod   = 30 * time.Second // 服务端 ping 周期(须 < wsPongWait)
+)
 
 type Server struct {
 	rdb       *redis.ClusterClient // P1-8: 写接口幂等 SETNX
@@ -64,6 +75,12 @@ func main() {
 	redisAddr := config.Getenv("REDIS_ADDR", "redis-cluster:6379")
 	// Redis Cluster 模式(经 ExternalName redis-cluster → redis-cluster-new,3主3从)
 	rdb := redisx.MustNewCluster(redisAddr, "gateway-go")
+
+	// #140 全服务切 CRDB:初始化全局读写池(连 esp_speaking,供 conversation-go 的
+	// scenarios/sessions 归档读写;app_logs 在 esp_shared,由 gwlog.Init 独立池连接)。
+	// DB_ENABLED=false 时 no-op(回退纯 Redis/LLM 模式)。
+	readDSN, writeDSN := db.ReadWriteDSN("esp_speaking")
+	db.InitGlobal(readDSN, writeDSN, "gateway-go")
 
 	// P2-1: WS 分片广播 Hub(按 session_id hash 分 Redis Pub/Sub channel)。
 	// 跨 Pod 同步多端同 session / 教师旁听 / 情绪推送;点对点响应仍走 writeConn。
@@ -247,11 +264,22 @@ func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	// G-04 加固:写互斥包装(与 Hub 广播 sendLocal 并发写同一连接安全)。
+	safeConn := ws.NewSafeConn(conn)
 	defer conn.Close()
+
+	// G-04 加固:心跳保活 —— 读 deadline 由 pong 重置;服务端每 wsPingPeriod 发 ping。
+	conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	})
+	stopPing := make(chan struct{})
+	defer close(stopPing)
+	go wsPingLoop(safeConn, stopPing)
 
 	// P2-1: 注册到广播 Hub,使跨端/跨 Pod 同 session 连接能收到广播帧。
 	// 返回的反注册函数在连接关闭时(defer)清理本地连接表。
-	unregister := s.hub.Register(sessionID, conn)
+	unregister := s.hub.Register(sessionID, safeConn)
 	defer unregister()
 
 	// 会话已在 upgrade 前鉴权时 Get 并校验归属,sess 非空,直接复用。
@@ -264,7 +292,7 @@ func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 		}
 		frame, err := ws.DecodeFrame(raw)
 		if err != nil {
-			_ = writeConn(conn, ws.Frame{Type: ws.TypeError, Message: "bad frame"})
+			_ = writeConn(safeConn, ws.Frame{Type: ws.TypeError, Message: "bad frame"})
 			continue
 		}
 		switch frame.Type {
@@ -273,22 +301,39 @@ func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 			if text == "" {
 				continue
 			}
-			s.handleUserText(r.Context(), conn, sess, sessionID, text)
+			s.handleUserText(r.Context(), safeConn, sess, sessionID, text)
 		case ws.TypeTextInput:
 			if frame.Text == "/hint" {
-				_ = writeConn(conn, s.engine.Hint(sess))
+				_ = writeConn(safeConn, s.engine.Hint(sess))
 				continue
 			}
-			s.handleUserText(r.Context(), conn, sess, sessionID, frame.Text)
+			s.handleUserText(r.Context(), safeConn, sess, sessionID, frame.Text)
 		case ws.TypeEnd:
-			_ = writeConn(conn, ws.Frame{Type: ws.TypeEnd, Summary: "Session ended."})
+			_ = writeConn(safeConn, ws.Frame{Type: ws.TypeEnd, Summary: "Session ended."})
 			_ = s.sessions.End(r.Context(), sessionID)
 			return
 		}
 	}
 }
 
-func (s *Server) handleUserText(ctx context.Context, conn *websocket.Conn, sess *session.Session, sessionID, text string) {
+// wsPingLoop 周期性发 ping,驱动对端回 pong 以续读 deadline(配合 wsPongWait 判死僵尸连接)。
+func wsPingLoop(c *ws.SafeConn, stop <-chan struct{}) {
+	t := time.NewTicker(wsPingPeriod)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			if err := c.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteTimeout)); err != nil {
+				// 连接已关闭/写失败:退出心跳,连接由读循环或 defer Close 收尾。
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) handleUserText(ctx context.Context, conn *ws.SafeConn, sess *session.Session, sessionID, text string) {
 	_, _ = s.sessions.AppendTurn(ctx, sessionID, session.Turn{Role: "user", Content: text})
 	res, err := s.engine.Process(ctx, sess, text)
 	if err != nil {
@@ -311,12 +356,9 @@ func (s *Server) handleUserText(ctx context.Context, conn *websocket.Conn, sess 
 	_, _ = s.sessions.AppendTurn(ctx, sessionID, res.Turn)
 }
 
-func writeConn(conn *websocket.Conn, f ws.Frame) error {
-	b, err := f.Encode()
-	if err != nil {
-		return err
-	}
-	return conn.WriteMessage(websocket.TextMessage, b)
+// writeConn 写一帧。经 SafeConn 内部互斥 + 写 deadline 保护(gorilla 单并发写者,解 G-04)。
+func writeConn(conn *ws.SafeConn, f ws.Frame) error {
+	return conn.WriteFrame(f)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -359,6 +401,14 @@ func envInt(k string, def int) int {
 	return config.GetenvInt(k, def)
 }
 
+// newID 生成会话 ID。G-04 修复:原 `sess_<UnixMilli>` 毫秒级碰撞导致会话串号。
+// 改 `sess_<unixms>_<8位crypto/rand hex>`:零新依赖兜底(首选 UUIDv7 需新增 github.com/google/uuid,
+// 当前环境网络受限且 go.sum 本就留空待 tidy,引入新依赖风险高)。unixms 保时序可读,
+// 8hex(32bit 随机)在并发 1000 会话/毫秒下碰撞概率可忽略;极端情况 rand 失败回落纳秒保唯一。
 func newID() string {
-	return fmt.Sprintf("sess_%d", time.Now().UnixMilli())
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("sess_%d_%d", time.Now().UnixMilli(), time.Now().UnixNano())
+	}
+	return fmt.Sprintf("sess_%d_%x", time.Now().UnixMilli(), b)
 }

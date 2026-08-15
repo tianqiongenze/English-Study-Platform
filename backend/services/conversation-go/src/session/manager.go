@@ -1,4 +1,5 @@
 // Package session 管理口语会话状态,持久化到 Redis,使网关无状态。
+// 归档写 CRDB esp_speaking.sessions(统一走 esp-common-go/db 全局池,#140)。
 package session
 
 import (
@@ -8,7 +9,7 @@ import (
 	"log/slog"
 	"time"
 
-	"esp/conversation-go/src/db"
+	"esp/common-go/db"
 	"esp/conversation-go/src/pulsar"
 	"github.com/redis/go-redis/v9"
 )
@@ -37,6 +38,10 @@ type Manager struct {
 	prefix string
 	ttl    time.Duration
 }
+
+// archiveSem 限制 End 归档 CRDB 写的并发(256),防高并发 End 下"每会话一个 goroutine"风暴(G-04 修复)。
+// 单节点 RD 256 并发归档足以吸收 5000 CCU 尖峰;超出的 goroutine 阻塞等待,而非无界堆积。
+var archiveSem = make(chan struct{}, 256)
 
 func NewManager(rdb redis.UniversalClient, ttl time.Duration) *Manager {
 	return &Manager{rdb: rdb, prefix: "session:", ttl: ttl}
@@ -93,7 +98,7 @@ func (m *Manager) AppendTurn(ctx context.Context, id string, t Turn) (*Session, 
 	return s, nil
 }
 
-// SessionSummary 是会话历史的归档摘要(从 TiDB esp_speaking.sessions 读)。
+// SessionSummary 是会话历史的归档摘要(从 CRDB esp_speaking.sessions 读)。
 type SessionSummary struct {
 	ID         string `json:"id"`
 	UserID     int64  `json:"user_id"`
@@ -103,15 +108,14 @@ type SessionSummary struct {
 	EndedAt    string `json:"ended_at"`
 }
 
-// ListHistory 按 user_id 列出会话历史(从 TiDB esp_speaking.sessions 读从库,最近 N 条)。
-// End 时归档写入 sessions 表(id BIGINT AUTO_RANDOM,started_at/ended_at/status),
-// 此处读取供前端"会话历史"页展示。读从库 tidb-follower,forcedPrimary=false。
+// ListHistory 按 user_id 列出会话历史(从 CRDB esp_speaking.sessions 读,最近 N 条)。
+// End 时归档写入 sessions 表(id STRING,与 Redis 会话 ID 同源;PG 方言 $1/$2)。
 func ListHistory(ctx context.Context, userID int64, limit int) ([]SessionSummary, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	rows, err := db.Read(ctx,
-		"SELECT id, user_id, scenario_id, status, started_at, IFNULL(ended_at, '') FROM esp_speaking.sessions WHERE user_id = ? ORDER BY started_at DESC LIMIT ?",
+		"SELECT id, user_id, scenario_id, status, started_at::STRING, COALESCE(ended_at::STRING, '') FROM esp_speaking.sessions WHERE user_id = $1 ORDER BY started_at DESC LIMIT $2",
 		false, userID, limit)
 	if err != nil {
 		return nil, err
@@ -130,8 +134,9 @@ func ListHistory(ctx context.Context, userID int64, limit int) ([]SessionSummary
 	return out, rows.Err()
 }
 
-// End 结束会话(删除 Redis 键),并异步把会话记录持久化到 TiDB(写主库 tidb-primary)。
-// TiDB 写失败只 warn 不阻断(会话状态已在 Redis,丢失只是无历史归档)。
+// End 结束会话(删除 Redis 键),并异步把会话记录持久化到 CRDB(写池)。
+// CRDB 写失败只 warn 不阻断(会话状态已在 Redis,丢失只是无历史归档)。
+// 注意:sessions.id 列须为 STRING(与应用生成的 sess_xxx 会话 ID 同型,见 #140 决策)。
 func (m *Manager) End(ctx context.Context, id string) error {
 	// 先读会话快照(用于归档),再删 Redis 键
 	if sess, err := m.Get(ctx, id); err == nil && sess.UserID > 0 {
@@ -142,13 +147,16 @@ func (m *Manager) End(ctx context.Context, id string) error {
 			"user_id":    sess.UserID,
 		})
 		go func(s *Session) {
+			// 有界信号量:并发归档 ≤256,防 goroutine 风暴。
+			archiveSem <- struct{}{}
+			defer func() { <-archiveSem }()
 			archiveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			_, err := db.Write(archiveCtx,
-				"INSERT INTO sessions (id, user_id, scenario_id, status, started_at, ended_at) VALUES (?,?,?,?,?,NOW())",
+				"INSERT INTO sessions (id, user_id, scenario_id, status, started_at, ended_at) VALUES ($1, $2, $3, $4, $5, now())",
 				s.ID, s.UserID, 0, "ended", s.StartedAt)
 			if err != nil {
-				slog.Warn("session: archive to TiDB primary failed (non-fatal)", "id", s.ID, "err", err)
+				slog.Warn("session: archive to CRDB failed (non-fatal)", "id", s.ID, "err", err)
 			}
 		}(sess)
 	}

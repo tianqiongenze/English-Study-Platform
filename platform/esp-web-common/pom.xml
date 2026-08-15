@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.esp</groupId>
+    <artifactId>esp-web-common</artifactId>
+    <version>1.0.0</version>
+    <name>esp-web-common</name>
+    <packaging>jar</packaging>
+    <description>
+        ESP 共用 Web 能力包(engineering-ironrules 铁律一:公共能力共享包优先,收编 3 服务重复实现):
+        1) GlobalExceptionHandler —— 统一错误 envelope {code,message,traceId},包范围由属性
+           esp.web.common.base-packages 控制(逗号分隔),actuator 端点天然白名单;
+           RestClientException -> 503,兜底 Exception -> 500,不泄漏内部堆栈。
+        2) ApiError —— envelope 单一真源类型(替代各服务内联 Map.of)。
+        3) TraceIdUtil.currentTraceId() —— OTel 当前 span traceId,未注入 agent 时返回 null。
+        4) AppLogClient —— 结构化业务日志异步写 app_logs(独立线程池 + 降级不阻断业务),
+           service 名由 esp.web.common.app-log.service 属性化,DB 连接默认走当前写库 JdbcTemplate,
+           可通过 esp.web.common.app-log.jdbc-template-name 指定命名 bean(learning 用 sharedJdbcTemplate)。
+        供 bff-java / learning-java / teacher-java 等所有 Java 服务复用,消除 handler/ 与 common/ 重复。
+    </description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-boot.version>4.0.7</spring-boot.version>
+        <spring.version>7.0.8</spring.version>
+        <opentelemetry.version>1.55.0</opentelemetry.version>
+        <jackson.version>2.21.4</jackson.version>
+        <jakarta-servlet.version>6.1.0</jakarta-servlet.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring Boot BOM:统一各 spring-boot 依赖版本 -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- ===== Web MVC(provided:使用方自带 spring-boot-starter-web)=
+             spring-webmvc 提供 @RestControllerAdvice / HandlerMethod;spring-web 提供 RestClientException -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webmvc</artifactId>
+            <version>${spring.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <version>${spring.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- spring-context:@Configuration / @Bean / Environment -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+            <version>${spring.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- spring-jdbc:AppLogClient 的 JdbcTemplate(使用方 spring-boot-starter-jdbc/data-jpa 自带) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+            <version>${spring.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- spring-boot-autoconfigure:@AutoConfiguration / @ConditionalOn* / @EnableConfigurationProperties -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- jakarta.servlet-api:HttpServletRequest(SB 使用方自带) -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>${jakarta-servlet.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- OpenTelemetry API:Span.current 取 traceId(javaagent 运行时注入,编译期需 API jar,同 bff 模式)。
+             opentelemetry-api 的传递依赖 opentelemetry-context 在 provided scope 下不传递,需显式声明。 -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <version>${opentelemetry.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-context</artifactId>
+            <version>${opentelemetry.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Jackson:AppLogClient payload 序列化(使用方 starter-web 自带) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- SLF4J API:日志 -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.18</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- ===== test ===== -->
+        <!-- spring-boot-starter-test:junit-jupiter / mockito / assertj / hamcrest / spring-test / json-path -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- SB4 WebMvc 测试模块:@AutoConfigureMockMvc / MockMvc 基础设施 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- starter-web + starter-jdbc + h2:集成测试验证 @AutoConfiguration 装配
+             (Web MVC 上下文 + 缺省 H2 数据源 + JdbcTemplate) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+            <version>${spring-boot.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.3.232</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- OpenTelemetry SDK:TraceIdUtilTest 构造真实 span(同 bff 单测模式) -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+            <version>${opentelemetry.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk-trace</artifactId>
+            <version>${opentelemetry.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

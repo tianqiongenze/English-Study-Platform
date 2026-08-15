@@ -2,7 +2,7 @@
 // 每次调用记 provider/model/tokens/latency/cost/trace_id,失败也记
 // schema: docs/design/schema-per-service-phase0.sql esp_llm.llm_call_logs
 
-use sqlx::mysql::MySqlPool;
+use sqlx::PgPool;
 
 /// 单次调用成本记录
 pub struct CallLog {
@@ -22,12 +22,12 @@ pub struct CallLog {
 }
 
 /// 写入 llm_call_logs。失败仅记日志,不阻断主流程(调用方已 .ok() 兜底)
-pub async fn record(pool: &MySqlPool, log: &CallLog) -> Result<(), sqlx::Error> {
+pub async fn record(pool: &PgPool, log: &CallLog) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"INSERT INTO llm_call_logs
            (trace_id, user_id, provider, model, scene, prompt_tokens, completion_tokens,
             total_tokens, latency_ms, cost_usd, cache_hit, status, error_msg, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())"#,
     )
     .bind(&log.trace_id)
     .bind(log.user_id)

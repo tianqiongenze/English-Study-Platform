@@ -48,7 +48,7 @@ async def visual(data: VisualRequest = Body()) -> dict:
 
 @get("/api/emotion/recent/{user_id:int}", status_code=HTTP_200_OK)
 async def recent(user_id: int, request: Request = None) -> dict:
-    """查询用户近期情绪事件(从库 tidb-follower 读)。
+    """查询用户近期情绪事件(读池读,esp-db-py)。
     P0-3:路径 user_id 必须等于 BFF 注入的可信 X-User-Id(防查他人历史)。"""
     trusted = _trusted_user_id(request) if request else 0
     if trusted == 0 or trusted != user_id:

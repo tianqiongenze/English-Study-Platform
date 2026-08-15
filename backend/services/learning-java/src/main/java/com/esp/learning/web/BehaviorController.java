@@ -1,8 +1,8 @@
 package com.esp.learning.web;
 
 import com.esp.cache.CacheService;
-import com.esp.learning.common.AppLogClient;
 import com.esp.learning.service.LearningService;
+import com.esp.web.common.AppLogClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
@@ -129,15 +129,17 @@ public class BehaviorController {
         result.put("weak_points", learningService.weakestPoints(user_id));
 
         // 3. 相似用户练习过的场景(基于 user_mastery 协同过滤,轻量 SQL)
+        //    跨库表用两段式:scenarios -> esp_content(TiDB 侧 esp_speaking/esp_content 均不可达,
+        //    该查询本就 catch 静默降级,行为不变);sessions -> esp_auth;user_mastery 同库 esp_learning。
         try {
-            String sql = "SELECT s.id, s.code, s.title, s.difficulty FROM scenarios s " +
+            String sql = "SELECT s.id, s.code, s.title, s.difficulty FROM esp_content.scenarios s " +
                     "WHERE s.id IN (" +
-                    "  SELECT DISTINCT ses.scenario_id FROM sessions ses " +
+                    "  SELECT DISTINCT ses.scenario_id FROM esp_auth.sessions ses " +
                     "  WHERE ses.user_id IN (" +
                     "    SELECT m1.user_id FROM user_mastery m1 " +
                     "    WHERE m1.kp_id IN (SELECT m2.kp_id FROM user_mastery m2 WHERE m2.user_id = ? AND m2.mastery_score < 60) " +
                     "    AND m1.user_id <> ? AND m1.mastery_score > 70" +
-                    "  ) AND ses.scenario_id NOT IN (SELECT scenario_id FROM sessions WHERE user_id = ?)" +
+                    "  ) AND ses.scenario_id NOT IN (SELECT scenario_id FROM esp_auth.sessions WHERE user_id = ?)" +
                     ") LIMIT 5";
             result.put("similar_scenarios", readJdbc.queryForList(sql, user_id, user_id, user_id));
         } catch (Exception ex) {
@@ -163,16 +165,16 @@ public class BehaviorController {
                     mood.put("message", "Looks like a tough week — let's warm up with something light.");
                     mood.put("max_difficulty", "easy");
                     List<Map<String, Object>> easy = readJdbc.queryForList(
-                            "SELECT id, code, title, difficulty FROM scenarios WHERE difficulty = 'easy' " +
-                            "AND id NOT IN (SELECT scenario_id FROM sessions WHERE user_id = ?) LIMIT 3", user_id);
+                            "SELECT id, code, title, difficulty FROM esp_content.scenarios WHERE difficulty <= 2 " +
+                            "AND id NOT IN (SELECT scenario_id FROM esp_auth.sessions WHERE user_id = ?) LIMIT 3", user_id);
                     mood.put("suggested_scenarios", easy);
                 } else {
                     mood.put("state", "positive");
                     mood.put("message", "You're on a roll — ready to level up?");
                     mood.put("min_difficulty", "medium");
                     List<Map<String, Object>> up = readJdbc.queryForList(
-                            "SELECT id, code, title, difficulty FROM scenarios WHERE difficulty IN ('medium','hard') " +
-                            "AND id NOT IN (SELECT scenario_id FROM sessions WHERE user_id = ?) LIMIT 3", user_id);
+                            "SELECT id, code, title, difficulty FROM esp_content.scenarios WHERE difficulty >= 3 " +
+                            "AND id NOT IN (SELECT scenario_id FROM esp_auth.sessions WHERE user_id = ?) LIMIT 3", user_id);
                     mood.put("suggested_scenarios", up);
                 }
             } else {

@@ -12,22 +12,27 @@ spec:
     spec:
       containers:
       - name: writing-py
-        image: esp/writing-py:1.5.1   # P1-8 grade/polish 幂等(nx=True)
+        image: esp/writing-py:1.6.0   # #140 CRDB 切库:esp-db-py asyncpg + 方言迁移(保留 execute_write/read API)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8082}]
         env:
         - {name: LLM_MODE, value: "mock"}
         - {name: ANTHROPIC_API_KEY, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_API_KEY}}}
-        # 读写分离 TiDB:写主库 tidb-primary / 读从库 tidb-follower(esp-db-py)
+        # CRDB esp_writing(#140 全服务切 CRDB;esp-db-py 双池保持读写分离,DB_DRIVER=mysql 可回切 TiDB)
         - {name: DB_ENABLED, value: "true"}
-        - {name: WRITE_DB_HOST, value: "tidb-primary"}
-        - {name: READ_DB_HOST, value: "tidb-follower"}
+        - {name: WRITE_DB_HOST, value: "crdb-public"}
+        - {name: READ_DB_HOST, value: "crdb-public"}
+        - {name: WRITE_DB_PORT, value: "26257"}
+        - {name: READ_DB_PORT, value: "26257"}
+        - {name: WRITE_DB_NAME, value: "esp_writing"}
+        - {name: READ_DB_NAME, value: "esp_writing"}
         - {name: WRITE_DB_USER, value: "root"}
         - {name: READ_DB_USER, value: "root"}
         # OTel 注入(ADR-observability-rebuild):writing-py 已内置 opentelemetry-sdk(tracing.py),仅需 env
         - {name: OTEL_SERVICE_NAME, value: "writing"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
-        - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
+        - {name: CRDB_HOST, value: "crdb-public"}   # AppLogClient 写 esp_shared(psycopg3)
+        - {name: CRDB_PORT, value: "26257"}
         startupProbe:   {httpGet: {path: /healthz, port: 8082}, periodSeconds: 10, failureThreshold: 18, timeoutSeconds: 3}   # 180s 慢启动保护(granian 冷启动 + OTel 连 collector)
         readinessProbe: {httpGet: {path: /healthz, port: 8082}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
         livenessProbe:  {httpGet: {path: /healthz, port: 8082}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
@@ -49,14 +54,21 @@ spec:
     spec:
       containers:
       - name: teacher-java
-        image: esp/teacher-java:1.8.0   # #110 esp-cache 纯 JSON 契约(去 DefaultTyping,GenericJackson2JsonRedisSerializer);复用 P2-13 DDD充血化 + P2-16 缓存防护(TTL抖动+singleflight)
+        image: esp/teacher-java:1.10.0   # #145 CRDB 切库(集群已 PgConnection 实连 esp_teacher);#135 esp-web-common + #137 CRDB适配
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8083}]
         env:
-        - {name: WRITE_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_teaching?useSSL=false&allowPublicKeyRetrieval=true"}
-        - {name: READ_DB_URL, value: "jdbc:mysql://tidb-follower:4000/esp_teaching?useSSL=false&allowPublicKeyRetrieval=true"}
-        - {name: DB_USER, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_USER}}}
-        - {name: DB_PASS, valueFrom: {secretKeyRef: {name: esp-secrets, key: DB_PASS}}}
+        # #140/#145 切 CRDB:ESP_RW_STORAGE_TYPE=cockroachdb 激活 esp-rw-java CockroachDbDataSourceConfig,PG 双池指 crdb-public:26257/esp_teacher
+        - {name: ESP_RW_STORAGE_TYPE,       value: "cockroachdb"}
+        - {name: ESP_RW_COCKROACHDB_HOST,   value: "crdb-public"}
+        - {name: ESP_RW_COCKROACHDB_READ_HOST, value: "crdb-public"}
+        - {name: ESP_RW_COCKROACHDB_PORT,   value: "26257"}
+        - {name: ESP_RW_COCKROACHDB_DB,     value: "esp_teacher"}
+        - {name: ESP_RW_COCKROACHDB_USER,   value: "root"}
+        - {name: WRITE_DB_URL, value: "jdbc:mysql://tidb-primary:4000/esp_teaching?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
+        - {name: READ_DB_URL, value: "jdbc:mysql://tidb-follower:4000/esp_teaching?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
+        - {name: DB_USER, value: "root"}
+        - {name: DB_PASS, value: ""}
         - {name: NACOS_HOST, value: "nacos"}
         - {name: DUBBO_GROUP, value: "esp"}
         # OTel 注入(ADR-observability-rebuild):javaagent 已在镜像 JAVA_OPTS 中(Dockerfile ENTRYPOINT)
@@ -89,20 +101,25 @@ spec:
     spec:
       containers:
       - name: emotion-svc
-        image: esp/emotion-svc:1.6.2   # P0-3 IDOR 修复:sense/recent 用可信 X-User-Id
+        image: esp/emotion-svc:1.7.0   # #140 CRDB 切库:esp-db-py asyncpg + logging_client psycopg3
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8084}]
         env:
-        # 读写分离 TiDB:情绪事件写主库 / 历史查询读从库(esp-db-py)
+        # CRDB esp_learning(#140 全服务切 CRDB;情绪事件写/历史读走 esp-db-py 双池)
         - {name: DB_ENABLED, value: "true"}
-        - {name: WRITE_DB_HOST, value: "tidb-primary"}
-        - {name: READ_DB_HOST, value: "tidb-follower"}
+        - {name: WRITE_DB_HOST, value: "crdb-public"}
+        - {name: READ_DB_HOST, value: "crdb-public"}
+        - {name: WRITE_DB_PORT, value: "26257"}
+        - {name: READ_DB_PORT, value: "26257"}
+        - {name: WRITE_DB_NAME, value: "esp_learning"}
+        - {name: READ_DB_NAME, value: "esp_learning"}
         - {name: WRITE_DB_USER, value: "root"}
         - {name: READ_DB_USER, value: "root"}
         # OTel 注入(ADR-observability-rebuild):emotion-svc 已内置 opentelemetry-sdk,仅需 env
         - {name: OTEL_SERVICE_NAME, value: "emotion"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
-        - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
+        - {name: CRDB_HOST, value: "crdb-public"}   # AppLogClient 写 esp_shared(psycopg3)
+        - {name: CRDB_PORT, value: "26257"}
         startupProbe:   {httpGet: {path: /healthz, port: 8084}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 3}   # 600s 慢启动保护(AI 推理冷启动)
         readinessProbe: {httpGet: {path: /healthz, port: 8084}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
         livenessProbe:  {httpGet: {path: /healthz, port: 8084}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
@@ -126,7 +143,7 @@ spec:
     spec:
       containers:
       - name: writing-coach
-        image: esp/writing-coach:1.1.0   # P0-3 IDOR 修复:assess/plan/progress 用可信 X-User-Id
+        image: esp/writing-coach:1.2.0   # #140 CRDB 切库:esp-db-py asyncpg + logging_client psycopg3
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8085}]
         env:
@@ -135,10 +152,14 @@ spec:
         # 协同服务地址(ADR adr-writing-coach §5)
         - {name: WRITING_PY_URL, value: "http://writing-py:80"}
         - {name: LEARNING_URL, value: "http://learning-java:80"}
-        # 读写分离 TiDB:模板/范文读从库 / 计划+进度写主库(esp-db-py)
+        # CRDB esp_writing(#140 全服务切 CRDB;模板/范文读+计划/进度写走 esp-db-py 双池)
         - {name: DB_ENABLED, value: "true"}
-        - {name: WRITE_DB_HOST, value: "tidb-primary"}
-        - {name: READ_DB_HOST, value: "tidb-follower"}
+        - {name: WRITE_DB_HOST, value: "crdb-public"}
+        - {name: READ_DB_HOST, value: "crdb-public"}
+        - {name: WRITE_DB_PORT, value: "26257"}
+        - {name: READ_DB_PORT, value: "26257"}
+        - {name: WRITE_DB_NAME, value: "esp_writing"}
+        - {name: READ_DB_NAME, value: "esp_writing"}
         - {name: WRITE_DB_USER, value: "root"}
         - {name: READ_DB_USER, value: "root"}
         # Redis Cluster 多级缓存(esp-cache-py L2)
@@ -148,7 +169,8 @@ spec:
         # OTel 注入
         - {name: OTEL_SERVICE_NAME, value: "writing-coach"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
-        - {name: TIDB_HOST, value: "tidb-primary"}   # AppLogClient 写 app_logs 主库
+        - {name: CRDB_HOST, value: "crdb-public"}   # AppLogClient 写 esp_shared(psycopg3)
+        - {name: CRDB_PORT, value: "26257"}
         startupProbe:   {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 24, timeoutSeconds: 3}   # 240s 慢启动保护(granian 冷启动 + pip 装公共包)
         readinessProbe: {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
         livenessProbe:  {httpGet: {path: /healthz, port: 8085}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}

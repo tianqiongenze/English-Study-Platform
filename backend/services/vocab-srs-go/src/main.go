@@ -2,22 +2,17 @@
 //
 // 职责(ADR §3 第 S2 项,P0):词汇间隔重复(SRS)记忆 + CRUD。
 // 端口:8087。
-// 依赖:TiDB(esp_vocab schema)读写分离 + Redis Cluster(可选,后续阶段接缓存)。
+// 依赖:CRDB(esp_vocab schema,postgres 协议)读写分离 + Redis Cluster(可选,后续阶段接缓存)。
 //
 // 配置(env,均带默认值):
 //   PORT          监听端口(默认 8087)
-//   TIDB_HOST     TiDB 主机(默认 tidb-primary,ExternalName 短名)
-//   TIDB_PORT     TiDB 端口(默认 4000)
-//   TIDB_USER     TiDB 用户(默认 root)
-//   TIDB_PASSWORD TiDB 密码(默认空)
-//   TIDB_DB       TiDB 库名(默认 esp_vocab)
-//   READ_DB_URL   读库完整 DSN(优先,默认走 tidb-follower)
-//   WRITE_DB_URL  写库完整 DSN(优先,默认走 tidb-primary)
+//   READ_DB_URL   读库完整 postgres DSN(优先,默认 crdb-public:26257/esp_vocab)
+//   WRITE_DB_URL  写库完整 postgres DSN(优先,默认 crdb-public:26257/esp_vocab)
 //   GIN_MODE      gin 模式 release/debug(默认 release)
 //
 // 健康检查:
 //   /healthz 进程存活(恒 200)
-//   /readyz  TiDB 读库可连
+//   /readyz  CRDB 读库可连
 //   /livez   进程存活(恒 200)
 package main
 
@@ -34,6 +29,7 @@ import (
 	"esp/vocab-srs-go/src/handler"
 
 	"esp/common-go/config"
+	"esp/common-go/db"
 	"esp/common-go/health"
 
 	"github.com/gin-gonic/gin"
@@ -51,14 +47,14 @@ func main() {
 	port := config.Getenv("PORT", "8087")
 	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 
-	// DSN 拼装:env 完整 DSN 优先,否则用 TIDB_HOST/PORT 组装。
+	// DSN 拼装:env 完整 postgres DSN 优先,否则默认 CRDB(esp_vocab)。
 	readDSN := config.Getenv("READ_DB_URL", "")
 	writeDSN := config.Getenv("WRITE_DB_URL", "")
 	if readDSN == "" {
-		readDSN = buildDSN(config.Getenv("TIDB_HOST_READ", "tidb-follower"))
+		readDSN = db.DefaultDSN("crdb-public:26257", "esp_vocab")
 	}
 	if writeDSN == "" {
-		writeDSN = buildDSN(config.Getenv("TIDB_HOST", "tidb-primary"))
+		writeDSN = db.DefaultDSN("crdb-public:26257", "esp_vocab")
 	}
 
 	d, err := dao.NewVocabDAO(readDSN, writeDSN)
@@ -134,17 +130,6 @@ func traceMiddleware(log *zap.SugaredLogger) gin.HandlerFunc {
 		log.Infof("trace=%s method=%s path=%s status=%d dur=%dms",
 			tid, c.Request.Method, c.Request.URL.Path, c.Writer.Status(), time.Since(start).Milliseconds())
 	}
-}
-
-// buildDSN 拼装 mysql DSN(默认 root 无密码,db esp_vocab)。
-// parseTime=true 让 DATETIME 自动 scan 到 time.Time。
-func buildDSN(host string) string {
-	user := config.Getenv("TIDB_USER", "root")
-	pwd := config.Getenv("TIDB_PASSWORD", "")
-	port := config.Getenv("TIDB_PORT", "4000")
-	db := config.Getenv("TIDB_DB", "esp_vocab")
-	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=UTC&timeout=5s&readTimeout=3s&writeTimeout=3s",
-		user, pwd, host, port, db)
 }
 
 func getenv(k, d string) string {

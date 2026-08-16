@@ -112,4 +112,6 @@ jobs:
           [ "$high" -eq 0 ] || { echo "::error::镜像 ${{ matrix.svc }} 有 $high 个 CRITICAL/HIGH"; exit 1; }
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: trivy-image-${{ matrix.svc }}, path: trivy-image.sarif }
+        with:
+          name: trivy-image-${{ matrix.svc }}
+          path: trivy-image.sarif

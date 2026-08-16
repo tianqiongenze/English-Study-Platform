@@ -75,8 +75,11 @@ jobs:
           java-version: '21'
           cache: maven
       - name: 安装公共包(esp-api/esp-cache/esp-rw-java/esp-disruptor → 本地 maven 仓库)
-        working-directory: platform
-        run: mvn -B -q install -DskipTests -pl esp-api,esp-cache,esp-rw-java,esp-disruptor
+        run: |
+          # G-8 修复(2026-08-16):platform/ 无聚合父 pom,5 模块相互零依赖 → 逐模块独立安装,顺序无关
+          for m in esp-api esp-cache esp-rw-java esp-disruptor; do
+            (cd platform/$m && mvn -B -q install -DskipTests)
+          done
       - name: Unit test + jacoco
         run: mvn -B test jacoco:report
       - name: bff 安全核心覆盖率门禁(JwtService/AuthFilter/AuthController 100%)
@@ -221,8 +224,11 @@ jobs:
           cache: maven
       # 0) 安装公共包到本地 maven 仓库(契约测试 job 无 mvn reactor,需先 install esp-api 等)
       - name: 安装公共包(platform → 本地 maven 仓库)
-        working-directory: platform
-        run: mvn -B -q install -DskipTests -pl esp-api,esp-cache,esp-rw-java,esp-disruptor
+        run: |
+          # G-8 修复(2026-08-16):platform/ 无聚合父 pom,5 模块相互零依赖 → 逐模块独立安装,顺序无关
+          for m in esp-api esp-cache esp-rw-java esp-disruptor; do
+            (cd platform/$m && mvn -B -q install -DskipTests)
+          done
       # 1) Consumer(teacher-java)生成 pact 文件
       - name: Consumer pact test (teacher-java)
         working-directory: backend/services/teacher-java
@@ -260,8 +266,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
+        # G-8 修复(2026-08-16):不设 version 输入,读 package.json 的 packageManager(pnpm@11.0.0)单一事实源。
+        # 原 version: 11 与 packageManager: pnpm@11.0.0 字符串不一致 → "Multiple versions of pnpm specified"。
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

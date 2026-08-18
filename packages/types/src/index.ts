@@ -97,3 +97,132 @@ export interface ReportEventReq {
   event_type: string;
   payload: string;
 }
+
+// ---- content:统一内容库(功能拓展阶段1) ----
+export interface ContentCourse {
+  id: number;
+  code: string;
+  title: string;
+  exam_tag: string;
+  cefr_range: string;
+  description: string;
+  status: string;
+}
+export interface ContentLesson {
+  id: number;
+  course_id: number;
+  seq: number;
+  title: string;
+  skill: string;
+  cefr: string;
+}
+export interface ContentPrompt {
+  word?: string;
+  phonetic?: string;
+  pos?: string;
+  meaning_en?: string;
+  meaning_zh?: string;
+  example?: string;
+  title?: string;
+  text?: string;
+  script?: string;
+  question?: string;
+  options?: string[];
+}
+export interface ContentItem {
+  id: number;
+  lesson_id: number;
+  item_type: string;
+  prompt: ContentPrompt;
+  difficulty: number;
+  cefr: string;
+  tags: string[];
+}
+export interface ContentAnswerResult {
+  correct: boolean;
+  score: number;
+  explanation: string;
+}
+
+// ---- community:圈子社区(功能拓展阶段2) ----
+export interface CommunityCircle {
+  id: number;
+  name: string;
+  description: string;
+  invite_code: string;
+  owner_id: number;
+  owner_name: string;
+  member_limit: number;
+  member_count: number;
+  status: string;
+  created_at: string;
+  joined: boolean;
+  my_role?: string;
+}
+export interface CommunityMember {
+  user_id: number;
+  name: string;
+  role: string;
+  joined_at: string;
+}
+export interface CommunityPost {
+  id: number;
+  user_id: number;
+  user_name: string;
+  body: string;
+  status: string;
+  report_count: number;
+  comment_count: number;
+  created_at: string;
+}
+export interface CommunityComment {
+  id: number;
+  user_id: number;
+  user_name: string;
+  body: string;
+  created_at: string;
+}
+export interface CommunityReportResult {
+  report_count: number;
+  auto_hidden: boolean;
+}
+export interface CommunityCreateResult {
+  id: number;
+  invite_code: string;
+}
+
+// ---- rankings:排行榜(功能拓展阶段3) ----
+export type RankType = "xp" | "prog";
+export type RankScope = "global" | "region" | "circle" | "category";
+export type RankPeriod = "daily" | "weekly" | "monthly";
+
+export interface RankingEntry {
+  rank: number;
+  user_id: number;
+  name: string;
+  score: number;
+}
+export interface RankingMine {
+  user_id: number;
+  rank: number;
+  score: number;
+  gap_to_top: number;
+}
+export interface RankingResponse {
+  list: RankingEntry[];
+  mine: RankingMine | Record<string, never>;
+  as_of: string;
+}
+export interface RankingGap {
+  my_rank: number;
+  my_score: number;
+  total: number;
+  gap_to_top: number;
+  gap_to_prev: number;
+  percentile: number;
+  opted_out?: boolean;
+}
+export interface RegionOption {
+  code: string;
+  label: string;
+}

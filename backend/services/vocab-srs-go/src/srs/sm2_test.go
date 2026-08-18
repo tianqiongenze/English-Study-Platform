@@ -201,3 +201,26 @@ func TestRound2(t *testing.T) {
 		}
 	}
 }
+
+// TestCompute_MaxIntervalCap 验证 interval 被 MaxInterval 封顶,
+// 防止 mastered 卡片长期复习后 due_at 超出 DB timestamp 范围(历史坑:
+// interval_days 指数增长到 92231549 → due_at=254548 年 → 写库 500)。
+func TestCompute_MaxIntervalCap(t *testing.T) {
+	// 模拟长期 mastered 卡片:已复习 59 次,interval=300 天,ef=2.5。
+	// 未封顶时 round(300*2.5)=750,封顶后应为 MaxInterval=365。
+	in := Input{Quality: 5, IntervalDays: 300, EaseFactor: MaxEaseFactor, ReviewCount: 59, Status: StatusMastered}
+	r := Compute(in, baseTime)
+
+	if r.IntervalDays != MaxInterval {
+		t.Errorf("interval not capped: got %d, want %d", r.IntervalDays, MaxInterval)
+	}
+	// 到期 = baseTime + MaxInterval 天(不再溢出)
+	wantDue := baseTime.AddDate(0, 0, MaxInterval).UTC()
+	if !r.DueAt.Equal(wantDue) {
+		t.Errorf("dueAt: got %v, want %v", r.DueAt, wantDue)
+	}
+	// 已封顶仍应保持 mastered
+	if r.Status != StatusMastered {
+		t.Errorf("status: got %s, want %s", r.Status, StatusMastered)
+	}
+}

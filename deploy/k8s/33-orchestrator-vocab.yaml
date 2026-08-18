@@ -11,7 +11,7 @@
 # 端口:llm-orchestrator-rs=8086(代码 main.rs:43)/ vocab-srs-go=8087(代码 main.go:8)
 # 依赖:TiDB(tidb-primary 写 / tidb-follower 读,ExternalName 短名,05-infra-reuse.yaml)
 #       Redis Cluster(redis-cluster 短名可达;llm-orchestrator 强依赖,vocab 预留)
-#       OTEL(otel-collector.esp-observability.svc.cluster.local:4317)
+#       OTEL(otel-collector.esp-prod.svc.cluster.local:4317)
 #       LLM provider key(secret llm-providers,空值占位,生产用 KMS/SealedSecret 注入)
 #
 # 单节点 RD 策略:replicas=1,HPA min=1/max=3 target CPU 70%(对齐 31/32 惯例)。
@@ -39,6 +39,11 @@ spec:
         image: esp/llm-orchestrator-rs:1.1.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8086, name: http}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8086"}
         # Redis Cluster seed:FQDN(对齐 31/32,避免短名跨 ns 解析偶发坑㉓)
@@ -57,7 +62,10 @@ spec:
         - {name: LLM_PROVIDER_CLAUDE_KEY,  valueFrom: {secretKeyRef: {name: llm-providers, key: claude-key,  optional: true}}}
         # OTEL(新规范:FQDN,对齐 Dockerfile 默认值)
         - {name: OTEL_SERVICE_NAME, value: "llm-orchestrator-rs"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        # Nacos 服务注册(entrypoint 脚本 nacos-register.sh)
+        - {name: NACOS_ADDR, value: "nacos:8848"}
+        - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
         startupProbe:   {httpGet: {path: /healthz, port: 8086}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /readyz,  port: 8086}, periodSeconds: 15, failureThreshold: 5,  timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /livez,   port: 8086}, periodSeconds: 20, failureThreshold: 6,  timeoutSeconds: 5}
@@ -120,8 +128,9 @@ spec:
         - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_vocab?sslmode=disable"}
         # OTEL(新规范:FQDN,对齐 Dockerfile 默认值)
         - {name: OTEL_SERVICE_NAME, value: "vocab-srs-go"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-observability.svc.cluster.local:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         - {name: OTEL_EXPORTER_OTLP_PROTOCOL, value: "grpc"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}
         startupProbe:   {httpGet: {path: /healthz, port: 8087}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /readyz,  port: 8087}, periodSeconds: 15, failureThreshold: 5,  timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /livez,   port: 8087}, periodSeconds: 20, failureThreshold: 6,  timeoutSeconds: 5}

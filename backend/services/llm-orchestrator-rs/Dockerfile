@@ -31,14 +31,18 @@ RUN cargo build --release
 FROM docker.1ms.run/library/debian:bookworm-slim
 # 国内镜像源(VM 出口偶发不通 deb.debian.org,改 USTC 镜像)
 RUN sed -i 's|http://deb.debian.org/debian|http://mirrors.ustc.edu.cn/debian|g; s|http://deb.debian.org/debian-security|http://mirrors.ustc.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 \
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 65532 -r -s /usr/sbin/nologin nonroot
 WORKDIR /app
 COPY --from=builder /workspace/llm-orchestrator-rs/target/release/llm-orchestrator-rs /app/llm-orchestrator-rs
+COPY scripts/nacos-register.sh /app/nacos-register.sh
+RUN chmod +x /app/nacos-register.sh
 EXPOSE 8086
 ENV PORT=8086
+ENV SERVICE_NAME=llm-orchestrator-rs
+ENV HEALTH_URL=/healthz
 ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317
 ENV OTEL_SERVICE_NAME=llm-orchestrator-rs
 USER nonroot
-ENTRYPOINT ["/app/llm-orchestrator-rs"]
+ENTRYPOINT ["/bin/sh", "/app/nacos-register.sh", "/app/llm-orchestrator-rs"]

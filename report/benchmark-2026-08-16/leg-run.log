@@ -1,0 +1,120 @@
+09:27:30 snapshot done: 25 k6 files
+09:27:31 FAIL k6 learning_event v10
+09:27:32 FAIL k6 learning_review v10
+09:27:33 FAIL k6 teacher_kpstats v10
+09:27:33 FAIL k6 bff_scenarios v10
+09:27:34 FAIL k6 gw_scenarios v10
+09:27:34 FAIL k6 bff_login v10
+09:27:35 FAIL k6 reading_passages v10
+09:27:38 FAIL k6 listening_mat v10
+09:27:39 FAIL k6 gamification_prof v10
+09:27:39 FAIL k6 gamification_pts v10
+09:27:40 FAIL k6 vocab_due v10
+09:27:43 FAIL k6 vocab_review v10
+09:27:44 FAIL k6 emotion_recent v10
+09:27:45 FAIL k6 writingcoach_tpl v10
+09:27:45 FAIL k6 assessment_report v10
+09:27:46 FAIL k6 llm_dialogue v10
+09:27:53 FAIL k6 course_path v10
+09:27:53 FAIL k6 writing_grade v10
+09:27:54 FAIL locust learning_event v10
+09:27:55 FAIL locust learning_review v10
+09:27:55 FAIL locust teacher_kpstats v10
+09:27:56 FAIL locust bff_scenarios v10
+09:27:56 FAIL locust gw_scenarios v10
+09:27:57 FAIL locust bff_login v10
+09:28:00 FAIL locust reading_passages v10
+09:28:01 FAIL locust listening_mat v10
+09:28:02 FAIL locust gamification_prof v10
+09:28:04 FAIL locust gamification_pts v10
+09:28:06 FAIL locust vocab_due v10
+09:28:09 FAIL locust vocab_review v10
+09:28:12 FAIL locust emotion_recent v10
+09:28:13 FAIL locust writingcoach_tpl v10
+09:28:13 FAIL locust assessment_report v10
+09:28:14 FAIL locust llm_dialogue v10
+09:28:14 FAIL locust course_path v10
+09:28:18 FAIL locust writing_grade v10
+09:28:20 FAIL k6 learning_event v20
+09:28:22 FAIL k6 gw_scenarios v20
+09:28:23 FAIL k6 bff_scenarios v20
+09:28:23 FAIL k6 learning_review v20
+09:28:25 FAIL k6 teacher_kpstats v20
+09:28:28 FAIL locust learning_event v20
+09:28:28 FAIL locust gw_scenarios v20
+09:28:32 FAIL locust bff_scenarios v20
+09:28:35 FAIL locust learning_review v20
+09:28:36 FAIL locust teacher_kpstats v20
+09:28:38 OK  mixed-proof
+== FULL LEG DONE 09:28:38 ==
+t_report v10 dur=45s (start 09:27:45)
+==> TIMEOUT/FAILED job (see kubectl describe job/k6bench-assessment_report-10)
+==> k6 llm_dialogue v10 dur=45s (start 09:27:45)
+==> TIMEOUT/FAILED job (see kubectl describe job/k6bench-llm_dialogue-10)
+==> k6 course_path v10 dur=45s (start 09:27:46)
+==> TIMEOUT/FAILED job (see kubectl describe job/k6bench-course_path-10)
+==> k6 writing_grade v10 dur=45s (start 09:27:53)
+==> TIMEOUT/FAILED job (see kubectl describe job/k6bench-writing_grade-10)
+==> locust learning_event v10 dur=45s (start 09:27:53)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-learning_event-10)
+==> locust learning_review v10 dur=45s (start 09:27:54)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-learning_review-10)
+==> locust teacher_kpstats v10 dur=45s (start 09:27:55)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-teacher_kpstats-10)
+==> locust bff_scenarios v10 dur=45s (start 09:27:55)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-bff_scenarios-10)
+==> locust gw_scenarios v10 dur=45s (start 09:27:56)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-gw_scenarios-10)
+==> locust bff_login v10 dur=45s (start 09:27:56)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-bff_login-10)
+==> locust reading_passages v10 dur=45s (start 09:27:57)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-reading_passages-10)
+==> locust listening_mat v10 dur=45s (start 09:28:00)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-listening_mat-10)
+==> locust gamification_prof v10 dur=45s (start 09:28:01)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-gamification_prof-10)
+==> locust gamification_pts v10 dur=45s (start 09:28:02)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-gamification_pts-10)
+==> locust vocab_due v10 dur=45s (start 09:28:04)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-vocab_due-10)
+==> locust vocab_review v10 dur=45s (start 09:28:06)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-vocab_review-10)
+==> locust emotion_recent v10 dur=45s (start 09:28:09)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-emotion_recent-10)
+==> locust writingcoach_tpl v10 dur=45s (start 09:28:12)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-writingcoach_tpl-10)
+==> locust assessment_report v10 dur=45s (start 09:28:13)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-assessment_report-10)
+==> locust llm_dialogue v10 dur=45s (start 09:28:13)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-llm_dialogue-10)
+==> locust course_path v10 dur=45s (start 09:28:14)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-course_path-10)
+==> locust writing_grade v10 dur=45s (start 09:28:14)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-writing_grade-10)
+==> k6 learning_event v20 dur=45s (start 09:28:18)
+==> TIMEOUT/FAILED job (see kubectl describe job/k6bench-learning_event-20)
+==> k6 gw_scenarios v20 dur=45s (start 09:28:20)
+==> TIMEOUT/FAILED job (see kubectl describe job/k6bench-gw_scenarios-20)
+==> k6 bff_scenarios v20 dur=45s (start 09:28:22)
+==> TIMEOUT/FAILED job (see kubectl describe job/k6bench-bff_scenarios-20)
+==> k6 learning_review v20 dur=45s (start 09:28:23)
+==> TIMEOUT/FAILED job (see kubectl describe job/k6bench-learning_review-20)
+==> k6 teacher_kpstats v20 dur=45s (start 09:28:23)
+==> TIMEOUT/FAILED job (see kubectl describe job/k6bench-teacher_kpstats-20)
+==> locust learning_event v20 dur=45s (start 09:28:25)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-learning_event-20)
+==> locust gw_scenarios v20 dur=45s (start 09:28:28)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-gw_scenarios-20)
+==> locust bff_scenarios v20 dur=45s (start 09:28:28)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-bff_scenarios-20)
+==> locust learning_review v20 dur=45s (start 09:28:32)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-learning_review-20)
+==> locust teacher_kpstats v20 dur=45s (start 09:28:35)
+==> TIMEOUT/FAILED job (see kubectl describe job/locbench-teacher_kpstats-20)
+== mixed learning_event (09:28:36) ==
+FAIL k6-mixed learning_event
+FAIL loc-mixed learning_event
+== mixed gw_scenarios (09:28:37) ==
+FAIL k6-mixed gw_scenarios
+FAIL loc-mixed gw_scenarios
+== mixed done 09:28:38 ==

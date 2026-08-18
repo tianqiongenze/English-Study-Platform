@@ -1,0 +1,80 @@
+
+with self.client.request(..., catch_response=True) as response:
+    response.failure(...)
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/locust/user/task.py", line 363, in run
+    self.execute_next_task()
+  File "/usr/local/lib/python3.12/site-packages/locust/user/task.py", line 396, in execute_next_task
+    self.execute_task(self._task_queue.popleft())
+  File "/usr/local/lib/python3.12/site-packages/locust/user/task.py", line 513, in execute_task
+    task(self.user)
+  File "/bench/locustfile_fullbench.py", line 161, in hit
+    r.failure(f"{EP} HTTP {r.status_code}")
+  File "/usr/local/lib/python3.12/site-packages/locust/clients.py", line 473, in failure
+    raise LocustError(
+locust.exception.LocustError: Tried to set status on a request that has not yet been made. Make sure you use a with-block, like this:
+
+with self.client.request(..., catch_response=True) as response:
+    response.failure(...)
+
+[2026-08-16 03:35:36,753] locbench-vocab-review-10-7f2z9/ERROR/locust.user.task: Tried to set status on a request that has not yet been made. Make sure you use a with-block, like this:
+
+with self.client.request(..., catch_response=True) as response:
+    response.failure(...)
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/locust/user/task.py", line 363, in run
+    self.execute_next_task()
+  File "/usr/local/lib/python3.12/site-packages/locust/user/task.py", line 396, in execute_next_task
+    self.execute_task(self._task_queue.popleft())
+  File "/usr/local/lib/python3.12/site-packages/locust/user/task.py", line 513, in execute_task
+    task(self.user)
+  File "/bench/locustfile_fullbench.py", line 161, in hit
+    r.failure(f"{EP} HTTP {r.status_code}")
+  File "/usr/local/lib/python3.12/site-packages/locust/clients.py", line 473, in failure
+    raise LocustError(
+locust.exception.LocustError: Tried to set status on a request that has not yet been made. Make sure you use a with-block, like this:
+
+with self.client.request(..., catch_response=True) as response:
+    response.failure(...)
+
+[2026-08-16 03:35:36,757] locbench-vocab-review-10-7f2z9/ERROR/locust.user.task: Tried to set status on a request that has not yet been made. Make sure you use a with-block, like this:
+
+with self.client.request(..., catch_response=True) as response:
+    response.failure(...)
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/locust/user/task.py", line 363, in run
+    self.execute_next_task()
+  File "/usr/local/lib/python3.12/site-packages/locust/user/task.py", line 396, in execute_next_task
+    self.execute_task(self._task_queue.popleft())
+  File "/usr/local/lib/python3.12/site-packages/locust/user/task.py", line 513, in execute_task
+    task(self.user)
+  File "/bench/locustfile_fullbench.py", line 161, in hit
+    r.failure(f"{EP} HTTP {r.status_code}")
+  File "/usr/local/lib/python3.12/site-packages/locust/clients.py", line 473, in failure
+    raise LocustError(
+locust.exception.LocustError: Tried to set status on a request that has not yet been made. Make sure you use a with-block, like this:
+
+with self.client.request(..., catch_response=True) as response:
+    response.failure(...)
+
+[2026-08-16 03:35:36,765] locbench-vocab-review-10-7f2z9/INFO/locust.main: Shutting down (exit code 1)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+POST     /api/vocab/review                                                               3327 3327(100.00%) |     92       6    1538     51 |   95.96       95.96
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      3327 3327(100.00%) |     92       6    1538     51 |   95.96       95.96
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+POST     /api/vocab/review                                                                      51     76    100    120    210    290    450    680   1200   1500   1500   3327
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                             51     76    100    120    210    290    450    680   1200   1500   1500   3327
+
+Error report
+# occurrences      Error                                                                                               
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+3327               POST /api/vocab/review: HTTPError('500 Server Error: Internal Server Error for url: /api/vocab/review')
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+
+>>> Test stopped. requests=3327 failures=3327 avg_rps=95.96 avg_latency_ms=92.52 p95_ms=290.00 fail_rate=1.0000

@@ -60,9 +60,9 @@ class LearningServiceTest {
 
     @Test
     void reportEvent_delegatesToDisruptor() {
-        when(disruptor.publish(anyLong(), anyString(), anyString())).thenReturn(true);
+        when(disruptor.publish(anyLong(), anyString(), anyString(), anyString())).thenReturn(true);
         assertTrue(service.reportEvent(1L, "answer", "{}"));
-        verify(disruptor).publish(1L, "answer", "{}");
+        verify(disruptor).publish(eq(1L), eq("answer"), eq("{}"), anyString());
     }
 
     /**
@@ -87,6 +87,43 @@ class LearningServiceTest {
             while (it.hasNext()) { it.next(); n++; }
             return n == 2;
         }));
+    }
+
+    /**
+     * 幂等验证:已存在的 kpId 应被跳过,仅写入缺失的。
+     */
+    @Test
+    void initMastery_idempotent_skipsExistingKps() {
+        when(masteryRepo.findKpIdsByUserId(1L)).thenReturn(List.of(10L)); // kp=10 已存在
+        int added = service.initMastery(1L, List.of(10L, 20L, 30L), 50.0);
+        assertEquals(2, added, "应跳过已存在的 kp=10,仅写入 kp=20,30");
+        verify(masteryRepo).saveAll(argThat(list -> {
+            java.util.Iterator<?> it = list.iterator();
+            int n = 0;
+            while (it.hasNext()) { n++; it.next(); }
+            return n == 2; // 只有2个新 kp
+        }));
+    }
+
+    /**
+     * 幂等验证:所有 kpId 都已存在时返回0,不调用 saveAll。
+     */
+    @Test
+    void initMastery_allExist_returnsZero() {
+        when(masteryRepo.findKpIdsByUserId(1L)).thenReturn(List.of(10L, 20L));
+        int added = service.initMastery(1L, List.of(10L, 20L), 50.0);
+        assertEquals(0, added, "所有 kp 已存在应返回0");
+        verify(masteryRepo, never()).saveAll(anyList());
+    }
+
+    /**
+     * P1-8: reportEvent 带显式 messageId 应透传到 Disruptor。
+     */
+    @Test
+    void reportEvent_withMessageId_delegatesToDisruptor() {
+        when(disruptor.publish(anyLong(), anyString(), anyString(), anyString())).thenReturn(true);
+        assertTrue(service.reportEvent(1L, "answer", "{}", "msg-123"));
+        verify(disruptor).publish(1L, "answer", "{}", "msg-123");
     }
 
     @Test

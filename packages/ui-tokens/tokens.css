@@ -65,6 +65,56 @@
   --esp-motion-ease: cubic-bezier(0.645, 0.045, 0.355, 1);
 }
 
+/* ---- 主题基础扩展(亮/暗共用) ---- */
+:root {
+  /* brand 语义(默认 Daybreak 蓝;accent 可换) */
+  --esp-brand: #1677ff;
+  --esp-brand-hover: #4096ff;
+  --esp-brand-active: #0958d9;
+  --esp-brand-soft: rgba(22, 119, 255, 0.12);
+  --esp-brand-gradient: linear-gradient(135deg, #1677ff 0%, #36a0ff 55%, #69b7ff 100%);
+  --esp-brand-text-on: #ffffff;
+
+  /* 语义别名(AdminDashboard / GovernanceDashboard 等引用) */
+  --esp-primary: var(--esp-color-primary);
+  --esp-primary-bg: rgba(22, 119, 255, 0.06);
+  --esp-success: var(--esp-color-success);
+  --esp-success-bg: rgba(82, 196, 26, 0.06);
+  --esp-danger: var(--esp-color-error);
+  --esp-danger-bg: rgba(255, 77, 79, 0.06);
+  --esp-warning: var(--esp-color-warning);
+  --esp-warning-bg: rgba(250, 173, 20, 0.06);
+  --esp-color-bg-muted: #f3f4f6;
+  --esp-text-muted: var(--esp-color-text-tertiary);
+
+  /* 卡片/聚焦/层级 */
+  --esp-color-bg-subtle: #fafafa;
+  --esp-color-bg-hover: rgba(0, 0, 0, 0.04);
+  --esp-color-focus-ring: rgba(22, 119, 255, 0.4);
+  --esp-radius-card: 12px;
+  --esp-radius-card-lg: 16px;
+  --esp-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.05);
+  --esp-shadow-card-hover: 0 6px 16px rgba(0, 0, 0, 0.1), 0 10px 32px rgba(0, 0, 0, 0.08);
+
+  /* 奖牌色(排行榜前三) */
+  --esp-medal-gold: #f5a623;
+  --esp-medal-gold-soft: rgba(245, 166, 35, 0.14);
+  --esp-medal-silver: #9aa5b1;
+  --esp-medal-silver-soft: rgba(154, 165, 177, 0.16);
+  --esp-medal-bronze: #d08a5e;
+  --esp-medal-bronze-soft: rgba(208, 138, 94, 0.16);
+
+  /* 图片占位 fallback(mesh 渐变,暗色不断链) */
+  --esp-img-fallback-1: linear-gradient(135deg, #e6f0ff 0%, #d6e6ff 50%, #f0f6ff 100%);
+  --esp-img-fallback-2: linear-gradient(135deg, #ffe9e2 0%, #ffd8cc 50%, #fff3ee 100%);
+  --esp-img-fallback-3: linear-gradient(135deg, #e8f7ee 0%, #d2f0dc 50%, #f2fbf4 100%);
+  --esp-img-fallback-4: linear-gradient(135deg, #f0e9ff 0%, #e0d0ff 50%, #f7f2ff 100%);
+
+  /* hero 字号 */
+  --esp-font-size-3xl: 32px;
+  --esp-font-size-4xl: 40px;
+}
+
 /* ---- dark theme:html[data-theme="dark"] 切换 ---- */
 html[data-theme="dark"] {
   --esp-color-primary: #1668dc;
@@ -81,4 +131,63 @@ html[data-theme="dark"] {
   --esp-color-bg-layout: #000000;
   --esp-color-bg-container: #141414;
   --esp-color-bg-elevated: #1f1f1f;
+  /* 暗色对齐 */
+  --esp-color-bg-subtle: #1a1a1a;
+  --esp-color-bg-muted: #1f1f1f;
+  --esp-color-bg-hover: rgba(255, 255, 255, 0.06);
+  --esp-color-focus-ring: rgba(22, 119, 255, 0.5);
+  /* 暗色语义别名 */
+  --esp-primary: var(--esp-color-primary);
+  --esp-primary-bg: rgba(22, 119, 255, 0.12);
+  --esp-success: var(--esp-color-success);
+  --esp-success-bg: rgba(73, 170, 25, 0.12);
+  --esp-danger: var(--esp-color-error);
+  --esp-danger-bg: rgba(220, 68, 68, 0.12);
+  --esp-warning: var(--esp-color-warning);
+  --esp-warning-bg: rgba(216, 150, 20, 0.12);
+  --esp-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.5);
+  --esp-shadow-card-hover: 0 6px 16px rgba(0, 0, 0, 0.5), 0 10px 32px rgba(0, 0, 0, 0.45);
+  --esp-img-fallback-1: linear-gradient(135deg, #12263f 0%, #0d1b30 50%, #172a44 100%);
+  --esp-img-fallback-2: linear-gradient(135deg, #3f1e18 0%, #301410 50%, #44251d 100%);
+  --esp-img-fallback-3: linear-gradient(135deg, #123324 0%, #0d2a1c 50%, #173a29 100%);
+  --esp-img-fallback-4: linear-gradient(135deg, #2c1a3f 0%, #221230 50%, #33204a 100%);
+}
+
+/* ---- accent 品牌色切换(html[data-accent])----
+   置于 dark 之后,保证亮/暗均以 accent 覆盖 primary 类 token;中性色保持各主题定义。 */
+html[data-accent="coral"] {
+  --esp-brand: #ff6b4a;
+  --esp-brand-hover: #ff8a6e;
+  --esp-brand-active: #e0552f;
+  --esp-brand-soft: rgba(255, 107, 74, 0.13);
+  --esp-brand-gradient: linear-gradient(135deg, #ff6b4a 0%, #ff9d6b 55%, #ffc39a 100%);
+  --esp-color-primary: #ff6b4a;
+  --esp-color-primary-hover: #ff8a6e;
+  --esp-color-primary-active: #e0552f;
+  --esp-color-info: #ff6b4a;
+  --esp-color-focus-ring: rgba(255, 107, 74, 0.45);
+}
+html[data-accent="forest"] {
+  --esp-brand: #22a06b;
+  --esp-brand-hover: #3fb67f;
+  --esp-brand-active: #177e51;
+  --esp-brand-soft: rgba(34, 160, 107, 0.13);
+  --esp-brand-gradient: linear-gradient(135deg, #22a06b 0%, #4cc38e 55%, #7fd6ac 100%);
+  --esp-color-primary: #22a06b;
+  --esp-color-primary-hover: #3fb67f;
+  --esp-color-primary-active: #177e51;
+  --esp-color-info: #22a06b;
+  --esp-color-focus-ring: rgba(34, 160, 107, 0.45);
+}
+html[data-accent="grape"] {
+  --esp-brand: #8b5cf6;
+  --esp-brand-hover: #a47bf8;
+  --esp-brand-active: #6d3fd6;
+  --esp-brand-soft: rgba(139, 92, 246, 0.14);
+  --esp-brand-gradient: linear-gradient(135deg, #8b5cf6 0%, #b18cf8 55%, #d3bcfb 100%);
+  --esp-color-primary: #8b5cf6;
+  --esp-color-primary-hover: #a47bf8;
+  --esp-color-primary-active: #6d3fd6;
+  --esp-color-info: #8b5cf6;
+  --esp-color-focus-ring: rgba(139, 92, 246, 0.45);
 }

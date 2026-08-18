@@ -1,0 +1,38 @@
+== [1] 浏览内容库(BFF) ==
+items: 300
+  1202013924773920769 vocab
+  1202013924776574977 vocab
+  1202013924776607745 vocab
+  1202013924777951233 vocab
+  1202013924777984001 vocab
+item=1202013924773920769
+== [2] submitAnswer × 6 (rk-u1) / × 3 (rk-u2) / × 1 (rk-u3) ==
+{"correct":true,"explanation":"They abandoned the old house 
+{"correct":true,"explanation":"They abandoned the old house 
+{"correct":true,"explanation":"They abandoned the old house 
+{"correct":true,"explanation":"They abandoned the old house 
+{"correct":true,"explanation":"They abandoned the old house 
+{"correct":true,"explanation":"They abandoned the old house 
+{"correct":true,"explanation":"They abandoned the old house 
+{"correct":true,"explanation":"They abandoned the old house 
+{"correct":true,"explanation":"They abandoned the old house 
+{"correct":true,"explanation":"They abandoned the old house 
+wait 6s for outbox relay + feed poll...
+== [3] rankings: global weekly xp ==
+{"as_of":"2026-08-17T01:21:27Z","list":[{"rank":1,"user_id":1202054936265981953,"name":"排名甲","score":30},{"rank":2,"user_id":1202055185545920513,"name":"排名乙","score":15},{"rank":3,"user_id":1202055186440028161,"name":"排名丙","score":5}],"mine":{"gap_to_top":0,"rank":1,"score":30,"user_id":1202054936265981953}}
+== [4] rankingGap(rk-u1) ==
+{"gap_to_prev":-15,"gap_to_top":0,"my_rank":1,"my_score":30,"percentile":100,"total":3}
+== [5] region scope: CN/Guangdong(rk-u1+rk-u2 都应出现) ==
+{"as_of":"2026-08-17T01:21:31Z","list":[{"rank":1,"user_id":1202054936265981953,"name":"排名甲","score":30},{"rank":2,"user_id":1202055185545920513,"name":"排名乙","score":15}],"mine":{"gap_to_top":0,"rank":1,"score":30,"user_id":1202054936265981953}}
+== [5b] region scope: CN/Beijing(仅 rk-u3) ==
+{"as_of":"2026-08-17T01:21:31Z","list":[{"rank":1,"user_id":1202055186440028161,"name":"排名丙","score":5}],"mine":{"gap_to_top":5,"rank":0,"score":0,"user_id":1202054936265981953}}
+== [6] category scope: vocab ==
+{"as_of":"2026-08-17T01:21:33Z","list":[{"rank":1,"user_id":1202054936265981953,"name":"排名甲","score":30},{"rank":2,"user_id":1202055185545920513,"name":"排名乙","score":15},{"rank":3,"user_id":1202055186440028161,"name":"排名丙","score":5}],"mine":{"gap_to_top":0,"rank":1,"score":30,"user_id":1202054936265981953}}
+== [7] regions 清单 ==
+[{"code":"CN/Beijing","label":"Beijing"},{"code":"CN/Guangdong/Guangzhou","label":"Guangzhou"},{"code":"CN/Guangdong/Shenzhen","label":"Shenzhen"}]
+== [8] opt-out rk-u1 → global 榜应消失 ==
+{"opt_out":true}
+{"as_of":"2026-08-17T01:21:35Z","list":[{"rank":1,"user_id":1202055185545920513,"name":"排名乙","score":15},{"rank":2,"user_id":1202055186440028161,"name":"排名丙","score":5}],"mine":{"gap_to_top":15,"rank":1,"score":15,"user_id":1202055185545920513}}
+== [9] 恢复 rk-u1 ==
+{"opt_out":false}
+== E2E DONE ==

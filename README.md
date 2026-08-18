@@ -1,4 +1,4 @@
-# ESP — English Study Platform (Home-Tutor)
+# ESP — English Study Platform · Verity (洁语)
 
 [🇬🇧 English](README.md) | [🇨🇳 简体中文](README.zh-CN.md)
 
@@ -11,7 +11,7 @@
 ![CI](https://img.shields.io/badge/CI-9%20jobs-brightgreen)
 ![License](https://img.shields.io/badge/License-TBD-lightgrey)
 
-> **AI English education platform (Home-Tutor / ESP)** — a polyglot microservice platform built to professor-grade industrial standards:
+> **Truthful AI English education platform (Verity / 洁语 / ESP)** — a polyglot microservice platform built to professor-grade industrial standards:
 > 19 business services (Go / Java / Python / Rust) + TiDB read-write splitting + Redis Cluster + Pulsar event bus + two-stage LMAX Disruptor pipelines + Netty edge ingress.
 > Targets: **5000 CCU, three clients (Web / H5 / mini-program), 3 billion rows of test data**, fully manual-testable at every stage; topology validated on a single-node cluster and portable to multi-node as-is.
 
@@ -45,11 +45,25 @@
 | **Event-driven** | Pulsar event bus (3 brokers + 3 bookies + 3 ZK) + Disruptor batched writes (batchUpdate); learning events async via HTTP 202 |
 | **Storage** | TiDB v8.5 (PD/TiKV across aws/azure/gcp regions) + read-write splitting (`esp-rw-java` RoutingHolder / `@DataSource` AOP) + schema-per-service evolution |
 | **Multi-level cache** | Caffeine L1 + Redis Cluster L2 (real 6-node cluster, hostname announce), TTL jitter ±10% (anti-avalanche) + singleflight (anti-breakdown), pure-JSON cross-language contract |
-| **Security** | RS256 JWT (BFF is the sole issuer; sign/verify secrets split by key), JWKS endpoint, IDOR fixes, httpOnly cookie, register locks role, tightened NetworkPolicy, NodePort consolidation |
+| **Security** | RS256 JWT (BFF is the sole issuer; sign/verify secrets split by key), JWKS endpoint, IDOR fixes, httpOnly cookie, register locks role, tightened NetworkPolicy, NodePort consolidation, **Sentinel rate-limiting (SEC-6: 3 QPS FlowRules in Nacos `bff-java-flow-rules`, 429 verified)**, **admin portal RS256 + requireAdmin middleware 403 (esp-admin)** |
 | **Observability** | OTel Collector (0.128.0) with three pipelines (traces/metrics/logs) → Tempo / Prometheus / Grafana / Loki + Alertmanager |
 | **Elasticity** | HPA (CPU 70%) + PDB + slow-start tolerance (JVM services ~90s); fully numbered Kustomize-style manifests |
-| **Engineering** | GitHub Actions 9 jobs (java-commons/java-services/go-gateway/python-services/go-services/build-images/contract/e2e/frontend) + trivy security scanning + jacoco coverage gates |
+| **Engineering** | GitHub Actions 9 jobs (java-commons/java-services/go-gateway/python-services/go-services/build-images/contract/e2e/frontend) + trivy security scanning + jacoco coverage gates; **G-8 fix: per-module `mvn` (platform/ has no aggregate parent pom) + `packageManager` as single source for pnpm version + `security.yml` trivy block mapping** |
 | **DDD** | Rich domain aggregates (`UserMastery.applyEvent` / `Submission.grade`), domain packages split into aggregate/valueobject/domainevent/repository |
+
+---
+
+## New Features (Phase 1-3)
+
+> 各阶段功能的**需求/架构/详细设计/测试用例**见 `docs/design/`;实测见 `docs/test/`。
+
+| 阶段 | 功能 | 服务 | 前端 | 关键文档 |
+|---|---|---|---|---|
+| **Phase 1** | 内容库(课程/课时/练习题) | `content-go` (:8096) | Web/H5 内容页 | `docs/design/phase1-content-library-*.md` |
+| **Phase 2** | 圈子社区(发帖/评论/点赞) | `community-go` | Web/H5 社区页 | `docs/design/phase2-community-*.md` |
+| **Phase 3** | 排行榜(周/全网/地区 XP、前100快照、反作弊、退出) | `gamification-go` (:8092) | Web/H5 排行榜页 | `docs/design/phase3-rankings-design.md`、`docs/design/sdd/srs-gamification-go.md`;E2E `report/phase3-ranking-e2e-2026-08-17.log` |
+
+排行榜要点(架构债已记录):XP 事件经 CRDB `esp_learning.learning_events` 由 gamification 轮询消费,Redis ZSET fan-out 双榜(周/全网)+ 地区子榜;反作弊(事件上限/每日额度);每日 top-100 落 `esp_gamif.leaderboard_snapshots`;用户可 opt-out。
 
 ---
 
@@ -85,20 +99,22 @@ flowchart LR
         CONV["conversation-go"]
         GOSVC["course-path / listening /<br/>reading / gamification /<br/>vocab-srs / live-tutor (Go)"]
         RUSTSVC["pronunciation / assessment /<br/>llm-orchestrator / media-learn (Rust)"]
+        ADMIN["esp-admin (Go)<br/>admin portal RS256<br/>requireAdmin 403"]
     end
 
     subgraph MW["Middleware (reused from ekb-m2-aws-us-east-1)"]
         TIDB["TiDB primary/follower :4000<br/>PD + TiKV ×3 (aws/azure/gcp)"]
         REDIS["Redis Cluster ×6"]
         PULSAR["Pulsar"]
-        NACOS["Nacos"]
-        SEATA["Seata"]
+        NACOS["Nacos<br/>(registry + config +<br/>Sentinel flow-rules source)"]
+        SENTINEL["Sentinel<br/>(SEC-6 rate-limit)"]
+        SEATA["Seata (retired:<br/>replicas:0, SEATA_ENABLED=false,<br/>manifest+PVC retained)"]
     end
 
     DUBBO["Dubbo Triple (teacher kp-stats etc.)"]
 
     WEB & H5 & MP --> PORTAL
-    PORTAL --> GW & BFFJ
+    PORTAL --> GW & BFFJ & ADMIN
     PORTAL -.->|"/ws/ WebSocket"| GW
     TRAEFIK -->|"/api/**"| BFFJ
     TRAEFIK -->|"/ws/ upgrade"| GW
@@ -110,7 +126,10 @@ flowchart LR
     Services --> TIDB & REDIS
     LEARN & WORKER --> PULSAR
     Services --> NACOS
-    BFFJ --> SEATA
+    BFFJ -.->|loads flow-rules on ready| NACOS
+    BFFJ --> SENTINEL
+    ADMIN --> TIDB & REDIS
+    SEATA -.->|retained, not running| NACOS
 ```
 
 ### Architecture at a Glance (measured numbers)
@@ -141,7 +160,7 @@ flowchart LR
 | Messaging | Pulsar (geo-replication plan on file) | Tiered storage, multi-tenancy, Bookie scaling path; load shedding for learning events |
 | High-performance queue | LMAX Disruptor (two-stage pipeline) | Lock-free RingBuffer with explicit backpressure semantics (ring-full DROPPED → 503, protecting gateway latency) |
 | RPC | Dubbo Triple + HTTP REST | Triple carries OTel trace context automatically (verified end-to-end); REST is friendly to the three clients |
-| Transactions | Seata (AT mode; Saga evolution ADR on file) | Cross-service eventual consistency; `adr-seata-at-to-saga.md` reserves the long-transaction path |
+| Transactions | Seata (AT mode) — **retired 2026-08-16** (`replicas: 0`, all 4 Java services `SEATA_ENABLED=false`; manifest + ExternalName + PVC retained for one-line re-enable); Saga evolution ADR on file | Cross-service eventual consistency was the design intent; retired to remove startup cost & Dubbo coupling during the move to shared `ekb-m2` ns; `adr-seata-at-to-saga.md` reserves the long-transaction path if re-enabled |
 | Registry / config | Nacos | Service discovery + dynamic configuration |
 | Observability | OTel Collector → Tempo/Prometheus/Grafana/Loki | Unified traces/metrics/logs pipelines; filelog receiver collects container logs |
 | Deployment | K8s (k3s / Rancher Desktop single-node validation) | Fully numbered manifests, portable to multi-node as-is; HPA + PDB elasticity |
@@ -200,7 +219,7 @@ Key `deploy/k8s/` manifests (real files):
 |---|---|
 | `00-namespace-secret.yaml` / `00b-rsa-jwt-secrets-split.yaml` | namespace + RS256 sign/verify key-split secrets |
 | `05-infra-reuse.yaml` / `05b-platform-infra-externalnames.yaml` | cross-ns infrastructure ExternalName reuse |
-| `06-sca-middleware.yaml` | Nacos + Seata + Sentinel |
+| `06-sca-middleware.yaml` | Nacos + Sentinel + Seata (all three in `ekb-m2-aws-us-east-1`; nacos/seata PVC-backed; **Seata `replicas:0` retired**) |
 | `07-tidb-tikv.yaml` | TiDB/TiKV/PD (across three regions) |
 | `10-gateway-go.yaml` / `15-bff-java.yaml` / `20-learning-java.yaml` / `21-learning-worker.yaml` | core four |
 | `30-other-services.yaml` / `31-new-services.yaml` / `32-batch2-services.yaml` / `33-orchestrator-vocab.yaml` | teacher/emotion/writing + Go/Rust new-service matrix |
@@ -254,7 +273,7 @@ kubectl apply -f deploy/k8s/16-seed-session-turns.yaml        # seed Job (see de
 kubectl apply -f deploy/k8s/esp-redis-warmup-job.yaml
 ```
 
-> Java services start slowly (Nacos+Dubbo+Seata ~90s); readiness probes are already relaxed to 10s/10-failures — do not declare failure early.
+> Java services start slowly (Nacos+Dubbo ~90s; Seata retired, no longer in the start path); readiness probes are already relaxed to 10s/10-failures — do not declare failure early.
 
 ### Access Endpoints
 
@@ -283,6 +302,33 @@ cd backend/services/writing-py && pip install -e ".[test]" && python -m pytest
 # docker-compose full local stack
 cd deploy/docker && docker compose up -d
 ```
+
+### Host-Migrated Middleware Ops (moved out of K8s to macOS host)
+
+Observability stack (Prometheus/Loki/Alertmanager/OTel Collector/Grafana) and Nacos now run natively on the macOS host (`~/observability/` + `~/nacos/`), bridged into K8s via ExternalName Services in the `esp-observability` namespace.
+
+```bash
+# Start all 6 host middleware (Nacos→Prometheus→Loki→Alertmanager→OTel→Grafana)
+./scripts/start-host-middleware.sh
+
+# Check status (process / port / health probe)
+./scripts/status-host-middleware.sh
+
+# Stop all
+./scripts/stop-host-middleware.sh
+```
+
+| Component | Port | Config Path | Purpose |
+|-----------|------|-------------|---------|
+| Nacos | 8848 | `~/nacos/nacos/conf/` | Service registry / config center (standalone + Derby) |
+| Prometheus | 9090 | `~/observability/prometheus.yml` | Metrics + 10 alert rules (7d retention) |
+| Loki | 3100 | `~/observability/loki-fixed.yaml` | Log aggregation |
+| Alertmanager | 9093 | `~/observability/alertmanager.yml` | Alert routing |
+| OTel Collector | 4317/4318 | `~/observability/otel-gateway-config.yaml` | Telemetry gateway |
+| Grafana | 3000 | `~/observability/grafana.ini` | Dashboards |
+
+> Full ops manual: [`docs/ops/host-middleware-startup.md`](docs/ops/host-middleware-startup.md)
+> Note: Tempo (distributed tracing) binary is corrupted and needs re-download; data stores in `/tmp/` — lost on macOS reboot.
 
 ---
 
@@ -575,12 +621,12 @@ This project assigns one of four languages to each of its 19 business services b
 |---|---|---|---|---|
 | **Services (count)** | bff-java / learning-java (+worker) / teacher-java (3) | gateway / conversation / course-path / listening / reading / gamification / vocab-srs / live-tutor (8) | writing-py / emotion-svc / writing-coach (3) | pronunciation / assessment / llm-orchestrator / media-learn (4) |
 | **Framework / runtime** | Spring Boot 4 + Netty + LMAX Disruptor | gin | Litestar + Granian | axum + tokio |
-| **Typical workload** | Complex business transactions + Dubbo Triple RPC + Seata distributed TX + rich DDD domain models | High-concurrency gateway, WebSocket long connections, lightweight CRUD/algorithm services (SM2 spaced repetition) | AI/LLM integration (writing grading, affective multimodal, coach orchestration) | CPU-dense (pronunciation scoring), LLM orchestration, media processing |
+| **Typical workload** | Complex business transactions + Dubbo Triple RPC + rich DDD domain models (Seata AT retired 2026-08-16; distributed-TX path retained as one-line re-enable) | High-concurrency gateway, WebSocket long connections, lightweight CRUD/algorithm services (SM2+ spaced repetition, **`MaxInterval=365` cap** preventing `due_at` overflow) | AI/LLM integration (writing grading, affective multimodal, coach orchestration) | CPU-dense (pronunciation scoring), LLM orchestration, media processing |
 | **Concurrency model** | JVM thread pools (HikariCP/MVC) + Netty EventLoop + lock-free Disruptor RingBuffer | goroutines (CSP channels) | asyncio event loop | tokio async runtime (futures) |
-| **Startup speed** | **Slow: ~90s** (Nacos+Dubbo+Seata slow start; probes relaxed to 10s/10-failures) | Seconds (precise value: measurement pending) | Granian cold start slow (observed; precise value pending) | Seconds (precise value pending) |
+| **Startup speed** | **Slow: ~90s** (Nacos+Dubbo slow start; Seata retired — no longer in the start path; probes relaxed to 10s/10-failures) | Seconds (precise value: measurement pending) | Granian cold start slow (observed; precise value pending) | Seconds (precise value pending) |
 | **Resource profile** | requests from ~250m/512Mi; bff CPU limit **2 cores** (raised from 1 after probe kills) | Lightweight: vocab-srs-go **100m/128Mi ~ 500m/256Mi** (manifest values) | python:3.13-slim base image, resource-tight (precise values pending) | llm-orchestrator-rs **250m/256Mi ~ 1C/512Mi** (manifest values) |
-| **Ecosystem maturity (middleware clients)** | Fullest: Dubbo Triple/Seata/Nacos/Spring Cloud Alibaba + in-house esp-* platform libs (esp-cache/esp-rw/esp-disruptor/esp-api) | Complete: miniredis/pulsar/mysql/websocket/redis/otel (conversation-go dependency list) | pymysql 2.2.8 + in-house esp-cache-py/esp-db-py; **no psycopg2** (MySQL-wire only) | axum/tokio + in-house esp-common-rs shared crate; LLM provider SDK hand-rolled (StubProvider fallback) |
-| **Unit tests in this project** | learning **48** / teacher **16** / bff (Disruptor pipeline 3 + RouteTable 5 etc.); coverage learning 40.5% / teacher 23.6% / bff 30.6% | **25 tests / 4 modules** (vocab-srs 14 + course-path 6 + esp-common-go 4 + gamification 2); 2 more modules await DI refactor | writing-py **18 passed** (pytest + ruff gate) | **None yet** (measurement pending) |
+| **Ecosystem maturity (middleware clients)** | Fullest: Dubbo Triple/Nacos/Spring Cloud Alibaba + in-house esp-* platform libs (esp-cache/esp-rw/esp-disruptor/esp-api); (Seata client retired with `SEATA_ENABLED=false`) | Complete: miniredis/pulsar/mysql/websocket/redis/otel (conversation-go dependency list) | pymysql 2.2.8 + in-house esp-cache-py/esp-db-py; **no psycopg2** (MySQL-wire only) | axum/tokio + in-house esp-common-rs shared crate; LLM provider SDK hand-rolled (StubProvider fallback) |
+| **Unit tests in this project** | learning **48** / teacher **16** / bff (Disruptor pipeline 3 + RouteTable 5 etc.); coverage learning 40.5% / teacher 23.6% / bff 30.6% | **25 tests / 4 modules** (vocab-srs 14 incl. `TestCompute_MaxIntervalCap` — MaxInterval=365 cap preventing `due_at` overflow → DB 500; course-path 6 + esp-common-go 4 + gamification 2); 2 more modules await DI refactor | writing-py **18 passed** (pytest + ruff gate) | **None yet** (measurement pending) |
 | **Images** | eclipse-temurin:21-jre-alpine (prebuilt fat-jar) | golang:1.25-alpine builder → alpine:3.22 runtime | python:3.13-slim | rust:1.88-bookworm builder → debian:bookworm-slim runtime |
 | **Build time** | host mvn (single-node iron rule: serialized with cluster ops; precise value pending) | Very fast (precise value pending) | `pip install -e ".[test]"` fast | llm-orchestrator-rs docker build measured **1m44s** |
 | **Pitfalls hit** | SB3.5→4.0.7 three breaking changes; JaCoCo×JDK25 class-file-69 compatibility; esp-cache provided-scope trap | gvm GOROOT trap (`env -u GOROOT GOTOOLCHAIN=local`) | venv extras naming trap (`[test]` not `[dev]`); .venv symlinks broke docker build context (xattr) | Cargo path resolution trap (Dockerfile COPY paths); deb.debian.org egress flaky → switched to mirrors.ustc.edu.cn |
@@ -601,7 +647,7 @@ Per-service scoring by an internet-giant architect review (`report/architecture-
 ```mermaid
 flowchart TD
     Q{"Service workload profile?"}
-    Q -->|"Complex transactions / distributed consistency<br/>(Seata / Dubbo Triple)"| J["Java SB4<br/>heavy business domain (learning/teacher/bff)"]
+    Q -->|"Complex transactions / distributed consistency<br/>(Dubbo Triple; Seata AT retired, re-enable on file)"| J["Java SB4<br/>heavy business domain (learning/teacher/bff)"]
     Q -->|"High-concurrency ingress / WS long connections<br/>lightweight algorithm services"| G["Go<br/>gateway/conversation/vocab-srs + 5 more"]
     Q -->|"AI/LLM integration<br/>ecosystem first (agents/prompt/multimodal)"| P["Python Litestar<br/>writing/emotion/writing-coach"]
     Q -->|"CPU-dense / deterministic latency<br/>(pronunciation scoring, streaming orchestration)"| R["Rust axum<br/>pronunciation/llm-orchestrator + 2 more"]
@@ -657,12 +703,12 @@ flowchart LR
 
 | Layer | Contents | Source |
 |---|---|---|
-| Unit tests | Java (learning 48 / teacher 16 / esp-cache 15; coverage gate: esp-cache 77%≥75%; business baselines learning 40.5% / teacher 23.6% / bff 30.6%); Go 25 tests (4 modules, full SM2 algorithm paths); Python writing-py 18 passed; frontend Vitest | `docs/test/01-单元测试报告.md` |
+| Unit tests | Java (learning 48 / teacher 16 / esp-cache 15; coverage gate: esp-cache 77%≥75%; business baselines learning 40.5% / teacher 23.6% / bff 30.6%); Go 25 tests (4 modules, full SM2 algorithm paths incl. MaxInterval=365 overflow-cap regression); Python writing-py 18 passed; frontend Vitest | `docs/test/01-单元测试报告.md` |
 | Integration / contract | Dubbo Triple contract tests, `integration-tests/`, writing mock-grading path | `docs/test/02-集成测试报告.md` |
 | Performance / load | Distributed Locust + k6 baseline + WS CCU scripts (`ccu5000_ws.py`/`spike.py`/`soak.py`), G-01/G-04/G-06 SLOs | `docs/test/03-性能与压测报告.md`, `deploy/locust/README.md` |
 | Chaos | chaos-plan designed | `docs/test/04-混沌测试报告.md`, `chaos-plan.md` |
 | Monitoring / alerting | Prometheus/Grafana/Alertmanager deployment validation | `docs/test/05-监控告警部署说明.md` |
-| Security | SEC-1~8 matrix (WS cross-tenant 403 / expired JWT 401 / X-User-Id stripping / JWKS closed-loop / trivy zero leaks) all green | `docs/test/06-安全测试报告.md` |
+| Security | SEC-1~8 matrix (WS cross-tenant 403 / expired JWT 401 / X-User-Id stripping / JWKS closed-loop / trivy zero leaks) all green; **SEC-6 Sentinel rate-limiting: 3 QPS FlowRules (`api-learning-event`/`api-writing-grade`/`api-default`) published to Nacos `bff-java-flow-rules`, loaded by `SentinelRuleBootstrap` on `ApplicationReadyEvent`, 429 verified ×3**; **vocab-srs SM-2 `MaxInterval=365` cap: fixes `due_at` overflow (interval grew to 92231549d → year 254548 → DB 500), 14/14 Go tests pass, vocab-srs-go:1.2.0 deployed**; **admin portal: esp-admin RS256 + requireAdmin middleware (non-admin → 403)** | `docs/test/06-安全测试报告.md` |
 | Manual testing | **73 manual cases** (TC-GR 27 across 8 services + TC-W/H frontend + TC-E2E 11 cross-service flows + SEC supplements); the guide includes portal tunnel commands | `docs/test/07-人工测试用例.md`, `09-人工测试操作指南.md` |
 | Frontend audit | three-client build/blank-page/token paths | `docs/test/08-前端核查报告.md` |
 | E2E | Playwright smoke (home loads / no-token 401), scaffold level | `e2e/` |
@@ -781,6 +827,7 @@ Per the audit register (`docs/design/audit-gap-resolution-register.md`; 31 commi
 - [x] P0 security red line, 6 items (key confinement / service authn / IDOR / role lock / NodePort consolidation / NetworkPolicy)
 - [x] P1 capacity & quality, 6 items + P2 architecture deepening, 7 items (rich DDD / gateway slimming / cache protection / repo restructure / frontend monorepo / engineering) — 19/19 closed
 - [x] Category-A audit items all closed (CRDB measured / multi-stage Disruptor / esp-cache pure JSON / DB throughput / OTel onboarding / CI green)
+- [x] **P3c admin portal** (esp-admin Go service + AdminDashboard.tsx + frontend-portal `admin_backend`; frontend-react:1.2.0 / frontend-portal:1.3.0 rolled); **SEC-6 Sentinel rate-limiting** (Nacos flow-rules + 429 verified); **vocab-srs SM-2 MaxInterval cap** (overflow 500 fixed, 1.2.0 deployed); **G-8 CI fix pushed** (commit `afd1241`, per-module mvn + pnpm version + security.yml block mapping); **Seata retired** (`replicas:0` + `SEATA_ENABLED=false`, manifest retained)
 - [ ] Category B (multi-node triggered): Cilium CNI / Pulsar Geo-Replication / TiCDC active-active / true-follower RW splitting / multi-node capacity validation (G-01/G-06 retest)
 - [ ] Category C (independent adoption decisions): Loki landing / ArgoCD GitOps / Milvus+Neo4j business integration
 - [ ] Category D (testing/engineering): full execution of 73 manual cases / 5000 CCU retest / probe three-way split / digital human/TTS / personalized recommendation
@@ -795,7 +842,7 @@ Per the audit register (`docs/design/audit-gap-resolution-register.md`; 31 commi
 3. **Commit style**: `type(session-xx-y): summary`, e.g. `docs(session-22-8): ...` / `fix(session-22-8): ...`;
 4. **Single-node iron rules**: serialize heavy mvn/docker builds with cluster operations; never touch k3s internals; assess impact before operating the shared infrastructure (ekb-m2 ns);
 5. **Key security**: RS256 private keys are injected only via `kubectl create secret --from-literal`; declarative placeholder manifests must never be applied over secrets holding real values;
-6. **CI gates**: all 9 jobs in `.github/workflows/ci.yml` green + trivy zero HIGH; esp-cache coverage ≥75%;
+6. **CI gates**: all 9 jobs in `.github/workflows/ci.yml` green + trivy zero HIGH; esp-cache coverage ≥75%; (G-8 fix landed in commit `afd1241`: `platform/` builds per-module since it has no aggregate parent pom; pnpm version comes from `packageManager` as the single source; `security.yml` uses block mapping for the trivy upload);
 7. **Polyglot Dockerfile notes**: Go must set `ENV GOPROXY=https://goproxy.cn,direct`; mind base-image architecture on arm64 (CRDB/Rust).
 
 ---

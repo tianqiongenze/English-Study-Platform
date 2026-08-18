@@ -3,7 +3,7 @@
 # PRD: docs/design/prd-new-services.md
 # schema: docs/design/adr-schema-per-service.md(esp_path / esp_tutor / esp_media)
 #
-# 单节点 RD 策略:N8(P0)可实跑;N10/N11(P1)scaffold+manifest 就绪,HPA min=0 待命多节点。
+# 单节点 RD 策略:N8(P0)可实跑;N10/N11(P1)Phase2 已修复 replicas=1,HPA 正常接管。
 # 端口:N8=8093 / N10=8094 / N11=8095
 ---
 apiVersion: apps/v1
@@ -20,11 +20,17 @@ spec:
         image: esp/course-path-go:0.2.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8093}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8093"}
         - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "course-path-go"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}
         startupProbe:   {httpGet: {path: /actuator/health/liveness, port: 8093}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8093}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8093}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}
@@ -54,7 +60,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: live-tutor-go, namespace: esp-prod}
 spec:
-  replicas: 0              # 单节点 RD:P1 scaffold,HPA min=0 待命多节点
+  replicas: 1              # Phase2 修复:HPA minReplicas=1 与 deploy replicas 必须一致,否则 HPA 不接管导致 Pod 永不启动
   selector: {matchLabels: {app: live-tutor-go}}
   template:
     metadata: {labels: {app: live-tutor-go}}
@@ -64,11 +70,16 @@ spec:
         image: esp/live-tutor-go:0.2.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8094}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8094"}
         - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "live-tutor-go"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         startupProbe:   {httpGet: {path: /actuator/health/liveness, port: 8094}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8094}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8094}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}
@@ -88,7 +99,7 @@ kind: HorizontalPodAutoscaler
 metadata: {name: live-tutor-go, namespace: esp-prod}
 spec:
   scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: live-tutor-go}
-  minReplicas: 1           # K8s HPA minReplicas 不允许 0;deploy replicas=0 时 Pod 不起,HPA 不扩(单节点待命)
+  minReplicas: 1           # Phase2 修复:与 deploy replicas=1 一致,HPA 正常接管扩缩
   maxReplicas: 4
   metrics:
   - type: Resource
@@ -98,7 +109,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: media-learn-rs, namespace: esp-prod}
 spec:
-  replicas: 0              # 单节点 RD:P1 scaffold,HPA min=0 待命多节点
+  replicas: 1              # Phase2 修复:HPA minReplicas=1 与 deploy replicas 必须一致,否则 HPA 不接管导致 Pod 永不启动
   selector: {matchLabels: {app: media-learn-rs}}
   template:
     metadata: {labels: {app: media-learn-rs}}
@@ -108,10 +119,18 @@ spec:
         image: esp/media-learn-rs:0.2.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8095}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8095"}
         - {name: OTEL_SERVICE_NAME, value: "media-learn-rs"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        # Nacos 服务注册(entrypoint 脚本 nacos-register.sh)
+        - {name: NACOS_ADDR, value: "nacos:8848"}
+        - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
         startupProbe:   {httpGet: {path: /actuator/health/liveness, port: 8095}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8095}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8095}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}
@@ -131,7 +150,7 @@ kind: HorizontalPodAutoscaler
 metadata: {name: media-learn-rs, namespace: esp-prod}
 spec:
   scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: media-learn-rs}
-  minReplicas: 1           # K8s HPA minReplicas 不允许 0;deploy replicas=0 时 Pod 不起,HPA 不扩(单节点待命)
+  minReplicas: 1           # Phase2 修复:与 deploy replicas=1 一致,HPA 正常接管扩缩
   maxReplicas: 4
   metrics:
   - type: Resource

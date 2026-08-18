@@ -1,16 +1,49 @@
-@import "@esp/ui-tokens/tokens.css";
-body { margin: 0; font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; -webkit-tap-highlight-color: transparent; }
+/* H5 应用样式 —— 全部走 @esp/ui-tokens CSS 变量(亮/暗/accent 三态自适应)。
+   引入顺序见 main.tsx:tokens.css → tokens-mobile.css → styles.css */
+
+body { margin: 0; font-family: var(--esp-font-family); background: var(--esp-color-bg-layout); color: var(--esp-color-text); -webkit-tap-highlight-color: transparent; }
 * { box-sizing: border-box; }
 .app { max-width: 480px; margin: 0 auto; padding: 12px; min-height: 100vh; }
-header { position: sticky; top: 0; background: #0f172a; z-index: 10; padding: 8px 0; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center; }
-.title { font-size: 1.1rem; font-weight: 600; }
+
+/* ---- 顶部栏 ---- */
+header { position: sticky; top: 0; z-index: 10; padding: 8px 0; border-bottom: 1px solid var(--esp-color-border); display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--esp-color-bg-layout); }
+.title { font-size: 1.1rem; font-weight: var(--esp-font-weight-bold); color: var(--esp-color-text); }
+.header-right { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.header-user { display: inline-flex; align-items: center; gap: 6px; font-size: var(--esp-font-size-sm); color: var(--esp-color-text-secondary); max-width: 180px; overflow: hidden; white-space: nowrap; }
+.header-user button { padding: 2px 8px; font-size: var(--esp-font-size-sm); }
+
+/* ---- 功能导航 Tab ---- */
 .tabs { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0; }
-.tab { flex: 0 0 auto; padding: 8px 14px; background: #1e293b; border: none; color: #94a3b8; border-radius: 16px; font-size: 0.85rem; text-decoration: none; }
-.tab.active { background: #3b82f6; color: #fff; }
-.panel { background: #1e293b; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
-input, textarea, select { width: 100%; padding: 10px; margin: 6px 0; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; font-size: 16px; }
-button { padding: 10px 16px; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; font-size: 0.9rem; }
-button.primary { background: #3b82f6; color: #fff; border: none; }
-.log { font-family: monospace; font-size: 0.8rem; background: #0f172a; padding: 8px; border-radius: 8px; max-height: 40vh; overflow: auto; white-space: pre-wrap; }
-.hint { color: #94a3b8; font-size: 0.8rem; }
-.err { color: #f87171; }
+.tab { flex: 0 0 auto; padding: 8px 14px; background: var(--esp-color-bg-subtle); border: 1px solid var(--esp-color-border); color: var(--esp-color-text-secondary); border-radius: var(--esp-radius-round); font-size: 0.85rem; text-decoration: none; transition: all var(--esp-motion-duration-fast) var(--esp-motion-ease); }
+.tab:active { transform: scale(0.97); }
+.tab.active { background: var(--esp-brand); border-color: var(--esp-brand); color: var(--esp-brand-text-on); }
+
+/* ---- 卡片/表单 ---- */
+.panel { background: var(--esp-color-bg-container); border: 1px solid var(--esp-color-border); border-radius: var(--esp-radius-card); box-shadow: var(--esp-shadow-card); padding: 14px; margin-bottom: 12px; }
+input, textarea, select { width: 100%; padding: 10px; margin: 6px 0; background: var(--esp-color-bg-container); color: var(--esp-color-text); border: 1px solid var(--esp-color-border); border-radius: var(--esp-radius-base); font-size: 16px; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--esp-color-focus-ring); outline-offset: 1px; border-color: var(--esp-brand); }
+button { padding: 10px 16px; background: var(--esp-color-bg-subtle); color: var(--esp-color-text); border: 1px solid var(--esp-color-border); border-radius: var(--esp-radius-base); font-size: 0.9rem; cursor: pointer; transition: all var(--esp-motion-duration-fast) var(--esp-motion-ease); }
+button:active { transform: scale(0.98); }
+button.primary { background: var(--esp-brand); color: var(--esp-brand-text-on); border: none; }
+button.primary:disabled { opacity: 0.6; }
+.log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem; background: var(--esp-color-bg-subtle); border-radius: var(--esp-radius-base); padding: 8px; max-height: 40vh; overflow: auto; white-space: pre-wrap; color: var(--esp-color-text-secondary); }
+.hint { color: var(--esp-color-text-tertiary); font-size: 0.8rem; }
+.err { color: var(--esp-color-error); }
+
+/* ---- 沉浸背景:品牌渐变 + 低饱和底(Speech/Writing/Learning) ---- */
+.immersive { position: relative; overflow: hidden; border-radius: var(--esp-radius-card-lg); margin-bottom: 12px; border: 1px solid var(--esp-color-border); box-shadow: var(--esp-shadow-card); background: radial-gradient(130% 60% at 50% -10%, var(--esp-brand-soft) 0%, transparent 60%), var(--esp-color-bg-container); }
+.immersive > * { position: relative; z-index: 1; }
+
+/* ---- Home 卡图:unsplash 竖图 + --esp-img-fallback-* 渐变兜底 ---- */
+.feature-cards { display: flex; gap: 10px; overflow-x: auto; padding: 10px 2px 12px; scroll-snap-type: x mandatory; }
+.feature-card { flex: 0 0 auto; position: relative; width: 150px; height: 200px; border-radius: var(--esp-radius-card-lg); overflow: hidden; text-decoration: none; border: 1px solid var(--esp-color-border); box-shadow: var(--esp-shadow-card); scroll-snap-align: start; transition: transform var(--esp-motion-duration-fast) var(--esp-motion-ease); }
+.feature-card:active { transform: scale(0.98); }
+.feature-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.feature-label { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 5px 10px; border-radius: var(--esp-radius-round); background: color-mix(in srgb, var(--esp-color-bg-container) 78%, transparent); color: var(--esp-color-text); font-size: var(--esp-font-size-sm); font-weight: var(--esp-font-weight-medium); text-align: center; }
+
+/* ---- Profile:DiceBear 头像 + 渐变压层 ---- */
+.profile-card { position: relative; overflow: hidden; }
+.profile-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--esp-brand-gradient); z-index: 1; }
+.profile-head { display: flex; align-items: center; gap: 12px; }
+.avatar-circle { width: 56px; height: 56px; border-radius: 50%; padding: 2px; background: var(--esp-brand-soft); flex: 0 0 auto; }
+.avatar-circle img { width: 100%; height: 100%; border-radius: 50%; display: block; object-fit: cover; background: var(--esp-img-fallback-1); }

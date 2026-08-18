@@ -1,0 +1,60 @@
+
+running (34.9s), 10/10 VUs, 663 complete and 0 interrupted iterations
+bench   [  78% ] 10 VUs  34.9s/45s
+
+running (35.9s), 10/10 VUs, 680 complete and 0 interrupted iterations
+bench   [  80% ] 10 VUs  35.9s/45s
+
+running (37.0s), 10/10 VUs, 699 complete and 0 interrupted iterations
+bench   [  82% ] 10 VUs  37.0s/45s
+
+running (37.9s), 10/10 VUs, 723 complete and 0 interrupted iterations
+bench   [  84% ] 10 VUs  37.9s/45s
+
+running (39.0s), 10/10 VUs, 749 complete and 0 interrupted iterations
+bench   [  87% ] 10 VUs  39.0s/45s
+
+running (40.1s), 10/10 VUs, 772 complete and 0 interrupted iterations
+bench   [  89% ] 10 VUs  40.1s/45s
+
+running (41.2s), 10/10 VUs, 789 complete and 0 interrupted iterations
+bench   [  92% ] 10 VUs  41.2s/45s
+
+running (41.9s), 10/10 VUs, 795 complete and 0 interrupted iterations
+bench   [  93% ] 10 VUs  41.9s/45s
+
+running (43.1s), 10/10 VUs, 802 complete and 0 interrupted iterations
+bench   [  96% ] 10 VUs  43.1s/45s
+
+running (44.0s), 10/10 VUs, 831 complete and 0 interrupted iterations
+bench   [  98% ] 10 VUs  44.0s/45s
+
+running (45.0s), 10/10 VUs, 863 complete and 0 interrupted iterations
+bench ↓ [ 100% ] 10 VUs  45s
+
+     ✗ emotion recent 200
+      ↳  99% — ✓ 867 / ✗ 6
+
+   ✓ bench_duration_ms..............: avg=494.99ms min=0s     med=444.98ms max=2.24s    p(90)=840.72ms p(95)=1.08s   
+     bench_failed...................: 0.00%  0 out of 873
+     checks.........................: 99.31% 867 out of 873
+     data_received..................: 120 kB 2.6 kB/s
+     data_sent......................: 111 kB 2.4 kB/s
+     http_req_blocked...............: avg=12.76ms  min=0s     med=4.91µs   max=1.16s    p(90)=16.85µs  p(95)=44.91µs 
+     http_req_connecting............: avg=12.29ms  min=0s     med=0s       max=1.11s    p(90)=0s       p(95)=0s      
+     http_req_duration..............: avg=494.99ms min=0s     med=444.98ms max=2.24s    p(90)=840.72ms p(95)=1.08s   
+       { expected_response:true }...: avg=498.42ms min=39.1ms med=447.07ms max=2.24s    p(90)=841.28ms p(95)=1.08s   
+   ✓ http_req_failed................: 0.68%  6 out of 873
+     http_req_receiving.............: avg=7.84ms   min=0s     med=80.95µs  max=549.18ms p(90)=4.44ms   p(95)=23.72ms 
+     http_req_sending...............: avg=335.75µs min=0s     med=17.2µs   max=89.6ms   p(90)=89.69µs  p(95)=289.22µs
+     http_req_tls_handshaking.......: avg=0s       min=0s     med=0s       max=0s       p(90)=0s       p(95)=0s      
+     http_req_waiting...............: avg=486.81ms min=0s     med=442.9ms  max=2.24s    p(90)=814.48ms p(95)=1.01s   
+     http_reqs......................: 873    19.201055/s
+     iteration_duration.............: avg=518.86ms min=6.3ms  med=456.38ms max=3.27s    p(90)=859.05ms p(95)=1.1s    
+     iterations.....................: 873    19.201055/s
+     vus............................: 10     min=10         max=10
+     vus_max........................: 10     min=10         max=10
+
+
+running (45.5s), 00/10 VUs, 873 complete and 0 interrupted iterations
+bench ✓ [ 100% ] 10 VUs  45s

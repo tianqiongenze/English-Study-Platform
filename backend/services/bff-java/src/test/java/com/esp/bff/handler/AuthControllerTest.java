@@ -152,4 +152,71 @@ class AuthControllerTest {
         Map<String, Object> user = (Map<String, Object>) body.get("user");
         assertEquals("learner", user.get("role"));
     }
+
+    // ---- P1-9 / P1-13 补充:register 入参校验 / refresh / logout ----
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void registerBlankEmailReturns400() {
+        ResponseEntity<Map<String, Object>> resp = (ResponseEntity<Map<String, Object>>) (ResponseEntity<?>) ctrl.register(
+                Map.of("email", "  ", "password", "pw"));
+        assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
+        verify(jdbc, never()).update(anyString(), any(), any(), any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void registerBlankPasswordReturns400() {
+        ResponseEntity<Map<String, Object>> resp = (ResponseEntity<Map<String, Object>>) (ResponseEntity<?>) ctrl.register(
+                Map.of("email", "a@b.com", "password", ""));
+        assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
+        verify(jdbc, never()).update(anyString(), any(), any(), any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void loginBlankFieldsReturns400() {
+        ResponseEntity<Map<String, Object>> resp = (ResponseEntity<Map<String, Object>>) (ResponseEntity<?>) ctrl.login(
+                Map.of("email", "", "password", "  "));
+        assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void refreshWithValidTokenIssuesNewTokens() {
+        // 先签一个 refresh token
+        String refresh = jwt.issueRefresh(42L, "u@x.com", "alice", "learner");
+        ResponseEntity<Map<String, Object>> resp = (ResponseEntity<Map<String, Object>>) (ResponseEntity<?>) ctrl.refresh(
+                Map.of("refreshToken", refresh));
+
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        Map<String, Object> body = resp.getBody();
+        assertNotNull(body.get("token"), "refresh 应返回新 access token");
+        assertNotNull(body.get("refreshToken"), "refresh 应返回新 refresh token");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void refreshWithInvalidTokenReturns401() {
+        ResponseEntity<Map<String, Object>> resp = (ResponseEntity<Map<String, Object>>) (ResponseEntity<?>) ctrl.refresh(
+                Map.of("refreshToken", "not.valid.jwt"));
+        assertEquals(HttpStatus.UNAUTHORIZED, resp.getStatusCode());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void refreshWithAccessTokenTypeReturns401() {
+        // 用 access token(非 refresh)调 refresh 端点应被拒
+        String accessToken = jwt.issue(42L, "u@x.com", "alice", "learner");
+        ResponseEntity<Map<String, Object>> resp = (ResponseEntity<Map<String, Object>>) (ResponseEntity<?>) ctrl.refresh(
+                Map.of("refreshToken", accessToken));
+        assertEquals(HttpStatus.UNAUTHORIZED, resp.getStatusCode());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void logoutWithoutTokenReturnsOk() {
+        ResponseEntity<Map<String, Object>> resp = (ResponseEntity<Map<String, Object>>) (ResponseEntity<?>) ctrl.logout(null, null);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+    }
 }

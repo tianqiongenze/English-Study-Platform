@@ -10,9 +10,10 @@ import (
 
 // AnthropicProvider 调用 Anthropic Claude Messages API。
 type AnthropicProvider struct {
-	APIKey  string
-	Model   string
-	BaseURL string
+	APIKey    string
+	AuthToken string
+	Model     string
+	BaseURL   string
 }
 
 type anthropicReq struct {
@@ -35,8 +36,8 @@ type anthropicResp struct {
 }
 
 func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message) (string, error) {
-	if p.APIKey == "" {
-		return "", fmt.Errorf("ANTHROPIC_API_KEY not set")
+	if p.APIKey == "" && p.AuthToken == "" {
+		return "", fmt.Errorf("ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN not set")
 	}
 	var sys string
 	var msgs []aMessage
@@ -51,7 +52,11 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message) (strin
 		Model: p.Model, MaxTokens: 1024, System: sys, Messages: msgs,
 	})
 	req, _ := http.NewRequestWithContext(ctx, "POST", p.BaseURL+"/v1/messages", bytes.NewReader(body))
-	req.Header.Set("x-api-key", p.APIKey)
+	req.Header.Set("x-api-key", firstNonEmpty(p.APIKey, p.AuthToken))
+	if p.AuthToken != "" {
+		// CC Switch 等本地代理按 Authorization: Bearer 鉴权;官方端点按 x-api-key。两者都发兼容。
+		req.Header.Set("authorization", "Bearer "+p.AuthToken)
+	}
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("content-type", "application/json")
 	resp, err := http.DefaultClient.Do(req)

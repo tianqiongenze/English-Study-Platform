@@ -8,13 +8,17 @@ spec:
   replicas: 1              # 单节点 RD 资源紧张,JVM 服务暂缩 1 副本(原 3);多节点生产再扩
   selector: {matchLabels: {app: learning-java}}
   template:
-    metadata: {labels: {app: learning-java}}
+    metadata: {labels: {app: learning-java}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8081", prometheus.io/path: "/actuator/prometheus"}}
     spec:
       containers:
       - name: learning-java
-        image: esp/learning-java:1.11.3   # #145 CRDB 切库实测通过;#133 独立DB writer + #135 esp-web-common + #137 CRDB适配;#145 后同 1.11.2;#147 P1-8 幂等(messageId 透传 + ON CONFLICT DO NOTHING,worker-split 入口 publish-only)
+        image: esp/learning-java:1.13.2   # 1.13.2 = 409兜底:LearningConflictAdvice(独立bean名+@Order最高优先级,防web-common同名覆盖)+ UserMastery构造器version=null(新实体走INSERT)修定级500;1.13.1 同义保留
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
         env:
         - {name: ESP_ROLE, value: "api"}                       # P1-11: HTTP/Dubbo 入口角色
         - {name: ESP_DISRUPTOR_ENABLED, value: "false"}         # #131 worker-split:入口 publish-only,事件经 Pulsar 由 worker 消费落库(单节点一体化模式改 true)
@@ -38,9 +42,8 @@ spec:
         - {name: DUBBO_GROUP, value: "esp"}
         # OTel 注入(ADR-observability-rebuild):javaagent 已在镜像 JAVA_OPTS 中(Dockerfile ENTRYPOINT)
         - {name: OTEL_SERVICE_NAME, value: "learning"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
-        - {name: OTEL_METRICS_EXPORTER, value: "none"}
         envFrom:
         - secretRef: {name: esp-rsa-jwt-verify}   # P0-1 私钥收敛:仅校验,只注入公钥
         startupProbe:   {httpGet: {path: /actuator/health/readiness, port: 8081}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 10}   # 最多等 600s 启动(TiDB 高负载下慢启动保护);用 readiness group 端点

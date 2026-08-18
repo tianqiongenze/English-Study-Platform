@@ -1,0 +1,15 @@
+# writing-coach: build from old working image (Python 3.13 + litestar 2.24.0)
+FROM esp/writing-coach:1.2.0 AS base
+USER root
+WORKDIR /app
+RUN pip install --no-cache-dir --retries 5 --timeout 60 "nacos-sdk-python>=0.1.15,<1.0"
+COPY services/writing-coach/app ./app
+RUN chown -R app:app /app
+USER app
+EXPOSE 8085
+ENV PORT=8085
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317
+ENV OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+ENV OTEL_SERVICE_NAME=writing-coach
+ENV OTEL_RESOURCE_ATTRIBUTES=service.namespace=esp-prod,deployment.environment=esp-prod
+CMD ["granian", "app.main:app", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8085", "--workers", "2"]

@@ -4,6 +4,7 @@
 > 评估视角:教授级高级工程师 / 互联网大厂资深架构师。
 > 数据来源:SAD §7 通信契约 + bff API Portal(226 行 OpenAPI,11 服务 43 路由)+ esp-api Dubbo 接口 + ADR-new-services。
 > 日期:2026-08-13。
+> 更新:2026-08-17 追加 Phase 1-3 新服务事件(content-go/community-go/gamification-go rankings)+ Nacos 服务注册说明。
 
 ## 目的
 
@@ -24,6 +25,35 @@
 | E-4 | `emotion.signal` | emotion-svc | gateway-go(数字人反馈)/ learning-java | 情绪信号(识别结果/可视化触发) | JSON {session_id, emotion, confidence, ts} | <500ms | signal_id | DLQ + 3 |
 | E-5 | `teacher.task` | teacher-java | learning-java(学情汇总)/ writing-py(批改联动) | 教师任务(教案生成/作业评阅/终审) | JSON {task_id, class_id, type, payload, ts} | <3s | task_id | DLQ + 3 |
 | (横切) | `esp-cache-invalidate` | 任意服务(Java/Go/Python) | 全服务(L1 缓存订阅 L2 失效广播) | L1+L2 缓存失效广播(三端 key 统一明文 `{service}:{entity}:{id}`) | JSON {key, op} | <100ms 广播 | key | fire-and-forget |
+
+### 1.1 Phase 1-3 新增事件(2026-08-17 追加)
+
+> 内容库(content-go)、圈子社区(community-go)、排行榜(gamification-go rankings)三域事件。
+
+| # | topic / 事件名 | 生产者 | 消费者 | 触发条件 | 数据载荷 | 幂等 |
+|---|---|---|---|---|---|---|
+| E-6 | `content.attempted` (via learning_event_outbox) | content-go | gamification-go(XP 发放)/ learning-java(掌握度更新) | content_attempts 表写入后,经 learning_event_outbox 异步投递 | JSON {user_id, item_id, item_type, score, correct, duration_ms, ts} | item_id+user_id+created_at 幂等 |
+| E-7 | `learning.event.reported` (outbox relay) | content-go(写 outbox) | learning-java(worker 消费落库) | content_attempts → learning_event_outbox pending → OutboxRelay 重投 | JSON {user_id, event_type:"content_attempt", payload:{item_id,score}, ts} | message_id ON CONFLICT 去重(P1-8) |
+| E-8 | `community.circle.created` | community-go | gamification-go(可选成就触发) | POST /api/circles 创建成功 | JSON {circle_id, name, owner_id, invite_code, ts} | circle_id |
+| E-9 | `community.member.joined` | community-go | gamification-go(社交成就) | 圈子邀请码加入成功 | JSON {circle_id, user_id, role, ts} | circle_id+user_id 幂等 |
+| E-10 | `community.post.created` | community-go | (可选内容审核/推荐) | 帖子发布成功 | JSON {post_id, circle_id, user_id, body_preview, ts} | post_id |
+| E-11 | `community.report.threshold_reached` | community-go | community-go(自动隐藏) | content_reports 累计达阈值(circle_posts.report_count >= config) | JSON {target_type, target_id, report_count, ts} | target_id 幂等(幂等更新) |
+| E-12 | `ranking.updated` | gamification-go | gamification-go(Redis ZSET 更新) | XP/积分变更触发排行榜重算 | JSON {user_id, scope_type, scope_id, delta_score, ts} | user_id+ts 幂等 |
+| E-13 | `ranking.snapshot.taken` | gamification-go(日切定时) | leaderboard_snapshots(CRDB 落库) | 日切/周切/月切定时任务 | JSON {scope_type, scope_id, period, snapshot_date, rank_list[{user_id,score,rank}], total_members} | scope_type+scope_id+period+date 幂等 |
+
+### 1.2 Nacos 服务注册/注销(ephemeral 实例,无显式事件)
+
+> 2026-08-17 追加。ADR-19 Nacos 统一注册落地说明。
+
+ESP 全部 19 个服务注册到 ekb-m2 共享 Nacos,实例生命周期由各语言 SDK 自动管理(ephemeral 模式)。
+
+| # | 事件类型 | 触发条件 | 传播方式 | 可观测性 |
+|---|---|---|---|---|
+| E-nacos-1 | 实例注册(instance up) | 服务启动,SDK 自动注册到 Nacos | Nacos 推送(临时实例,心跳间隔 5s,超时 15s 剔除) | Nacos Dashboard 实例列表 + OTel service.instance.id |
+| E-nacos-2 | 实例注销(instance down) | 服务正常关闭(graceful shutdown),SDK 自动 deregister | Nacos 即时移除 | Nacos Dashboard 实例列表减少 |
+| E-nacos-3 | 实例异常(心跳丢失) | 服务崩溃/网络分区,SDK 未发 deregister | Nacos 15s 无心跳后自动剔除 | Nacos Dashboard 灰色实例 + 告警(可配) |
+
+> 说明:这些是 Nacos 内部管理事件,非业务事件,不做 Pulsar topic 投递。BFF RouteTable(ADR-20)通过 Nacos Listener 感知路由变化,但不直接消费实例注册/注销事件。
 
 ## 2. REST 同步路由(11 服务,43 路由,from OpenAPI)
 
@@ -72,10 +102,11 @@
 ## 5. 与 TOGAF/优化方案对接
 
 - **C5 契约版本策略**:本目录是契约版本化基线,加 semver + breaking change workflow。
-- **N-4 Pact 扩量**:从 teacher-learning 一对扩到全 11 REST 路由 + 全 Dubbo 接口。
-- **L4 Pulsar 事件测点**:发一学习事件→worker 落库,延迟<1s。
-- **L3 Dubbo Triple 测点**:teacher→learning 学情汇总调学习。
+- **N-4 Pact 扩量**:从 teacher-learning 一对扩到全 11 REST 路由 + 全 Dubbo 接口 + content/community 事件。
+- **L4 Pulsar 事件测点**:发一学习事件->worker 落库,延迟<1s。
+- **L3 Dubbo Triple 测点**:teacher->learning 学情汇总调学习。
+- **Phase 1-3 事件测点**(2026-08-17):content.attempted outbox 投递延迟<5s;community.report.threshold_reached 自动隐藏链路<5s;ranking.updated Redis ZSET 更新 P95<100ms。
 
 ## 出口条件
 
-5 Pulsar topic + 11 服务 43 REST 路由汇总 + 4 Dubbo Triple 接口 + WS 帧齐(已满足)。每条标 producer/consumer/语义/SLA/幂等/重试。
+5+8 Pulsar/Outbox 异步事件 + 11 服务 43 REST 路由汇总 + 4 Dubbo Triple 接口 + WS 帧齐(已满足)。每条标 producer/consumer/语义/SLA/幂等/重试。

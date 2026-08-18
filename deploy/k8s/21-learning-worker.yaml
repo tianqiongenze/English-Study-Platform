@@ -29,6 +29,11 @@ spec:
       - name: learning-worker
         image: esp/learning-java:1.11.3   # #131:加 Pulsar 订阅 Shared(修 Exclusive 只能 1 消费者);#139 Timestamp 修复;#147 P1-8 幂等(messageId 透传 + ON CONFLICT DO NOTHING)
         imagePullPolicy: IfNotPresent
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: ESP_ROLE, value: "worker"}
         - {name: ESP_DISRUPTOR_ENABLED, value: "true"}      # worker 启 Disruptor 消费
@@ -51,9 +56,8 @@ spec:
         - {name: DUBBO_GROUP, value: "esp"}
         - {name: SEATA_ENABLED, value: "false"}              # worker 不参与全局事务,关 Seata 减负
         - {name: OTEL_SERVICE_NAME, value: "learning-worker"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
-        - {name: OTEL_METRICS_EXPORTER, value: "none"}
         envFrom:
         - secretRef: {name: esp-rsa-jwt-verify}   # P0-1 私钥收敛:仅校验,只注入公钥
         # worker 无 HTTP 业务端口,actuator 健康探针仍走 8081(Spring management 默认同端口)
@@ -67,3 +71,24 @@ spec:
         resources:
           requests: {cpu: "100m", memory: 512Mi}
           limits: {cpu: "1", memory: 2048Mi}
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: learning-worker
+  namespace: esp-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: learning-worker
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

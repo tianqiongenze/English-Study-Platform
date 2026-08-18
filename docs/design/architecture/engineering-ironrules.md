@@ -94,6 +94,22 @@
 - 一切落盘内容(进度/报告/声称)以"当前可核验事实"为准;对未知明确说未知,对未做明确说未做,宁可暴露缺口也不粉饰。
 - 审查报告的评分、压测数字、覆盖率必须真实,不许四舍五入到"达标"。
 
+### 铁律十一:生产域 Mock 零残留(MPB,2026-08-17 新增)
+- 根因(上线达标审查):mock 是默认分支/真实是 opt-in 配置;多轮测试/E2E/人工测试全在 mock 世界跑(伪密钥当真实凭据传递);无"生产域"门禁拦截 mock/占位 ⇒ "多轮测试通过"与"生产可用"完全脱钩。
+- 默认真实:外部能力(LLM/ASR/TTS/翻译/图片)默认真实实现;mock 仅允许显式开关(如 LLM_MODE=mock)且只声明于 test/dev 部署,生产 manifest 零 mock 配置。
+- 生产域零 mock 门禁:CI/本地脚本扫 `deploy/k8s/**` 与生产 main 代码的 `mock|placeholder|占位|mock-key|loadtest` 命中即红(`scripts/check_mock_residue.sh`)。
+- 测试证据标注被测模式:测试文档每项用例标 `实测(MOCK)/实测(REAL)`;mock 路径通过不得作为上线级质量证据。
+- 伪密钥零容忍:生产 Secret 禁止任何 mock/占位凭据;真实凭据只能经 `kubectl create secret --from-literal`/Secret 管理/KMS 注入,禁入 git。
+- 真实分支可验证:真实实现无真实依赖也能被契约/单测覆盖(httptest/mock server),禁止"写了真实分支但永远无法验证"的死代码。
+- **迁移到其他 Claude Code 项目启用(直接可用)**:把 `scripts/check_mock_residue.sh` 拷到目标项目 `scripts/`;目录布局不同时设环境变量 `MPB_MANIFEST_DIRS` / `MPB_CODE_DIRS` / `MPB_SECRET_FILE`,无需改脚本;CI 加一步 `./scripts/check_mock_residue.sh`。全局权威版见 `~/.claude/CLAUDE.md` 工程铁律 ⑧(所有项目自动加载)。
+
+### 铁律十二:写前核对目标系统(WTV,Write-Target Verification,2026-08-17 新增)
+- 根因(admin 账户事件):按旧封装 `scripts/db_query.sh` 默认连 TiDB 灌 admin 凭据,实际 bff 存储已切 CRDB(`ESP_RW_STORAGE_TYPE=cockroachdb`,`crdb-public:26257`),凭据插错库导致"bad credentials"。把"默认封装/历史脚本/旧文档"当成了真实配置来源。
+- **任何 DB 写/查、组件变更、配置生效前,先核对"当前系统真实配置源"**:存储类型/主机/库/schema 以部署清单(或运行时 `kubectl get deploy` ENV)为准(ESP 家族:ESP_RW_STORAGE_TYPE、ESP_RW_COCKROACHDB_*、WRITE_DB_URL、GROWTHBOOK_API_KEY 等);禁止凭旧脚本默认、CLAUDE.md 旧描述、记忆快照假设。
+- **造数/改数据前确认"该服务实际读写的表/视图"**:schema 前缀、search_path、读写分离目标都可能不同(ESP:CRDB `public.users` 与 `esp_auth.users` 并存,tpp 服务经 search_path 落库;ADMIN 数据以登录端点实测为准);为服务造数必须用该服务实际查询的库表,不确定就先从运行中服务实测(登录/查询端点)。
+- **检测到默认封装与真实配置漂移** → 先修封装/文档,再继续操作(本次:db_query.sh 应支持 `-target crdb`,注释源头写明两套存储)。
+- 全局权威版:`~/.claude/CLAUDE.md` 工程铁律 ⑨(所有项目自动加载);记忆 `engineering-ironrules` 规则 12。
+
 ---
 
 ## 4. 证据附录

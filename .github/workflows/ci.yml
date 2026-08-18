@@ -121,7 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        svc: [writing-py, emotion-svc]
+        svc: [writing-py, emotion-svc, writing-coach]
     defaults:
       run:
         working-directory: backend/services/${{ matrix.svc }}
@@ -282,3 +282,83 @@ jobs:
         run: pnpm turbo test -- --passWithNoTests
       - name: Build (web + h5;小程序无微信构建凭据仅 typecheck)
         run: pnpm turbo build --filter=@esp/web --filter=@esp/h5
+
+  # ───────── Rust 服务(assessment-rs/llm-orchestrator-rs/media-learn-rs/pronunciation-rs) ─────────
+  rust-services:
+    name: Rust services (test + clippy)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        svc: [assessment-rs, llm-orchestrator-rs, media-learn-rs, pronunciation-rs]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: cargo test
+        working-directory: backend/services/${{ matrix.svc }}
+        run: cargo test 2>&1 | tail -30
+      - name: cargo clippy
+        working-directory: backend/services/${{ matrix.svc }}
+        run: cargo clippy -- -D warnings 2>&1 | tail -30
+
+  # ───────── Go extra 服务(admin-go/course-path-go/content-go/community-go/gamification-go/conversation-go/listening-go/reading-go/live-tutor-go) ─────────
+  go-extra:
+    name: Go services extra (test)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        svc: [admin-go, course-path-go, content-go, community-go, gamification-go, conversation-go, listening-go, reading-go, live-tutor-go]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: go test
+        working-directory: backend/services/${{ matrix.svc }}
+        run: go test ./... -count=1 -timeout 60s 2>&1 | tail -30
+      - name: go vet
+        working-directory: backend/services/${{ matrix.svc }}
+        run: go vet ./... 2>&1 | tail -10
+
+  # ───────── Go 覆盖率门禁(>=70%) ─────────
+  go-coverage:
+    name: Go coverage gate (>=70%)
+    runs-on: ubuntu-latest
+    needs: [go-gateway, go-extra]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Run coverage on key Go services
+        run: |
+          for svc in gateway-go content-go community-go gamification-go vocab-srs-go course-path-go conversation-go listening-go reading-go live-tutor-go admin-go; do
+            if [ ! -d "backend/services/$svc" ]; then echo "skip $svc (not found)"; continue; fi
+            cd backend/services/$svc
+            if [ ! -f "go.mod" ]; then echo "skip $svc (no go.mod)"; cd ../..; continue; fi
+            go test ./... -coverprofile=coverage.out -timeout 60s 2>&1 | tail -5
+            pct=$(go tool cover -func=coverage.out 2>/dev/null | tail -1 | awk '{print $NF}' | tr -d '%')
+            echo "$svc: ${pct:-0}%"
+            if [ -n "$pct" ] && [ "$(echo "$pct < 70" | bc)" -eq 1 ]; then echo "FAIL: $svc coverage $pct% < 70%"; exit 1; fi
+            cd ../..
+          done
+
+  # ───────── 安全扫描(trivy + golangci-lint) ─────────
+  security-scan:
+    name: Security (trivy + golangci-lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: backend/
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+      - name: Go lint (esp-common-go)
+        uses: golangci/golangci-lint-action@v4
+        with:
+          working-directory: backend/shared/esp-common-go
+          args: --timeout=2m

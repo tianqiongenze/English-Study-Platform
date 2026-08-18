@@ -1,0 +1,61 @@
+=== k6 full matrix v10 start 07:09:48 ===
+FAIL k6   learning_event v10
+OK   k6   learning_review v10
+FAIL k6   teacher_kpstats v10
+OK   k6   bff_scenarios v10
+OK   k6   gw_scenarios v10
+OK   k6   bff_login v10
+OK   k6   reading_passages v10
+OK   k6   listening_mat v10
+OK   k6   gamification_prof v10
+OK   k6   gamification_pts v10
+OK   k6   vocab_due v10
+FAIL k6   vocab_review v10
+OK   k6   emotion_recent v10
+OK   k6   writingcoach_tpl v10
+OK   k6   assessment_report v10
+OK   k6   llm_dialogue v10
+OK   k6   course_path v10
+FAIL k6   writing_grade v10
+=== k6 core5 ladder v20/v60 07:39:08 ===
+OK   k6   learning_event v20
+OK   k6   learning_event v60
+OK   k6   learning_review v20
+OK   k6   learning_review v60
+OK   k6   teacher_kpstats v20
+OK   k6   teacher_kpstats v60
+OK   k6   bff_scenarios v20
+OK   k6   bff_scenarios v60
+OK   k6   gw_scenarios v20
+OK   k6   gw_scenarios v60
+=== locust full matrix v10 07:52:21 ===
+OK   loc  learning_event v10
+OK   loc  learning_review v10
+OK   loc  teacher_kpstats v10
+OK   loc  bff_scenarios v10
+OK   loc  gw_scenarios v10
+OK   loc  bff_login v10
+OK   loc  reading_passages v10
+OK   loc  listening_mat v10
+OK   loc  gamification_prof v10
+OK   loc  gamification_pts v10
+OK   loc  vocab_due v10
+OK   loc  vocab_review v10
+OK   loc  emotion_recent v10
+OK   loc  writingcoach_tpl v10
+OK   loc  assessment_report v10
+OK   loc  llm_dialogue v10
+OK   loc  course_path v10
+OK   loc  writing_grade v10
+=== locust core5 v20 08:00:27 ===
+OK   loc  learning_event v20
+OK   loc  learning_review v20
+OK   loc  teacher_kpstats v20
+OK   loc  bff_scenarios v20
+OK   loc  gw_scenarios v20
+=== mixed k6+locust concurrent (learning_event / gw_scenarios) 08:02:44 ===
+OK   loc-mixed learning_event
+OK   k6-mixed learning_event
+OK   loc-mixed gw_scenarios
+FAIL k6-mixed gw_scenarios
+=== MATRIX DONE 08:08:04 ===

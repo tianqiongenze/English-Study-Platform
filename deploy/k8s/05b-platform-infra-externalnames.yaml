@@ -74,3 +74,37 @@ metadata:
 spec:
   type: ExternalName
   externalName: neo4j.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+# Nacos 注册/配置中心(SCA 服务注册 + Dubbo 注册表;迁移自 esp-prod,2026-08-16)
+# 8848 http / 9848 grpc / 9849 raft,客户端自带端口
+apiVersion: v1
+kind: Service
+metadata:
+  name: nacos
+  namespace: platform-infra
+  labels: {platform/component: nacos}
+spec:
+  type: ExternalName
+  externalName: nacos.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+# Sentinel Dashboard(限流可视化 + 规则推送;迁移自 esp-prod,2026-08-16)
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel
+  namespace: platform-infra
+  labels: {platform/component: sentinel}
+spec:
+  type: ExternalName
+  externalName: sentinel.ekb-m2-aws-us-east-1.svc.cluster.local
+---
+# Seata TC(分布式事务协调器;迁移自 esp-prod,2026-08-16)
+apiVersion: v1
+kind: Service
+metadata:
+  name: seata
+  namespace: platform-infra
+  labels: {platform/component: seata}
+spec:
+  type: ExternalName
+  externalName: seata.ekb-m2-aws-us-east-1.svc.cluster.local

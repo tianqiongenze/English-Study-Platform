@@ -15,6 +15,12 @@ const LessonPlan = lazy(() => import("./pages/teacher/LessonPlan"));
 const Analytics = lazy(() => import("./pages/teacher/Analytics"));
 const Grading = lazy(() => import("./pages/teacher/Grading"));
 const Profile = lazy(() => import("./pages/Profile"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const GovernanceDashboard = lazy(() => import("./pages/admin/GovernanceDashboard"));
+const ContentLibrary = lazy(() => import("./pages/learning/ContentLibrary"));
+const ContentAdmin = lazy(() => import("./pages/admin/ContentAdmin"));
+const CommunityPage = lazy(() => import("./pages/community/CommunityPage"));
+const RankingPage = lazy(() => import("./pages/ranking/RankingPage"));
 
 /** 懒加载路由包裹器:加载期间展示页面级骨架屏 */
 function Lazy({ children }: { children: React.JSX.Element }) {
@@ -40,6 +46,9 @@ export default function App() {
           <Route path="knowledge" element={<Lazy><LearningPanel /></Lazy>} />
           <Route path="review" element={<Lazy><LearningPanel mode="review" /></Lazy>} />
           <Route path="difficulty" element={<Lazy><LearningPanel mode="difficulty" /></Lazy>} />
+          <Route path="content" element={<Lazy><ContentLibrary /></Lazy>} />
+          <Route path="community" element={<Lazy><CommunityPage /></Lazy>} />
+          <Route path="ranking" element={<Lazy><RankingPage /></Lazy>} />
         </Route>
         <Route path="/teacher" element={<RequireAuth role="teacher"><TeacherLayout /></RequireAuth>}>
           <Route index element={<Navigate to="/teacher/lesson-plan" replace />} />
@@ -48,6 +57,9 @@ export default function App() {
           <Route path="grading" element={<Lazy><Grading /></Lazy>} />
         </Route>
         <Route path="/profile" element={<RequireAuth><Lazy><Profile /></Lazy></RequireAuth>} />
+        <Route path="/admin" element={<RequireAuth role="admin"><Lazy><AdminDashboard /></Lazy></RequireAuth>} />
+        <Route path="/admin/content" element={<RequireAuth role="admin"><Lazy><ContentAdmin /></Lazy></RequireAuth>} />
+        <Route path="/admin/governance" element={<RequireAuth role="admin"><Lazy><GovernanceDashboard /></Lazy></RequireAuth>} />
         <Route path="*" element={<Navigate to="/learning/speech" replace />} />
       </Routes>
     </BrowserRouter>

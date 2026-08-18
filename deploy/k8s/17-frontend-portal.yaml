@@ -20,6 +20,8 @@ spec:
         image: esp/frontend-portal:1.2.2
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 80}]
+        securityContext:
+          allowPrivilegeEscalation: false   # nginx needs root for port80 + cache write; runAsNonRoot removed
         readinessProbe: {httpGet: {path: /, port: 80}, periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 3}
         livenessProbe:  {httpGet: {path: /, port: 80}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 5}
         resources:

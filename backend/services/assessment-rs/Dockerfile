@@ -24,14 +24,18 @@ RUN cargo build --release
 # 运行阶段:debian:bookworm-slim(nonroot)
 FROM docker.1ms.run/library/debian:bookworm-slim
 RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g; s|security.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 \
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 65532 -r -s /usr/sbin/nologin nonroot
 WORKDIR /app
 COPY --from=builder /workspace/assessment-rs/target/release/assessment-rs /app/assessment-rs
+COPY scripts/nacos-register.sh /app/nacos-register.sh
+RUN chmod +x /app/nacos-register.sh
 EXPOSE 8090
 ENV PORT=8090
+ENV SERVICE_NAME=assessment-rs
+ENV HEALTH_URL=/actuator/health/liveness
 ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317
 ENV OTEL_SERVICE_NAME=assessment-rs
 USER nonroot
-ENTRYPOINT ["/app/assessment-rs"]
+ENTRYPOINT ["/bin/sh", "/app/nacos-register.sh", "/app/assessment-rs"]

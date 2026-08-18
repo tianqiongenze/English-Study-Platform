@@ -15,7 +15,7 @@
     <name>bff-java</name>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>26</java.version>
         <spring-cloud.version>2025.1.2</spring-cloud.version>
         <!-- 最新最优 SCA 2025.1.x(对齐 Spring Boot 3.5 / Spring Cloud 2025.1)-->
         <spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
@@ -95,6 +95,12 @@
             <artifactId>esp-web-common</artifactId>
             <version>1.0.0</version>
         </dependency>
+        <!-- ESP 共用 Java 基础能力(JWT 校验/BaseJwtAuthFilter + HealthConfig 白名单常量 + SentinelRuleBootstrap + CockroachDbConfig,铁律:>=2 服务共用必下沉) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-common-java</artifactId>
+            <version>1.0.0</version>
+        </dependency>
 
         <!-- ===== Spring Cloud Alibaba 全套(最新)===== -->
         <!-- Nacos:服务注册与发现 + 配置中心 -->
@@ -134,6 +140,11 @@
             <groupId>org.apache.dubbo</groupId>
             <artifactId>dubbo-spring-boot-starter</artifactId>
             <version>${dubbo.version}</version>
+        </dependency>
+        <!-- JDK26: Dubbo 3.3.6 运行时需要 com.google.gson.JsonSyntaxException,显式声明避免 NoClassDefFoundError -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.dubbo</groupId>

@@ -4,6 +4,219 @@
 > **历史里程碑见 `docs/progress/archive/*.md`**(按主题拆分),跨会话恢复亦可从 Redis `esp:ctx:archive:*` 取。
 > **恢复协议**:新会话先读本文件(全文)+ TaskList,不全量读历史;需要历史细节 Grep archive 或 Redis 取。
 
+## 2026-08-18 会话23-15b 完成项（中间件下沉+资源分配+全修复）
+
+### 宿主中间件运维（本次完成）
+1. 宿主中间件运维手册: `docs/ops/host-middleware-startup.md` ✅
+2. 一键管理脚本: start/stop/status-host-middleware.sh ✅ (全部 RC=0)
+3. Prometheus rule_files 修复: /etc/prometheus/rules.yml → $HOME/observability/rules.yml ✅
+4. Prometheus otel-collector target 修复: K8s DNS → localhost:8889 ✅ (target UP)
+5. Prometheus K8s API 认证: SA prometheus-host + RBAC + token/CA 导出 ✅
+6. Loki K8s DNS 修复: host.lima.internal → localhost ✅ (config.expand-env=true)
+7. 数据持久化迁移: /tmp/* → ~/observability/data/* (4个服务全部重启验证) ✅
+8. Tempo 二进制修复: 从 GitHub 下载 macOS arm64 正确二进制 ✅ (port 3200 监听中)
+9. 两个 README 更新宿主中间件章节 ✅ (中英文)
+
+### 资源分配（本次完成）
+10. bff-java CPU limit 1→2 core, requests 50m→200m + HPA(max=4, 70%) ✅
+11. learning-worker HPA(max=3, 70%) ✅
+
+### Admin 监控缺口修复
+12. catalog.json: 移除 seata + otel-collector 改为 FQDN ✅ (待重建镜像部署)
+13. Prometheus 通过 OTel Collector 聚合采集(单节点正确架构) ✅
+
+### Nacos Derby→CRDB 迁移
+14. CRDB 创建 nacos 数据库 + schema SQL 执行 ✅
+15. application.properties 已改为 CRDB (localhost:32627 via kubectl port-forward) ⚠️
+16. **NodePort 从宿主机不可直达**（CRDB NodePort 32627 连接超时）— kubectl port-forward 可用但非生产方案
+17. **待决策**: Nacos 用 port-forward 临时方案 or 切回 Derby + 后续多节点用 TiDB
+
+### Admin 前端问题(已发现待修复)
+18. GovernanceDashboard 硬编码 IP: 192.168.5.15:30300(Grafana)/8858(Sentinel) → 需改 ExternalName
+
+## 进行中（恢复锚点 2026-08-18 会话23-15b）
+- **Nacos 迁移**: CRDB nacos 库+schema 已建✅; application.properties 已改为 localhost:32627(via kubectl port-forward)⚠️; Nacos 启动时连接 CRDB 失败(SocketTimeout) — NodePort 从宿主机不可直达,需 kubectl port-forward 维持或切回 Derby
+- **集群稳定**: HPA 触发 bff-java/learning-worker/learning-java 滚动更新,旧 RS CrashLoopBackOff 正在清理; agent a287620baeda03ecb 处理中
+- **CRDB 定时备份**: schedule 已创建(hourly+daily, userfile 模式); 之前一次完整备份验证通过(10761 rows)
+- **Phase 2 准备**: 压测+E2E+CRDB vs TiDB 对比 待集群稳定后执行
+- **关键脚本**: scripts/start-host-middleware.sh / stop / status 已创建; docs/ops/host-middleware-startup.md 已写
+
+### Nacos→CRDB 决策点（需用户确认）
+方案A: 保持 port-forward(开发验证用) + 后续多节点切 TiDB
+方案B: 切回 Derby(简单可靠,重启不丢数据)
+方案C: 宿主机直连 CRDB NodePort(32627) 需 VM 网络配置调整
+
+### CRDB NodePort 不可达根因
+- CRDB 32627 在 K8s 中 reachable(clusterIP 正常),但从 macOS 宿主机 localhost:32627 超时
+- Rancher Desktop VM 网络:NodePort 需要通过 VM IP(192.168.5.x 或类似)而非 localhost
+- 解法: 用 VM IP + NodePort 或保持 kubectl port-forward
+
+## 下一步
+1. 确认 Nacos 存储方案(切回 Derby 或 port-forward)
+2. CRDB 定时备份调度(已完成 userfile 备份, schedule 已创建)
+3. Phase 2: locust/k6 全链路压测 + E2E 全功能测试
+4. CRDB vs TiDB 全方位对比报告
+5. 全文档更新(PROGRESS.md/README/architecture docs)
+
+## 恢复协议
+1. 读 docs/PROGRESS.md 热区
+2. Redis GET esp:ctx:hot:session-23-15
+3. 读 .claude/plans/robust-baking-wave.md
+4. 读 report/ops-audit-2026-08-18.md
+
+---
+
+## 冷区(已闭合会话索引,详见 archive/)
+
+- **会话23-13 + 续(2026-08-17~18,全量重构 7.3→8.1 / JDK26 镜像+部署收尾 / k3s 连锁坑㉚ / gson 阻断闭合)** → `docs/progress/archive/2026-08-18-session-23-13-jdk26-refactor-deploy.md` | Redis:`esp:ctx:hot:session-23-13-refactor-complete` + `esp:ctx:session:23-13-cont`
+
+## 当前(2026-08-17 会话23-10:TiDB 下电✅ / GUI 客户端连接✅(DBeaver+RedisInsight)/ 前端全面美化研究中 / 数字人 persona 全栈✅)
+
+### 恢复锚点(2026-08-17 数字人 persona 全栈闭合)
+- **数字人 per-user persona(FR-6.1,全栈闭合✅)**:每用户不同形象(8 预设 aurora/sunny/mint/violet/rose/mentor/coral/sage),hashSeed(userId) 确定性默认 + 持久化。
+  - **前端全绿**:ui-tokens 导出 PERSONAS/resolvePersona/DigitalHuman/DigitalHumanPicker(SVG 骨架,8 发型/6 配饰,4 表情);三端 tsc RC=0。Web(SpeechPanel+Profile 数字人选择器)、H5(Speech+Profile)、小程序(emoji 降级,Avatar+我的页 persona picker)均接 getDigitalHuman/setDigitalHuman。
+  - **后端全绿**:gamification-go `digital_human.go` GET/PUT `/api/gamification/me/digital-human`(requireUID + personaIDRe 校验),镜像 `esp/gamification-go:0.4.2` 构建部署。**真实 CRUD 验证**(BFF NodePort 30009 真实 JWT):GET""→PUT aurora→GET aurora→PUT 非法 400→DB 直查 `esp_auth.users.digital_human='aurora'` 落库证实。personaIDRe 校验生效。
+  - **品牌名定稿同步(#219)**:i18n app.title=Verity/洁语 + tagline;index.html title 更新(Web/H5);H5 PWA manifest ESP→Verity;小程序登录页 ESP 前缀去除。无 家教/Home 残留。
+- **已知架构不一致(#227,待修,不阻断 persona)**:BFF Java `ESP_RW_COCKROACHDB_DB=esp`(esp.users 无 digital_human 列),gamification-go 写 `esp_auth.users`(含 digital_human)。BFF 注册用户不在 esp_auth.users → gamification UPDATE 匹配 0 行静默失败(本轮靠镜像插入 uid 临时闭合)。根因修复:改 BFF db=esp_auth 或 BFF register 镜像写 esp_auth.users。explorer 正在调查两表 schema 差异。
+- **前端全面美化(#218,进行中)**:设计文档 `docs/design/architecture/frontend-beautification-plan.md`(主题系统 data-theme+data-accent / 图片资产·无key直链+SVG兜底 / i18n·ui-tokens单源)。共享基础已扩(accent 奖牌/渐变/图片 fallback token、tokens-mobile.css、i18n ~110 key)。下一步=各端重构。
+- **Phase3 排行榜 E2E 已完成(2026-08-17,全绿)**:`report/phase3-ranking-e2e-2026-08-17.log`(周榜{甲30乙15丙5}/地区榜/反作弊/opt-out 全过)。README 新增 Phase 1-3 功能小节;docs/test/00 补当前阶段功能测试。
+- **TiDB 彻底下电**:三区 pd/tidb/tikv/tiflash --replicas=0 + force-delete → 0 残留。ESP 全服务切 CRDB(`crdb-public:26257`),未受影响。30亿存量随下电离线——需 CRDB 侧重建基准(Phase5 多节点清单,诚实标注)。
+- **GUI 客户端(已完成,见 docs/test/11-GUI客户端连接指引.md)**:CRDB PG 127.0.0.1:32627;Redis 经 RD-VM SSH 隧道。
+- 下一步:①#227 DB 不一致根因修复(待 explorer 结论);②前端美化各端重构;③Phase0 mock 切断收尾(#211)+ Phase1-5 上线达标工程。
+- Redis 锚点:SET `esp:ctx:hot:session-23-10-persona-frontend`(persona 全栈闭合后)。
+
+## 当前(2026-08-17 会话23-9 功能拓展:Phase1 内容库✅ / Phase2 圈子社区✅ / Phase3 排行榜**E2E 执行中** / Phase4 待做)
+
+### 恢复锚点(2026-08-17 10:40 Phase3 E2E 解围:调度死锁已破,gamification 0.4.1 已跑,待 bff-java Ready 后跑 E2E)
+- **根因(非调度 bug,是容量)**:`kubectl describe node` = **CPU Requests 8930m/9000m(99%)**,非 Pending 分配 8.73~8.93 核(共享底座 3xCRDB+TiDB+Milvus+obs+Java 服务);余量仅 ~70m。bff(200m)/learning/teacher 等 not-ready Java 服务被 HPA 扩 + 控制器反复补建 → **滚动更新死锁**(新 pod 无法调度,旧 not-ready pod 不终止)。
+- **已执行解围(2026-08-17,零确认授权内)**:① force-delete 卡 1 天的 teacher-java Terminating pod(RS desired=0 安全);② learning-java **HPA maxReplicas 15→1**(live patch)防 HPA 再来;③ teacher-java HPA max 8→1 + `kubectl scale deploy teacher-java --replicas=1`;④ **bff-java requests cpu 200m→50m**(live + `15-bff-java.yaml` 同步,注释注明原因)——余量仅 70m 配 50m 才可调度;⑤ gamification-go **0.4.1**(3 修复)`rollout status` RC=0 已 Running,log `rankings feed init/resume hwm=1202037037743079426`(Redis 持久)。⑥ **CRDB `esp_auth.users` 已 INSERT 3 rk 用户**(甲/乙/丙,region CN/Guangdong/Shenzhen + Guangzhou + CN/Beijing,ON CONFLICT 幂等)——BFF 只写 TiDB esp.users,此为 E2E 测试桥接(架构债:新注册不到 CRDB profile 表,已记录)。
+- **bff-java 现状**:原 pod 被 liveness 饿死死循环(restart x2 后 hang 于 Nacos/Dubbo init,20:25 起 ≈1 天);已重启 + 资源 patch → 新 pod 5b9fdfbb8d **ContainerCreating→等待 Ready**(JVM 启动 ~90s+ 饥饿下更慢)。E2E 前置 = bff Ready + port-forward 18090(进程在跑)。
+- **E2E 已就绪**:`/tmp/rk-tokens.txt` 已重签 3 枚 RS256(12h,`scripts/gen_bench_tokens.py` 同法,secret `esp-rsa-jwt-sign`);`report/phase3-ranking-e2e.sh` 路径已验(content 4 courses/14 lessons/1342 items;learning_events 管道 live max-id=1202037037743079426=feed hwm;Redis `esp:gamif:lb:*` 为空 → E2E 干净起点)。**备胎**:content-go/gamification-go 直接读 X-User-Id 头(无 JWT 校验),bff 长期不 Ready 可直连 8096/8092 跑数据通 path(诚实标注为"未走 BFF 链路")。
+- **坑㉘(新)**:rolling update 死锁下 **force-delete 会触发旧 RS 补建**(旧 RS desired 未清)→ 正确做法=**scale 0 清台再 scale 1**(bff/teacher 均以此收束);另 not-ready 服务被 HPA 反复扩 → 单节点须**人工cap HPA max=1 + deploy replicas=1 对齐 manifest 单节点意图**。
+- Redis 锚点:`esp:ctx:hot:session-23-9-phase3-rankings`(E2E 完成时 SET)。
+
+### content-go SDD/DDD 文档补齐(2026-08-17)
+- **产出**: `docs/design/sdd-content-go.md`(11 节完整 SDD + DDD 有界上下文) + `docs/api/content-go-api.md`(API 契约)
+- **代码审视发现 12 项改进建议**(I-1~I-12),其中 P1 Bug 2 项:
+  - **I-3**: updateItem 编辑建新版本未递增 version 字段(固定 version=1),版本追溯断裂
+  - **I-4**: relayDeadSQL 写 status='dead' 违反 CHECK 约束(pending/done/failed),死信静默失败
+- **架构差距**:未使用 esp-common-go/db 双池 API(手动创建两个 *sql.DB);importBatch 无事务包裹;无缓存/Pulsar/API 版本化
+
+### 恢复锚点(功能拓展 Phase3 排行榜:代码+部署完成,2026-08-17)
+- **任务线**:功能拓展 4 项(内容库/圈子社区/排行榜/关联功能),用户拍板:内容 v1 丰富起步、XP+进度双榜、地域榜默认入榜可 opt-out、#4 全要;所有新增功能遵守工程铁律。
+- **Phase3 backend 已部署(gamification-go 0.4.0 + bff-java 1.11.2 + ingress)**:
+  - `rankings.go`(新,~490 行):pollLoop 轮询 CRDB `esp_learning.learning_events`(id 高水位 `esp:gamif:feed:hwm` + Redis 分布式锁 `esp:gamif:feed:lock`,2s,多副本防重复);XP/进度双榜;扇出 global/region 祖先前缀/circle/category × daily/weekly/monthly ZSET(`esp:gamif:lb:*`);反刷榜(单事件 20 XP 上限 + 每日 500 上限 `esp:gamif:xpc:*`);日切 top-100 快照写 CRDB `esp_gamif.leaderboard_snapshots`;opt-out 读端过滤+写泵跳过。端点:GET `/api/gamification/rankings`(type=xp|prog,scope=global|region|circle|category)、`/rankings/gap`(percentile/差距)、`/rankings/regions`、POST `/users/optout`。
+  - bff-java 1.11.2:RouteTable 加 `/api/gamification→gamification-go:80`(javap 字节码 2 处确认);40-ingress 加 `/api/gamification` Prefix;日志确认 `rankings feed init hwm=1202037037743079426`。
+- **Phase3 frontend 已部署(frontend-react 1.1.3)**:types(6 新类型)+ api-client(4 方法)+ api.ts 委托 + `/learning/ranking` 路由 + LearningLayout 排行榜 tab + `RankingPage.tsx`(XP/进度 × 日/周/月 × 全球/地区/圈子/类别 + 地域选择器 + 我的排名卡 + opt-out 开关);构建 RC=0(RankingPage chunk 在镜像)。
+- **Phase3 E2E 证据(部分)**:gamification-go 端点直连冒烟 `{"list":null,"mine":{}}` 正常(空数据符合 hwm 起点);CRDB `esp_auth.users` 已有 region_code/ranking_opt_out 列;注册路径实证通知——**bff-java 注册写的是 TiDB `esp.users`(AuthController L100 `INSERT INTO users`),CRDB `esp_auth.users`(rankings/community 读的名字/地域表)只有种子用户** → 新注册用户不在此表。待办:确认 content submitAnswer(Phase1 真实路径)→ learning_events 落 CRDB 后驱动 rank 数据;再补 region 维度。
+- **rankings.go 三处修复(已本地 vet OK,待 0.4.1 重部署)**:① snapshotDay 冒号分段解析错(期望 5 段实为 7 段 `esp:gamif:lb:{typ}:{scope}:{sid}:{bucket}` → 快照永不落库)→ 改 `parts[3]/part[6]` 判定;② myRank 忽略 ZRevRank Err(Rdis 无成员时 Val=0 → 误返 rank 1)→ 改 Result()+err 判 0;③ loadUsers 查询失败时不再推进 hwm(此前 transient 错→本批事件永久丢失)→ 返回 err,poll 下 tick 重试本批。
+- **阻塞(2026-08-17 04:0x)**:单节点过载,kubectl TLS handshake timeout(apiserver 饿死;宿主 loadavg ~15, RD VM 452% CPU;疑 seed-job 补灌 session_turns/learning_events 仍在压 CRDB)。已挂后台 `until kubectl get nodes` 恢复监视。恢复后继续 E2E:注入 content 学习事件→轮询→rankings 出数据→opt-out 生效→region/category 维度→gap 百分位→快照日切(次日验证)。**铁律:禁动 k3s/共享底座/seed 任务,仅等待。**
+- **Redis 锚点**:`esp:ctx:hot:session-23-9-phase3-rankings`(Phase3 恢复点,待 E2E 完成后 SET)。
+- 前置 Phase1/2 锚点见下方(坑㉗/内容库✅/圈子✅)。
+- **坑㉗(BFF X-User-Id 枚举缺口,已修验证)**:bff-java **1.11.1**:`AuthFilter.AuthHeaderWrapper` 原先只 override getHeader/getHeaders,未 override getHeaderNames();ProxyController 用 `getHeaderNames()` 枚举转发头 → 客户端不带 X-User-Id 头时(浏览器 cookie 场景)下游 Go 服务(community/content/gamification)**收不到注入身份,写路径全 401**;GET 只读端点不强制 auth 看似正常。已补 `getHeaderNames()`(LinkedHashSet 补 X-User-Id/X-Role),javap 字节码级验证,1.11.1 已滚。memory `esp-bff-xuserid-enum-gap`。
+- **#200 Phase1 内容库 ✅全闭合**:content-go 1.0.4(esp_content 8096)+ 种子 1342 项 + frontend-react 1.1.1(/learning/content+/admin/content)。**认证 E2E 已验证**:register→login→Bearer→courses/lessons/items 浏览 + submitAnswer 判分;content_attempts 总数 4;learning_event_outbox 总数 3(source=content-library)。
+- **#201 Phase2 圈子社区 ✅全闭合**:community-go 1.0.0(esp_community 8097)+ 前端 frontend-react **1.1.2**(/learning/community,懒加载 chunk CommunityPage-*.js 确认在镜像内)。
+  - 接线:RouteTable `/api/community→community-go:80` + 40-ingress 已 apply + bff-java 1.11.1;manifest tag 已同步(15-frontend-react 1.1.2、34-community-go 1.0.0)。
+  - **E2E(经 BFF 30009,真实 JWT)**:注册→邀请码(VQHP53)加入→发帖/评论(user_name JOIN esp_auth.users)→/circles/mine 含圈(role=member)→ **举报流 3 用户→report_count 1→2→3 达阈值 auto_hidden:true→帖子从可见列表消失**。
+- **遗留(Phase1+2)**:浏览器 /web 带 auth 走通 = 人工测试项(见 docs/test 计划验证节);frontend-react 无 NodePort,浏览器验证需 /etc/hosts + traefik(esp.example.com)。
+- **集群风险**:单节点 CPU requests 约 98% 近饱和,新服务部署无调度余量——遇 stuck Terminating pod 用 `kubectl delete pod <name> --force --grace-period=0` 解困;metrics-server 缺失 HPA 盲。
+- **下一步**:**Phase3 排行榜(#197)**:① users 一次性 ALTER 加 region_code/ranking_opt_out(注册/设置可填地域,opt-out 默认可入榜);② gamification-go(8092)接线到 RouteTable+ingress(首次)+ Pulsar 消费 LEARNING_EVENT_REPORT → XP/进度 ZSET 扇出(global/region 国省市/circle/category × daily/weekly/monthly)+ rankings 端点 + 差距/反刷榜 + 周期快照;③ 前端 /learning/ranking + opt-out 设置。
+- **Redis 锚点**:`esp:ctx:hot:feature-expansion-phase2-community`(Phase2 闭合恢复点)。
+- **已归档**:会话23-9 四线(vocab cap/SEC-6/CI/Obsidian)→ `docs/progress/archive/2026-08-17-session-23-9-four-line.md`。
+
+---
+
+## 历史(2026-08-16 会话23-8 共享基础设施迁移(nacos/sentinel/seata→ekb ns)✅全闭合 + P3 管理员门户 P3a/P3b✅/P3c 镜像已滚待浏览器验证)
+
+### 恢复锚点(会话23-8 SCA 迁移 P1-P7 + 轨道C P3c,2026-08-16)
+- **SCA 三件套迁移全闭合✅(Phase 1-6)**:nacos/sentinel/seata 从 esp-prod 原生 ClusterIP → 共享 ns `ekb-m2-aws-us-east-1`,走既定双层 ExternalName 抽象(esp-prod 短名 → platform-infra → ekb 实体),**应用配置零改动**(客户端短名 `nacos:8848`/`sentinel:8858`/`seata:8091` 天然保留)。
+  - **Phase 1**:06-sca-middleware.yaml 7 段 ns 改 ekb + nacos PVC(`/home/nacos/data` 5Gi)+ seata PVC(`/seata/store` 2Gi,local-path);apply 9 资源。
+  - **Phase 2**:05b-platform-infra-externalnames.yaml 加 3 ExternalName(nacos/sentinel/seata → ekb),平台入口层 6→9 组件。
+  - **Phase 3**:05-infra-reuse.yaml 加 3 esp-prod ExternalName → platform-infra;`kubectl delete svc nacos sentinel seata -n esp-prod` 后 apply,秒级 DNS 空洞可接受。
+  - **Phase 4**:4 Java 服务**串行滚动**(bff→learning→teacher→learning-worker),单节点 CPU 饥饿铁律串行;验证 ekb nacos 服务列表含 bff-java/learning-java/learning-worker + Dubbo provider LearningRpcService(esp 组);**teacher 发现 3 learning invokers** = Dubbo 链路通(10.42.0.224/228/226:50091)。
+  - **Phase 5**:45-httptest-nodeports.yaml 3 段(nacos-np 30048/sentinel-np 30058/seata-np 30071+30092)ns→ekb;先删 esp-prod 旧 NodePort 防 30xxx 冲突再 apply。
+  - **Phase 6**:删 esp-prod 残留 nacos/sentinel/seata Deployment + seata-config CM。
+- **Seata 退役(用户明确指令)**:"已去除对 seata 的依赖,seata 不要再次启动" → 06-sca-middleware.yaml seata Deployment `replicas: 0` + 退役注释块;全量 4 Java 服务 `SEATA_ENABLED=false`;manifest + ExternalName + PVC 保留备未来重启用(改 replicas>0 即可)。
+- **坑㉟g(nacos CrashLoopBackOff — inotify 耗尽)**:根因=VM `fs.inotify.max_user_instances=128` 太低 → WatchFileCenter `IOException: User limit of inotify instances reached`。修=`ssh rd-vm-127 'sudo sysctl -w fs.inotify.max_user_instances=2048'` + force-delete pod 重启 → "Nacos started successfully in stand alone mode"。(注:sysctl 为运行时设置,VM 重启后需重设——多节点移植时固化 sysctl.conf。)
+- **P3a esp-admin 统一API聚合✅**:admin-go(RS256 JWT auth,esp_token cookie role=admin;requireAdmin 中间件非 admin 返 403)。路由 `/api/admin/{services,infra,catalog,metrics/query,metrics/query_range,metrics/alerts,metrics/rules}`;esp-admin svc port 80→targetPort 8099;handleProm 透传 Prometheus。
+- **P3b OTLP 双轨指标✅**:服务指标全量接线 OTLP→Prometheus,实时 RPS/延迟/错误率。
+- **P3c Web 前端管理员监测页(镜像已滚,待浏览器验证)**:`apps/web/src/pages/admin/AdminDashboard.tsx`(alerts 契约修复:Prometheus 原生 data.alerts 嵌套)+ `LearningLayout.tsx`(admin NavLink gated by `user?.role==="admin"`);frontend-portal nginx.conf upstream admin_backend→esp-admin:80 + location /api/admin/→proxy_pass。
+  - **镜像已滚✅**:esp/frontend-react:1.2.0 + esp/frontend-portal:1.3.0 rollout 成功。
+  - **鉴权路径已验证✅**:`kubectl exec frontend-portal -- wget ... /api/admin/services` 非法 token 返 **403 Forbidden**(requireAdmin 正确拒绝)。待 = 真实浏览器 admin 账号登录验证仪表盘渲染(services/infra 5s 轮询、PromQL 查询出数、告警卡片)。
+- **已改文件**:06-sca-middleware.yaml / 05b-platform-infra-externalnames.yaml / 05-infra-reuse.yaml / 45-httptest-nodeports.yaml(均 ns + ExternalName/PVC);apps/web/src/pages/admin/AdminDashboard.tsx + LearningLayout.tsx(P3c 前端);frontend-portal nginx.conf(P3c 反代)。
+- **下一步**:① #191 浏览器验证 /web/admin(admin 账号登录看仪表盘,闭合 P3c);② #189 可选清理(40-networkpolicy.yaml 孤儿端口 8848/8858/7091/8091 + platform-infra-multitenant.md 6→9 组件更新 + 全集群回归);③ 关闭 #176/#179 父任务。
+- **Redis 锚点**:`esp:ctx:migration:sca`(迁移全貌)+ `esp:ctx:hot:session-23-8-sca`(本会话恢复点)。
+
+---
+
+## 历史(2026-08-16 会话23-8 P2 全功能测试收尾:Web/H5 E2E 全绿 + 小程序核查 + 09 全量回填 + 签收报告 = 条件性 NO-GO(G-7/G-8 阻断)/ 下一步 P3 门户 #176-179)
+
+### 恢复锚点(会话23-8 P2 签收报告完成,2026-08-16 15:5x,Task #174 ✅)
+- **09 已全量回填**(`docs/test/09-人工测试操作指南.md` L9 更新注释 + 阶段0~7 全部空格填实测):P-0-1~15、1.2 18 行(16 PASS 200 + 2 scaffold SKIP + learning-worker 不适用)、3.1 Web/3.2 H5 判定、3.3 小程序无环境 SKIP、4 Mock、5 L1-L10、6 勾选、7 G-1~8 + E-1~9 + 7.3 决议。
+- **签收报告已生成**:`report/launch-readiness-2026-08-16.md` = **条件性 NO-GO**,签收人 JoelGong 2026-08-16。
+  - **就绪 ✅**:三端(Web 8/8 + H5 2/2 浏览器 E2E + 小程序代码级核查)、SEC-1~5 ✅、16 服务 healthz 全 200、L1-L5 主链路全绿、镜像无 secret。
+  - **阻断 ✗ 2 项**:① **G-7 种子规模** — CRDB esp 冒烟级(sessions=500/session_turns=2000/learning_events=8000/users=238;esp_teacher.submissions=2M),30亿级在 TiDB(scaled 0)待多节点 D2 重灌(坑㉑/坑㉟b);② **G-8 CI 全红** — ci.yml 最近 5 次 failure + security.yml failure,根因 **`platform/pom.xml` 不存在**(`mvn -pl` 找不到 reactor 模块)。
+- **CI 解阻最简路径(已核实 5 模块零依赖)**:platform/ 下 esp-api/esp-cache/esp-disruptor/esp-rw-java/esp-web-common 相互零依赖、各自独立可构建 → ci.yml 后端 job 改逐模块 `for m in esp-api esp-cache esp-disruptor esp-rw-java esp-disruptor; do (cd platform/$m && mvn -B -q install -DskipTests); done`(顺序无关,无需聚合父 pom);前端 job 修 pnpm/action-setup@v4 + Node 匹配;security.yml 修 setup 基座。**注:修 CI 后需 push GitHub,按 push 策略先问用户。**
+- **G-8 CI 修复已本地完成(2026-08-16 15:5x,待 push 验证)**:3 根因全实证,4 处 diff 仅 workflow 文件,两文件 YAML 已本地解析通过。① ci.yml `java-services`+`contract` 两处 `mvn -pl` → 逐模块循环(local 实测 platform5 模块零依赖);② ci.yml `frontend` pnpm/action-setup@v4 `version: 11` 与 package.json `packageManager: pnpm@11.0.0` 字符串不一致 → "Multiple versions of pnpm specified"(实证日志 ##[error])→ 删 version 输入读 packageManager 单源;③ security.yml line113 `with: { name: trivy-image-${{ matrix.svc }}, ... }` flow-mapping 值含 `${{` → YAML 解析失败 → run 0 job "workflow file issue"(实证 gh run 无 jobs)→ 改 block mapping。**待用户确认 push 后重跑验证绿**。
+- **小程序**:WS token P0 已修(`apps/miniprogram/src/api.ts` openSpeechWs 拼 ?token,gateway-go 强制鉴权);构建验证待微信开发者工具(P-0-6 无环境)+ Taro4/Node26 降 Node20/Nightly。**08 表待更正**:scenarios/emotion(表标✅实未调)、placement/difficulty/polish/translate(表缺但实调)。
+- **backlog 新增**:SEC-6 限流未发布 Nacos flow-rules(配置缺口);teacher-java not-found 应 404 非 500;frontend register role 下拉 UI bug(BFF P0-4 服务端强制 learner);vocab_review SM-2 MaxInterval cap(坑㉟e);writing_grade LLM provider 稳定性;HPA scale-down 残留死副本 Dubbo;edge 9090 fire-and-forget。
+- **下一步**:① P3 esp-admin 门户(#176-179:admin-go 8099 聚合 + OTLP→Prometheus + /admin/dashboard 实时监测);② 可选:修 CI(G-8 解阻,需用户确认 push)。
+
+### 恢复锚点(会话23-8 P2 Web/H5 浏览器 E2E,2026-08-16 15:2x,Task #173 ✅)
+- **Web 浏览器 E2E 8/8 绿**:`cd e2e && E2E_BASE_URL=http://localhost:30070 npx playwright test full.spec.ts`。用例=e2e/full.spec.ts:TC-W-1 注册+退出+再登录(esp_token httpOnly cookie 验证)、TC-W-4 薄弱点、TC-W-4b 复习、TC-W-3 写作批改、TC-W-2 口语 WS、TC-W-5 教案、TC-W-6 学情、TC-W-7 作业评阅。入口经 frontend-portal 反代(/api→bff、/ws→gateway)。
+- **H5 浏览器 E2E 2/2 绿**:`E2E_H5_URL=http://localhost:30091 npx playwright test h5.spec.ts`(375×667 视口,**必须经 /h5 路径访问**,router basename=/h5,根 / 不渲染)。
+- **坑㉟f(H5 白屏真 bug,浏览器 E2E 才暴露)**:根因=`apps/h5/nginx.conf` 缺 `/h5/` 静态映射(vite base=/h5 但 Dockerfile 把 dist 落 nginx 根)→ `/h5/assets/*` 走 SPA 兜底返回 index.html → 浏览器把 HTML 当 JS 解析 → `#root` 空白屏。修复=nginx.conf 加 `location ^~ /h5/ { rewrite ^/h5/(.*)$ /$1 break; root /usr/share/nginx/html; try_files $uri $uri/ /index.html; }`;**派生镜像 esp/frontend-h5:1.1.1**(=1.1.0+固定 nginx.conf,免 npm 重建)已部署(deploy/k8s/16-frontend-h5.yaml),验证 `/h5/assets/index-*.js` 返回 255KB 真实 JS。
+- **教师端 E2E 账号**:ops-provisioned `e2eteacher@esp.io`(role=teacher,已在 CRDB esp.users 开通)。原因:BFF P0-4 `register` 服务端强制 learner、忽略请求体 role(设计如此);前端 register 的 role 下拉是 UI bug(提供教师选项但后端忽略)→ 记 backlog。
+- **07 回填**:esp-doc 代理执行中(浏览器证据标注 TC-W-1~7 / TC-H-1 + 坑㉟f 记录)。
+- **下一步**:小程序核查(API/契约级,08 报告核对)+ 09 检查单 52 空填充 + launch-readiness 签收报告(#174)→ P3 esp-admin 门户(#176-179)。
+
+### 恢复锚点(会话23-8 P2 代码修复部署,2026-08-16 14:5x)
+- **P2 后端全功能 73 用例 live run**:80 cases = **56 PASS / 4 FAIL / 20 SKIP**(`report/manual-73-run-20260816-141318.json`)。newman 19/19 PASS。**4 个 FAIL 全部闭合**:
+  - **TC-W-16(behavior/top 500)= 真 bug,已修+验证**:learning-java BehaviorController 三处 `INTERVAL ? DAY`(PG/CRDB 语法错)→ `INTERVAL '1 day' * ?`(BehaviorController.java L75/L93/L113)。重建镜像 **esp/learning-java:1.11.4**(Dockerfile.derived,FROM 1.11.3 仅换 jar)。**实测 behavior/top/funnel/heatmap 全 200**(top 首查秒级 + 二次 0.47s CacheService L1 命中)。
+  - **TC-GR-25(assessment 500)= 真 bug,已修+验证**:assessment-rs submit_answer 的 `correct: i8` → pgx v5 编码缺陷(0 发空串→ strconv.ParseInt "")→ 改 **i16** + `skill_tag` 改 Option<String> bind(main.rs L149-159)。镜像 **esp/assessment-rs:0.3.1** 重建坑:首版 Dockerfile.derived COPY 主机 mac arm64 二进制 → **exec format error**(Mach-O)→ 弃用该文件(已删),改用原多阶段 Dockerfile 在 VM 内构建(linux/arm64,-j4 限压测期负载;rust:1.88-bookworm 已缓存,ustc crates 可达;构建 6m42s)。**实测 create→answer→finalize→report 全 200**(answer 200 `{is_correct:true}`)。
+  - **TC-W-7(finalize 500)= 环境,已修**:learning-java HPA scale-down 残留死副本 IP 在 teacher-java 的 Nacos Dubbo 注册表 → `rollout restart deploy/teacher-java` 后 200。
+  - **SEC-6(无 429)= 配置缺口,已文档化**:RateLimitFilter 存在但 Nacos `bff-java-flow-rules` 未发布 → 无限流。非代码 bug,如实记入修复 backlog。
+- **部署基线**:learning-java 1.11.4 / assessment-rs 0.3.1 均 Running 1/1,loadavg 33(under 42 门控)。Dockerfile.derived(learning-java)保留为已实证派生构建模式;assessment-rs 的 derived 已删(架构坑:宿主二进制不可 COPY)。
+- **TC-W-7 终验(2026-08-16 15:0x)**:finalize 500 真根因 = **测试脚本硬编码 submission id=1**,CRDB esp_teacher.submissions 是 snowflake id(1201593833...),id=1 不存在 → TeacherService L102 `submission not found` → 500。用真实 id 1201593833013084163 复测 **finalize 200 {"finalized":...}**;run_manual_73.py 已改 `SUBMISSION_ID` env 可覆盖(TC-W-7/TC-E2E-2)。附带:teacher-java 未命中也返回 500(应 404)记 minor backlog。
+- **07 实测列已回填(Task #172 完成)**:`docs/test/07-人工测试用例.md` 73 行回填 = **59 PASS / 1 FAIL(SEC-6 限流,配置缺口) / 13 SKIP**;剩 10 行 ⏳ 待测 = TC-GR-28~34(vocab-srs-go/llm-orchestrator-rs)+ TC-ADM-1~3(admin 门户,属 P3)。JSON 80/80 tc id 在文档均有行。run_manual_73.py 增加 `ESP_SUBMISSION_ID` env。
+- **下一步**:Web/H5 浏览器 E2E(#173:Playwright + SSH 隧道 localhost:30070,回填 TC-W 全链路/TC-H)+ 小程序核查 + 09 检查单(#174)→ launch-readiness 报告。
+
+### 恢复锚点(会话23-8 P1 基准全部完成+三表分析落盘)
+- **P1 基准执行完成(2026-08-16 14:02)**:leg-4 + 6 无效端点重跑 + 2 恢复端点全完成,18 端点均有 k6+locust v10 有效数据;核心5 v20/v60 k6 全有效;mixed(k6+locust 并发 gw_scenarios/learning_event)产物在。**三表分析已落盘** `report/benchmark-2026-08-16/analysis-2026-08-16.md`(18 eps;k6 files=18 locust=18)。
+- **三表结论(A CRDB-vs-旧TiDB / B 全语言全服务 / C k6-vs-locust)**:见 analysis 文件。亮点:learning_event k6 v20=127rps(p95 343ms)vs 旧TiDB 200rps(p95 270ms)量级相当;learning_review k6 v20=240rps vs 旧TiDB 146rps 提升;gw_scenarios k6 v20=83rps vs 旧TiDB 377rps 降低(读路径);course_path(Go 纯内存)2233rps 最高;全语言对比 Java learning_event 292rps / Go gamification_prof 501rps / Python writingcoach_tpl 282rps / Rust llm_dialogue 309rps。
+- **D 节诚实标注(必读)**:① **vocab_review 两工具均 100% fail**(k6 5482/locust 3327)= 坑㉟e SM-2 无 MaxInterval cap → due_at 超 CRDB 时间戳界 → 500;写入路径缺陷入修复 backlog;② **writing_grade k6 100% fail = LLM provider 宕机窗口**(快速 500 假高 rps 1115),locust 0.42% fail(provider 已恢复)——LLM 绑定端点,结果反映 provider 可用性;③ **低置信 locust 行**(learning_event v20 p95=22s/emotion_recent v10/teacher_kpstats v10)= 冷启动+HPA 波动+节点争用污染,表 B 以 k6 为准。
+- **重跑+恢复记录**:bff_login v10 40req→175req(0% fail,bff-java 冷启动修复后重跑);teacher_kpstats v20 38req→1544req(0.39%);bff_scenarios v10 487req(0% fail 保留)/learning_event v20 357req(0% fail 保留,标注低置信);learning_event v20 locust 曾 0 请求(bff-java HikariPool 冷启动 13:52:55 与 locust spawn 撞窗)→ 修复脚本 `scripts/recover_2_invalid.sh`。
+- **负载复盘**:loadavg 峰值 502→自然恢复(~14:00 <42 门控放行);HPA learning/teacher 压测期 scale 至 4 副本(端点瞬断源);bff-java/teacher-java 冷启动+重启与压测窗重叠→locust 0 请求或挂起。单节点争用是主要噪声源,已全部 caveat。
+- **下一步**:Task #170 已近完成(analysis 落盘),补 Redis 锚点 `esp:ctx:hot:session-23-8`(上次写失败 TLS 超时,本次重试)→ 转 **P2 后端全功能 73 用例 live run**(#172)。
+
+### 恢复锚点(会话23-7)
+- **locust ConnectionRefused→根因闭合(非 locust 配置 bug)**:learning_review v10 曾 100% ConnectionRefused(111)。实证:learning-java 的 **HPA(min1/max15)压测期 scale 1→2→1**(CPU 18%/65%),scale 波动窗口服务端点瞬断→iptables REJECT→ConnectionRefused。HPA 已回 1 副本稳定;**重跑 locust learning_review v10 成功:1273 req / fail=0.47% / avg_rps=62.7 / p95=310ms**。locust 管道已验证打通(--host 修复后首个有效数据)。
+- **leg-4(后台 b100yngzs + mon b8btn0twx)**:k6 3 缺口 v10 → **locust v10 补到 17**(learning_review/teacher_kpstats/gamification_prof/pts/vocab_due/vocab_review/emotion_recent/writingcoach_tpl/assessment_report/llm_dialogue/course_path/writing_grade/bff_login/gw_scenarios/bff_scenarios/listening_mat/reading_passages;learning_event-v10 已有 3228 有效不复跑)+ locust v20 全 5 + mixed 20s。每端点 loadavg<42 门控+重试1次。**loadavg 当前 83(稳态高,CRDB3+全服务/9核),门控等待中**。
+- **写作 grade = LLM 绑定端点(定性,非 DB 性能标)**:live curl 15s 超时(LLM provider 挂/慢);k6 v10 100% fail(284rps 快速失败=provider 快速报错窗口)非 perf 信号。计划已标注"LLM 绑定端点仅低并发定性,RPS 单独标注"。Rust/Go/Java/Python 对比表取各服务主 DB 端点,writing 行如实标定性。
+- **集群卫生**:已删残留 locbench-learning-review-10(Error/Pending)+ locbench-gamification-prof/pts-10;k6 残留 job(k6bench-writing-grade-10/vocab-review-10 Failed 均含有效 summary 日志,见 report)。
+
+### 恢复锚点(会话23-7)
+- **坑㉟d token 过期=leg1/2 全 401 根因**:esp-bench-tokens JWT iat=07:04 CST / exp=08:04 CST(8-16)→ 08:04 后所有压测 **100% 401**(teacher_kpstats 7574/7574 failed,p95=150ms 快速失败=401 非超时)。07:30 leg 历史数据(exp 前)仍有效(core5 v20/v60 fail 0~0.74%)。**已修**:新增 `scripts/gen_bench_tokens.py 24`(同私钥 esp-rsa-jwt-sign/同 sub/exp+24h)merge-patch 刷新 configmap;实证 learner+teacher 均 200。
+- **坑㉟c Job 名 RFC1123 下划线**:端点名含 `_`(teacher_kpstats/gamification_pts/vocab_review/writing_grade...)→ kubectl apply 校验失败静默丢数据(下划线端点全跑不出)。**已修** run_k6_bench.sh/run_locust_bench.sh:JOB 名 `_`→`-`(文件/日志名保持原 EP);client dry-run 验证通过。
+- **locust 早前"6 valid"实为 0 字节空文件(仅存在性误计)**:本轮 leg 全量重产 locust v10/v20 + mixed 补 2。
+- **leg-3(后台 bwuy8762g + mon b5476bdgt,run_remaining_leg.sh)**:k6 3 缺口 v10 → locust 12×v10 + 5×v20 → mixed(20s);每端点 loadavg<42 门控+重试1次。完成→ `python3 scripts/analyze_fullbench.py` 出三表(CRDB-vs-旧TiDB/全语言全服务/k6-vs-locust)→ `analysis-2026-08-16.md` → Redis `esp:ctx:hot:session-23-8`。
+- **坑㉟e vocab_review 100% 500(真 bug,基准暴露)**:POST /api/vocab/review upsert 报 `timestamp "-254250-05-26..." exceeds bounds (SQLSTATE 22009)`。CRDB esp_vocab 实测 uid=10000104 wid=5:interval_days=**92231549**/due_at=**254548-01-10**/review_count=59/status=mastered → **SM-2 Compute 无 interval 上限**:mastered 高 review 词 interval=IntervalDays×ef 无限增长 → due_at 超 CRDB 时间戳界 → 全 500。**修(基准后)**:Compute 加 MaxInterval cap + 清污染行;基准如实标 vocab_review FAILED(500)。
+- **负载根因(已定,leg 用门控规避)**:单节点 9 核 loadavg 曾 97/0% idle;CRDB 3 raft+3区域 TiKV(aws trio 已再 scale0)+nacos+pulsar3+obs;loadavg>~50 kubelet 新 pod 永久卡住(坑㉟b)→ 唯一解降载;CPU request 已 99%。
+- **P2 gap-scan(esp-doc)完成**:07=80→**90 用例**(+7 vocab/llm +3 admin),09=60→**86 行/94 格**待填。**Task #171 已 completed**。
+- **下一步**:leg-3 完成→ P1 三表分析落盘(#170);随后 P2 后端全功能 73 用例(#172)+ Web/H5 E2E(#173);P3 esp-admin 门户(33-admin-go + 4 注解)基准后 apply(#176-179)。
+
+## 当前(2026-08-16 会话23-4 P1 基准收尾(locust 腿重跑中)/ P3 统一监测门户 staged)
+
+### 恢复锚点(会话23-4)
+- **P1 k6 腿数据已完整有效**:18 端点 v10(15 个 07:20 健康期有效数据,含 learning_event=292rps/gw_scenarios=37rps)+ 核心5 v20/v60 全有效(0% fail 为主,learning_review v10 fail=1.35% 如实记录)。**矩阵 49 日志在 `report/benchmark-2026-08-16/`**。
+- **坑㉝ Locust 2.46 全矩阵腿无效(root cause)**:`FullbenchUser.on_start` 用 `self.user_index`(locust 2.46 User 无此属性,runner spawn 不设置)→ AttributeError → **每个 locust run 0 请求**("OK" 仅 exit code)。**已修** `deploy/locust/locustfile_fullbench.py`:模块级 `_USER_SEQ=itertools.count()` 替代 + 加 `@events.test_stop` 单行摘要(与 run_locust_bench.sh/analyze_fullbench.py 对齐)。**实证**:learning_event v10 = 5146 reqs / 0 fail / 209rps / p95=94ms。bench-scripts configmap 已重建(probe 源=`scripts/probe_bench_endpoints.py`),bench-runner(Pod,非 Deploy)已删重建载新 file。
+- **坑㉞ run_k6_bench.sh 误报 FAIL**:固定 job 名 `k6-fullbench` + delete 不 `--wait` → 旧 Error pod 残留污染新 job `condition=complete` → wait 超时误报 FAIL(数据实为有效)。**已修**:每次唯一 job 名 `k6bench-<ep>-<vus>` + delete `--wait=true` + wait 240s + Succeeded-pod 兜底抓日志;k6.yaml 加 `__JOB__` 模板。
+- **坑㉟ gateway-go HPA 单节点 overshoot**:HPA(max=20)压测期打满 20,负载降后 CPU=4% 仍 desired=20 → 单节点 9 核 "Insufficient cpu" → rollout 卡 5/20 → gw_scenarios 100% fail(244k reqs 全失败,k6 阈值触发 exit99)。**已修(临时 live)**:`kubectl patch hpa gateway-go` max→4 + `scale deploy/gateway-go --replicas=2` → rollout 成功,网关 401(存活)。**Follow-up**:HPA max=20 在 yaml 何处定义待查,建议单节点上限收敛(工业级=多节点后按节点数×每节点副本设计)。
+- **locust 腿重跑中(后台 botti0830)**:18 v10 + 核心5 v20 顺序跑(~16min),完成后 `bash scripts/run_mixed_proof.sh`(k6+locust 并发 2 端点,混用产物归档 mixed-* 名避免污染单跑)→ `python3 scripts/analyze_fullbench.py` 出三表(CRDB-vs-旧TiDB / 全语言全服务 / k6-vs-locust)→ `report/benchmark-2026-08-16/analysis-2026-08-16.md`。
+- **遗留集群卫生(不阻塞基准)**:17 个 `st-seeder-*` + `esp-schema-init` 卡 ContainerCreating 111m(seed 遗留,引用已删 configmap `seed-session-turns-v2`,pod 永不启动,占 CPU request);节点 CPU request 93%。**P3 仍 staged**(esp-admin/前端页/nginx/4 注解,基准结束前不 apply)。
+- **P3 统一管理员监测门户(全部 staged)**:esp-admin Go 聚合服务 `backend/services/admin-go/`(main.go+jwt.go+catalog.json+Dockerfile)+ `deploy/k8s/33-admin-go.yaml`(8099,svc esp-admin:80,NodePort 30099);`/api/admin/{services,infra,catalog,metrics/query,metrics/query_range,metrics/alerts,metrics/rules}` RS256 role=admin 鉴权;前端 `apps/web/src/pages/admin/AdminDashboard.tsx` + App.tsx `/admin` 路由(RequireAuth role=admin);nginx 代理两处;4 服务 scrape 注解(gateway /metrics:8080 + bff/learning/teacher /actuator/prometheus)staged。**待办**:docker build esp/admin-go:1.0.0(派生本地镜像)→ apply 33 → 重启 portal/web nginx → web 重建 → apply 4 注解 → 验证 Prometheus 收指标+告警 → seed admin 账号 → 浏览器测门户。
+- **Redis 锚点**:`esp:ctx:hot:session-23-4`(本更新)、`esp:ctx:hot:session-23-3`(P3 staged 快照)。
+
 ## 当前(2026-08-16 会话22-39 P1-8 幂等 / 多区域 SQL 预备✅ / P0 端到端验证✅)
 
 ### 恢复锚点(会话22-39)
@@ -161,6 +374,10 @@
 
 | 主题 | 文件 | Redis key |
 |---|---|---|
+| **会话23-13 + 续(全量重构 7.3→8.1 / JDK26 镜像+部署收尾 / k3s 坑㉚ / gson 阻断闭合,2026-08-18 归档)** | `docs/progress/archive/2026-08-18-session-23-13-jdk26-refactor-deploy.md` | `esp:ctx:hot:session-23-13-refactor-complete` + `esp:ctx:session:23-13-cont` |
+| **会话23-13 续2(H-01 混沌降级 PASS + CRDB probe 1s 误杀修复 + LLM 缓存铁律 LCO + Nacos 2.5.0 CRDB 迁移调研,2026-08-18 归档)** | `docs/progress/archive/2026-08-18-session-23-13-chaos-crdb-llmcache.md` | `esp:ctx:hot:2026-08-18-session-23-13-chaos-crdb-llmcache` + `esp:ctx:chaos:H01:recovery` |
+| **会话23-13 续3(Nacos 下沉宿主机 — 未完成已回滚,2026-08-19)** | `report/nacos-sink-to-host.md` | — |
+| **会话23-9 四线(vocab cap/SEC-6/CI/Obsidian,2026-08-17 归档)** | `docs/progress/archive/2026-08-17-session-23-9-four-line.md` | `esp:ctx:hot:session-23-9` |
 | **会话22-14~22-30 + CI修绿 + P1-13 httpOnly(热区瘦身,2026-08-15 归档)** | `docs/progress/archive/session22-27-to-30-archive.md` | — |
 | **会话22-21 k6+Locust 混合压测第二轮 + traefik 502 坑㉕ + 三根因闭合** | `docs/progress/archive/session22-21-loadtest-traefik502-launch.md` | `esp:ctx:hot:2026-08-14-session22-21-loadtest-launch` |
 | **会话22-13 colima-stop DNS 雪崩** | `docs/progress/archive/session22-13-colima-dns.md` | — |

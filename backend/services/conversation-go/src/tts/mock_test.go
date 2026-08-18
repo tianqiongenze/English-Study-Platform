@@ -8,10 +8,11 @@ import (
 
 func TestSenseEmotion(t *testing.T) {
 	cases := map[string]string{
-		"I feel so tired today": "negative",
-		"Great job, amazing!":   "positive",
-		"The cat sat":           "neutral",
-		"":                      "neutral",
+		"I feel so tired today":  "sad",
+		"Great job, amazing!":    "encouraging", // "great job" 命中鼓励词(先于 positive)
+		"You are doing great":    "happy",
+		"The cat sat":            "neutral",
+		"":                       "neutral",
 	}
 	for in, want := range cases {
 		if got := SenseEmotion(in); got != want {
@@ -39,7 +40,7 @@ func TestBuildVisemes(t *testing.T) {
 
 func TestMockSynthesize(t *testing.T) {
 	r := (&MockProvider{}).Synthesize(context.Background(), "you are doing great")
-	if r.Emotion != "positive" {
+	if r.Emotion != "happy" {
 		t.Errorf("emotion=%q", r.Emotion)
 	}
 	if !strings.HasPrefix(r.Audio, "dHRz") { // base64("tts:")

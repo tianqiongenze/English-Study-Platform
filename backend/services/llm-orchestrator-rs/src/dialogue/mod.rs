@@ -226,14 +226,19 @@ pub async fn chat_sse(
     .execute(&h.0.pg)
     .await;
 
-    // 2. 调 provider(非流式简化实现;流式见 provider SSE 解析)
+    // 2. 调 provider(自适应限流保护;非流式简化实现;流式见 provider SSE 解析)
+    let _permit = h.0.llm_limiter.acquire().await;
     let started = std::time::Instant::now();
     let result = h
         .0
         .providers
         .call(None, None, &req.content, req.max_tokens, false, &trace_id)
         .await;
-    let latency_ms = started.elapsed().as_millis() as i32;
+    let rtt = started.elapsed();
+    let latency_ms = rtt.as_millis() as i32;
+    // 释放 permit + 自适应调整
+    h.0.llm_limiter.release_with_rtt(rtt);
+    drop(_permit);
 
     match result {
         Ok(r) => {

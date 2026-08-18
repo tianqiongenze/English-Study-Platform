@@ -31,8 +31,11 @@ import (
 	"esp/common-go/config"
 	"esp/common-go/db"
 	"esp/common-go/health"
+	"esp/common-go/middleware"
+	"esp/common-go/registry"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
@@ -65,12 +68,18 @@ func main() {
 
 	h := &handler.Handler{DAO: d, Log: sugar}
 
+	// Nacos 服务注册(优雅退出时注销)
+	nacosCli := registry.RegisterNacos(serviceName, 8087)
+
 	r := gin.New()
 	r.Use(gin.Recovery(), traceMiddleware(sugar))
+	r.Use(middleware.GinRateLimit(100, 200))                                           // 100 rps,桶容量200(突发余量)
+	r.Use(middleware.GinCircuitBreaker(5, 30*time.Second, serviceName))                // 5次失败触发30s熔断
 
 	// 健康检查
 	r.GET("/healthz", health.GinHealthz(serviceName))
 	r.GET("/livez", health.GinLivez())
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	r.GET("/readyz", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
@@ -109,6 +118,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	sugar.Infof("[%s] shutting down", serviceName)
+	registry.DeRegister(serviceName, 8087, nacosCli)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {

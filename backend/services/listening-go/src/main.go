@@ -21,10 +21,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"esp/common-go/config"
 	"esp/common-go/db"
 	"esp/common-go/health"
+	"esp/common-go/middleware"
+	"esp/common-go/registry"
 )
 
 const serviceName = "listening-go"
@@ -43,11 +46,17 @@ func main() {
 	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_listening")), serviceName)
 	log.Printf("[%s] CRDB pools ready (read+write)", serviceName)
 
+	// Nacos 服务注册(优雅退出时注销)
+	nacosCli := registry.RegisterNacos(serviceName, 8089)
+
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.GinRateLimit(100, 200))                                           // 100 rps,桶容量200(突发余量)
+	r.Use(middleware.GinCircuitBreaker(5, 30*time.Second, serviceName))                // 5次失败触发30s熔断
 	r.GET("/healthz", health.GinHealthz(serviceName))
 	r.GET("/livez", health.GinLivez())
 	r.GET("/readyz", readyz)
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	api := r.Group("/api/listening")
 	api.GET("/materials", listMaterials)          // 听力素材列表(桩)
@@ -66,6 +75,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Printf("[%s] shutting down", serviceName)
+	registry.DeRegister(serviceName, 8089, nacosCli)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
@@ -147,7 +157,7 @@ func submitAttempt(c *gin.Context) {
 	c.JSON(202, gin.H{"accepted": true, "score": body.Score})
 }
 
-// 音频转写流式占位(SSE)
+// 音频转写(DEFERRED-真实ASR:需ASR引擎接入,见多节点清单#4;现状回声占位仅验证 SSE 通道)
 func transcribe(c *gin.Context) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")

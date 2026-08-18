@@ -1,0 +1,55 @@
+# community-go —— 圈子社区(功能拓展:组队/建圈共同学习、分享经验)
+# 圈子 + 成员 + 帖子 + 评论 + 举报;esp_community 库(见 scripts/crdb-schema.sql)。
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: community-go, namespace: esp-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: community-go}}
+  template:
+    metadata: {labels: {app: community-go}}
+    spec:
+      containers:
+      - name: community-go
+        image: esp/community-go:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8097}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        env:
+        - {name: PORT, value: "8097"}
+        - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_community?sslmode=disable"}
+        - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_community?sslmode=disable"}
+        - {name: OTEL_SERVICE_NAME, value: "community-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}
+        startupProbe:   {httpGet: {path: /livez, port: 8097}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {httpGet: {path: /readyz, port: 8097}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        livenessProbe:  {httpGet: {path: /livez, port: 8097}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}
+        lifecycle:
+          preStop:
+            exec: {command: ["sh","-c","sleep 5"]}
+        # 单节点 DEFERRED(2026-08-17):CPU request 100m→50m。
+        # 原因:单节点请求总量近饱和(metrics-server 缺失致 HPA 盲),100m 可能无法调度。
+        # 多节点步骤:扩容后恢复 100m;依赖 metrics-server 到位后 HPA 生效。
+        resources: {requests: {cpu: "50m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata: {name: community-go, namespace: esp-prod}
+spec: {selector: {app: community-go}, ports: [{port: 80, targetPort: 8097}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: community-go, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: community-go}
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}

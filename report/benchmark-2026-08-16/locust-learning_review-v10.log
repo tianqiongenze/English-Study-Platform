@@ -1,0 +1,80 @@
+GET      /api/learning/review?userId=10000107                                             575     1(0.17%) |     45       1   19730      4 |   33.60        0.00
+GET      /api/learning/review?userId=10000108                                             113     2(1.77%) |    239       1   19871      6 |    0.00        0.00
+GET      /api/learning/review?userId=10000109                                             662    12(1.81%) |     39       0    7924      5 |   42.30        0.50
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2010    26(1.29%) |     56       0   19871      5 |  117.90        0.50
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/learning/review?userId=10000100                                               1   1(100.00%) |     44      44      44     44 |    0.00        0.00
+GET      /api/learning/review?userId=10000101                                             702     3(0.43%) |     38       1   11567      5 |   64.90        0.00
+GET      /api/learning/review?userId=10000102                                               1   1(100.00%) |     24      24      24     24 |    0.00        0.00
+GET      /api/learning/review?userId=10000103                                              45     4(8.89%) |    634       2   19459     11 |    0.00        0.00
+GET      /api/learning/review?userId=10000105                                               1   1(100.00%) |     21      21      21     21 |    0.00        0.00
+GET      /api/learning/review?userId=10000106                                               1   1(100.00%) |     20      20      20     20 |    0.00        0.00
+GET      /api/learning/review?userId=10000107                                             624     1(0.16%) |     44       1   19730      5 |   57.30        0.00
+GET      /api/learning/review?userId=10000108                                             162     2(1.23%) |    173       1   19871      8 |   11.00        0.00
+GET      /api/learning/review?userId=10000109                                             712    12(1.69%) |     37       0    7924      5 |   65.30        0.40
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2249    26(1.16%) |     61       0   19871      5 |  198.50        0.40
+
+[2026-08-16 03:09:03,971] locbench-learning-review-10-96cwb/INFO/locust.main: --run-time limit reached, shutting down
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/learning/review?userId=10000100                                               1   1(100.00%) |     44      44      44     44 |    0.00        0.00
+GET      /api/learning/review?userId=10000101                                             804     3(0.37%) |     35       1   11567      5 |   69.80        0.00
+GET      /api/learning/review?userId=10000102                                               1   1(100.00%) |     24      24      24     24 |    0.00        0.00
+GET      /api/learning/review?userId=10000103                                             147     4(2.72%) |    208       2   19459     10 |    4.10        0.00
+GET      /api/learning/review?userId=10000105                                               1   1(100.00%) |     21      21      21     21 |    0.00        0.00
+GET      /api/learning/review?userId=10000106                                               1   1(100.00%) |     20      20      20     20 |    0.00        0.00
+GET      /api/learning/review?userId=10000107                                             729     1(0.14%) |     41       1   19730      5 |   62.30        0.00
+GET      /api/learning/review?userId=10000108                                             265     2(0.75%) |    112       1   19871      7 |   16.00        0.00
+GET      /api/learning/review?userId=10000109                                             817    12(1.47%) |     34       0    7924      6 |   70.10        0.10
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2766    26(0.94%) |     53       0   19871      6 |  222.30        0.10
+
+[2026-08-16 03:09:04,516] locbench-learning-review-10-96cwb/INFO/locust.main: Shutting down (exit code 1)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/learning/review?userId=10000100                                               1   1(100.00%) |     44      44      44     44 |    0.03        0.03
+GET      /api/learning/review?userId=10000101                                             805     3(0.37%) |     35       1   11567      5 |   25.10        0.09
+GET      /api/learning/review?userId=10000102                                               1   1(100.00%) |     24      24      24     24 |    0.03        0.03
+GET      /api/learning/review?userId=10000103                                             148     4(2.70%) |    206       2   19459     10 |    4.61        0.12
+GET      /api/learning/review?userId=10000105                                               1   1(100.00%) |     21      21      21     21 |    0.03        0.03
+GET      /api/learning/review?userId=10000106                                               1   1(100.00%) |     20      20      20     20 |    0.03        0.03
+GET      /api/learning/review?userId=10000107                                             730     1(0.14%) |     41       1   19730      5 |   22.76        0.03
+GET      /api/learning/review?userId=10000108                                             266     2(0.75%) |    112       1   19871      7 |    8.29        0.06
+GET      /api/learning/review?userId=10000109                                             818    12(1.47%) |     34       0    7924      6 |   25.50        0.37
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      2771    26(0.94%) |     53       0   19871      6 |   86.39        0.81
+
+>>> Test stopped. requests=2771 failures=26 avg_rps=86.39 avg_latency_ms=53.31 p95_ms=31.00 fail_rate=0.0094
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+GET      /api/learning/review?userId=10000100                                                   45     45     45     45     45     45     45     45     45     45     45      1
+GET      /api/learning/review?userId=10000101                                                    5      7      9     11     17     25     43     62  12000  12000  12000    805
+GET      /api/learning/review?userId=10000102                                                   25     25     25     25     25     25     25     25     25     25     25      1
+GET      /api/learning/review?userId=10000103                                                   10     14     17     20     33     50   2100   5100  19000  19000  19000    148
+GET      /api/learning/review?userId=10000105                                                   22     22     22     22     22     22     22     22     22     22     22      1
+GET      /api/learning/review?userId=10000106                                                   20     20     20     20     20     20     20     20     20     20     20      1
+GET      /api/learning/review?userId=10000107                                                    5      8     10     12     20     32     56    150  20000  20000  20000    730
+GET      /api/learning/review?userId=10000108                                                    7     10     12     14     23     43    150   2100  20000  20000  20000    266
+GET      /api/learning/review?userId=10000109                                                    6      8     10     12     18     31     67   1000   7900   7900   7900    818
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                              6      8     11     12     20     31     60    520  19000  20000  20000   2771
+
+Error report
+# occurrences      Error                                                                                               
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+1                  GET /api/learning/review?userId=10000106: ConnectionRefusedError(111, 'Connection refused')         
+1                  GET /api/learning/review?userId=10000105: ConnectionRefusedError(111, 'Connection refused')         
+4                  GET /api/learning/review?userId=10000103: ConnectionRefusedError(111, 'Connection refused')         
+1                  GET /api/learning/review?userId=10000102: ConnectionRefusedError(111, 'Connection refused')         
+3                  GET /api/learning/review?userId=10000101: ConnectionRefusedError(111, 'Connection refused')         
+1                  GET /api/learning/review?userId=10000100: ConnectionRefusedError(111, 'Connection refused')         
+1                  GET /api/learning/review?userId=10000107: ConnectionRefusedError(111, 'Connection refused')         
+2                  GET /api/learning/review?userId=10000108: ConnectionRefusedError(111, 'Connection refused')         
+12                 GET /api/learning/review?userId=10000109: ConnectionRefusedError(111, 'Connection refused')         
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+

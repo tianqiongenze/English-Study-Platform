@@ -29,4 +29,7 @@ export const api = {
   writingState: client.writingState.bind(client),
   reportBehavior: client.reportBehavior.bind(client),
   recommend: client.recommend.bind(client),
+  // 数字人 persona(功能拓展:per-user 形象,跨设备持久化)
+  getDigitalHuman: () => client.getDigitalHuman(),
+  setDigitalHuman: (persona_id: string) => client.setDigitalHuman(persona_id),
 };

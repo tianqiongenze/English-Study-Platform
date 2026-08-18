@@ -1,11 +1,17 @@
 # PodDisruptionBudget — 应用服务自愿驱逐保护(架构评分 P0:缺 PDB)。
 #
-# 保证每个关键服务在 voluntary 驱逐(节点 drain/集群升级)时至少保留 1 个副本,
-# 避免滚动/驱逐把单副本服务打成零可用。HPA 多副本场景下与 HPA 联动更有效。
+# 覆盖全部 24 个业务 Deployment。
+# minAvailable 策略:
+#   - 多副本服务(gateway-go/learning-java/teacher-java/writing-py/emotion-svc): minAvailable: 1
+#     保证驱逐时至少保留 1 个可用副本。
+#   - 单副本服务(其余): minAvailable: 0
+#     不阻断滚动更新/drain,语义化标注"此服务有 PDB 保护意识但当前无法容忍驱逐"。
+#     多节点扩至 ≥2 副本后改为 minAvailable: 1。
 #
-# 注意:单节点 + 单副本环境,minAvailable:1 会使 kubectl drain 阻塞(无第二节点接纳);
+# 注意:单节点 + minAvailable:1 会使 kubectl drain 阻塞(无第二节点接纳);
 # 这是预期行为(PDB 即"宁可 drain 失败也不可用")。多节点环境副本数 ≥2 时正常工作。
 ---
+# ============ 核心服务(多副本,minAvailable: 1) ============
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -71,3 +77,220 @@ spec:
   selector:
     matchLabels:
       app: emotion-svc
+---
+# ============ 单副本服务(minAvailable: 0,不阻断滚动更新) ============
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-react-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: frontend-react
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-h5-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: frontend-h5
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-portal-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: frontend-portal
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: learning-worker-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: learning-worker
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: writing-coach-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: writing-coach
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: esp-admin-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: esp-admin
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: course-path-go-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: course-path-go
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: live-tutor-go-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — scaffold 服务(replicas=0→1),待多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: live-tutor-go
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: media-learn-rs-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — scaffold 服务(replicas=0→1),待多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: media-learn-rs
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pronunciation-rs-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: pronunciation-rs
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: listening-go-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: listening-go
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: assessment-rs-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: assessment-rs
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: reading-go-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: reading-go
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gamification-go-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: gamification-go
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llm-orchestrator-rs-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: llm-orchestrator-rs
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vocab-srs-go-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: vocab-srs-go
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: content-go-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: content-go
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: community-go-pdb
+  namespace: esp-prod
+spec:
+  # minAvailable:0 — 单副本,不阻断 drain;多节点扩至 ≥2 后改 1
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: community-go

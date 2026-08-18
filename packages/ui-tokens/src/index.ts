@@ -1,2 +1,11 @@
 export { createI18n } from "./i18n";
-export type { Locale, MessageKey } from "./i18n";
+export type { Locale, MessageKey, I18n, LocaleListener } from "./i18n";
+export { I18nProvider, useI18n } from "./i18n-react";
+export { Icon, SunIcon, MoonIcon, MonitorIcon, GlobeIcon, LogoIcon, TrophyIcon, MedalIcon, HomeIcon, BookIcon, MicIcon, PenIcon, UsersIcon, GridIcon, SettingsIcon, ChevronRightIcon, SparklesIcon, ImageOffIcon, RocketIcon, HeartIcon } from "./icons";
+export { ACCENTS, THEMES, THEME_KEY, ACCENT_KEY, applyTheme, readStoredTheme, resolveTheme, ThemeProvider, ThemeCtx, useTheme } from "./theme";
+export type { AppTheme, Accent } from "./theme";
+export { ThemeSwitcher, AccentPicker, LangSwitcher } from "./switchers";
+export { PERSONAS, resolvePersona } from "./personas";
+export type { Persona, PersonaStyle } from "./personas";
+export { default as DigitalHuman, DigitalHumanPicker } from "./DigitalHuman";
+export type { DigitalHumanProps, HumanEmotion } from "./DigitalHuman";

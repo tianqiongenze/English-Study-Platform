@@ -111,3 +111,35 @@ func TestReadiness_Liveness(t *testing.T) {
 		}
 	}
 }
+
+// getenv:委托到 config.Getenv,验证不 panic。
+func TestGetenv(t *testing.T) {
+	if v := getenv("NONEXISTENT_KEY_XYZ", "fallback"); v != "fallback" {
+		t.Errorf("getenv default: got %q", v)
+	}
+}
+
+// writeJSON:额外边界情况。
+func TestWriteJSON_Nil(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeJSON(w, nil)
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type: got %q", ct)
+	}
+	// nil JSON encode = "null"
+	if w.Body.String() != "null\n" {
+		t.Errorf("nil JSON body: got %q", w.Body.String())
+	}
+}
+
+func TestWriteJSON_Slice(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeJSON(w, []string{"a", "b"})
+	var got []string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("slice: got %v", got)
+	}
+}

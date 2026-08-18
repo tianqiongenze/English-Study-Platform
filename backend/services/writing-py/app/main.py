@@ -8,10 +8,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 from typing import Annotated
 
+import redis.asyncio as aioredis
 from litestar import Litestar, Request, get, post
+from litestar.exceptions import HTTPException
+from litestar.middleware import ASGIMiddleware
+from litestar.types import Scope, Receive, Send, ASGIApp
 from litestar.openapi import OpenAPIConfig
 from litestar.params import Body
 from litestar.status_codes import HTTP_200_OK
@@ -28,6 +33,58 @@ from .service import WritingService
 from .tracing import setup_tracing, instrument_app
 
 logger = logging.getLogger("writing_service")
+
+# ---------- Redis 滑动窗口限流(分布式多副本安全) ----------
+class RedisRateLimiter:
+    """Redis ZSET 滑动窗口限流,多副本共享计数。
+    env: REDIS_HOST/REDIS_PORT(与 esp-cache 对齐);降级:Redis 不可用时全量放行。"""
+    def __init__(self):
+        host = os.getenv("REDIS_HOST", "redis-cluster")
+        port = int(os.getenv("REDIS_PORT", "6379"))
+        try:
+            self._redis = aioredis.RedisCluster(
+                host=host, port=port, decode_responses=True,
+                socket_connect_timeout=2, socket_timeout=2,
+            )
+        except Exception:
+            self._redis = None
+
+    async def allow(self, client_id: str = "global") -> bool:
+        if self._redis is None:
+            return True
+        try:
+            key = f"esp:ratelimit:writing-py:{client_id}"
+            pipe = self._redis.pipeline()
+            now = time.time()
+            window = 60  # 60s 滑动窗口
+            pipe.zremrangebyscore(key, 0, now - window)
+            pipe.zadd(key, {str(now): now})
+            pipe.zcard(key)
+            pipe.expire(key, window)
+            results = await pipe.execute()
+            request_count = results[2]
+            return request_count <= 200  # max_requests
+        except Exception:
+            return True  # Redis 异常降级:全量放行
+
+_rate_limiter = RedisRateLimiter()
+
+class RateLimitMiddleware(ASGIMiddleware):
+    async def handle(self, scope: Scope, receive: Receive, send: Send, next_app: ASGIApp) -> None:
+        if not await _rate_limiter.allow():
+            import json as _json
+            body = _json.dumps({"error": "rate limit exceeded", "retry_after": 1}).encode()
+            await send({
+                "type": "http.response.start",
+                "status": 429,
+                "headers": [
+                    [b"content-type", b"application/json"],
+                    [b"content-length", str(len(body)).encode()],
+                ],
+            })
+            await send({"type": "http.response.body", "body": body})
+            return
+        await next_app(scope, receive, send)
 
 # 复用 esp-cache-py 的 Redis Cluster 连接做幂等(SETNX + TTL)
 try:
@@ -132,6 +189,31 @@ app = Litestar(
     route_handlers=[healthz, grade, polish, translate, run, review, state],
     openapi_config=OpenAPIConfig(title="ESP Writing Service", version="1.0.0"),
     plugins=[OpenTelemetryPlugin()],
+    middleware=[RateLimitMiddleware()],
 )
 # 应用 Litestar 自动埋点
 instrument_app(app)
+
+# --- Nacos 服务注册 ---
+import atexit
+from nacos import NacosClient as _NacosClient
+
+_nacos_client = None
+try:
+    _nacos_addr = os.getenv("NACOS_ADDR", "nacos:8848")
+    _pod_ip = os.getenv("POD_IP", "127.0.0.1")
+    _svc_port = int(os.getenv("PORT", "8082"))
+    _nacos_client = _NacosClient(server_addr=_nacos_addr)
+    _nacos_client.add_naming_instance(
+        "writing-py", ip=_pod_ip, port=_svc_port,
+        health_check=True, health_check_type="http",
+        health_check_url="/healthz", metadata={"version": "1.0.0"},
+    )
+    logger.info("nacos registered: writing-py %s:%s", _pod_ip, _svc_port)
+except Exception as exc:
+    logger.warning("nacos registration failed (non-fatal): %s", exc)
+    _nacos_client = None
+
+if _nacos_client is not None:
+    _c = _nacos_client
+    atexit.register(lambda: _c.remove_naming_instance("writing-py", ip=_pod_ip, port=_svc_port))

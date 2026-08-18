@@ -1,0 +1,20 @@
+import { chromium } from "@playwright/test";
+const b = await chromium.launch();
+const p = await b.newPage();
+await p.goto("http://localhost:30070/web/auth/login");
+await p.waitForTimeout(1200);
+await p.locator("button.tab", { hasText: "注册" }).first().click();
+await p.waitForTimeout(500);
+await p.getByPlaceholder("姓名").fill("ProbeT");
+await p.getByPlaceholder("邮箱").fill(`probt${Date.now() % 1000000}@esp.io`);
+await p.getByPlaceholder("密码").fill("test123");
+await p.locator("select").selectOption({ label: "教师" });
+const selVal = await p.locator("select").inputValue();
+console.log("select value =", selVal);
+// capture the register request body
+p.on("request", r => { if (r.url().includes("register")) console.log("REQ body:", r.postData()); });
+p.on("response", r => { if (r.url().includes("register")) r.text().then(t => console.log("RESP:", t.slice(0,200))).catch(()=>{}); });
+await p.locator("button.primary", { hasText: "注册并登录" }).click();
+await p.waitForTimeout(6000);
+console.log("final URL:", p.url());
+await b.close();

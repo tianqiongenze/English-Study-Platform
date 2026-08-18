@@ -48,6 +48,12 @@ const (
 	LapseResetThreshold    = 8  // lapse 达此值回退到 learning
 )
 
+// MaxInterval 封顶单次复习间隔上限(天)。
+// 不设上限时 interval 按 prev*ef 指数增长,数千次复习后可达天文数字,
+// due_at 超出 DB timestamp 范围(如 CRDB/PG 上限 294246 年)导致写库 500。
+// 365 天封顶:mastered 卡片最长年复习一次,兼顾记忆曲线与存储安全。
+const MaxInterval = 365
+
 // Input 是计算 SM-2+ 一次复习结果所需的当前卡片状态。
 type Input struct {
 	Quality      int     // 0-5
@@ -118,6 +124,9 @@ func Compute(in Input, now time.Time) Result {
 			interval = int(math.Round(float64(in.IntervalDays) * ef))
 			if interval < 1 {
 				interval = 1
+			}
+			if interval > MaxInterval {
+				interval = MaxInterval
 			}
 		}
 		// 阶段升级

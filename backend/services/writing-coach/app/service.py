@@ -1,4 +1,8 @@
-"""Writing Coach: service layer — assess (call writing-py + rubric), plan (call learning + LLM)."""
+"""Writing Coach: service layer — assess (call writing-py + rubric), plan (call learning + LLM).
+
+LLM 缓存:gen_plan 的 LLM 调用经 llm.py LLMCache(Redis L2) 缓存,
+相同 prompt(薄弱点+目标)命中直返,省 LLM 调用成本。
+"""
 from __future__ import annotations
 import os
 import httpx
@@ -73,6 +77,6 @@ async def gen_plan(req: PlanRequest) -> WritingPlan:
         f"你是英语写作教练。用户目标:{req.goal}。用户薄弱点:{weak}。"
         f"生成一份分 4 阶段、每阶段 2 周的写作能力提升方案,含具体练习任务。"
     )
-    plan_text = _provider(prompt)
+    plan_text = await _provider(prompt)
     plan_id = await save_plan(req.user_id, weak, plan_text)
     return WritingPlan(id=plan_id, user_id=req.user_id, weak_points=weak, plan=plan_text, status="active")

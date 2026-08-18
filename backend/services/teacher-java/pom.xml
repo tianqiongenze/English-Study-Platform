@@ -14,7 +14,7 @@
     <version>1.0.0</version>
     <name>teacher-java</name>
     <properties>
-        <java.version>21</java.version>
+        <java.version>26</java.version>
         <dubbo.version>3.3.6</dubbo.version>
         <mockito.version>5.18.0</mockito.version>
         <byte-buddy.version>1.17.5</byte-buddy.version>
@@ -51,6 +51,29 @@
         <!-- CRDB 适配(会话22-29):PG driver —— esp-rw-java 的 postgresql 是 provided(不传递),
              CRDB 模式路由池需 org.postgresql.Driver;TiDB 模式(type=tidb/缺省)不被引用,行为不变。 -->
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>42.7.8</version><scope>runtime</scope></dependency>
+        <!-- Resilience4j:慢调用熔断(补充 Sentinel 流控) -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+            <version>2.3.0</version>
+        </dependency>
+
+        <!-- Sentinel:流控/熔断/降级(注解 + Web MVC 适配),对齐 bff-java -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-spring-webmvc-v6x-adapter</artifactId>
+            <version>1.8.8</version>
+        </dependency>
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+            <version>1.8.8</version>
+        </dependency>
+
         <!-- ADR-08 Dubbo Triple RPC:共享 API 契约(consumer) -->
         <dependency>
             <groupId>com.esp</groupId>
@@ -61,6 +84,12 @@
             <groupId>org.apache.dubbo</groupId>
             <artifactId>dubbo-spring-boot-starter</artifactId>
             <version>${dubbo.version}</version>
+        </dependency>
+        <!-- JDK26: Dubbo 3.3.6 运行时需要 com.google.gson.JsonSyntaxException(序列化/元数据),
+             传递依赖在某些 JDK26 类加载路径下未被打入 fat jar,显式声明避免 NoClassDefFoundError -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.dubbo</groupId>
@@ -95,6 +124,12 @@
         <dependency>
             <groupId>com.esp</groupId>
             <artifactId>esp-web-common</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <!-- ESP 共用 Java 基础能力(BaseJwtValidator + BaseJwtAuthFilter + HealthConfig + SentinelRuleBootstrap + CockroachDbConfig,铁律:>=2 服务共用必下沉) -->
+        <dependency>
+            <groupId>com.esp</groupId>
+            <artifactId>esp-common-java</artifactId>
             <version>1.0.0</version>
         </dependency>
         <dependency>

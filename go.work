@@ -11,6 +11,8 @@ use (
 	./backend/services/listening-go
 	./backend/services/reading-go
 	./backend/services/gamification-go
+	./backend/services/content-go
+	./backend/services/community-go
 	./backend/services/live-tutor-go
 	./backend/services/vocab-srs-go
 )

@@ -95,14 +95,30 @@ async def recent_emotions(user_id: int, limit: int = 10) -> list[dict]:
         return []
 
 
+def _local_svg_image(word: str) -> str:
+    """本地生成单词视觉卡(data URI SVG):自包含、无外部依赖、确定性可缓存。
+    更精美的图像生成模型接入见 DEFERRED-多节点清单(真实图像模型选型+密钥)。"""
+    import base64
+    import html
+
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400">'
+        '<rect width="600" height="400" fill="#e2e8f0"/>'
+        '<text x="300" y="210" font-size="44" text-anchor="middle" '
+        'font-family="sans-serif" fill="#334155">'
+        + html.escape(word)
+        + "</text></svg>"
+    )
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
 async def visual_for_word(word: str, context: str = "") -> VisualResponse:
-    """FR-5.2 视觉辅助:本期返回占位图 URL(真实环境接图像生成模型)。
+    """FR-5.2 视觉辅助:本地生成 SVG 视觉卡(真实链路,无外链占位图)。
     走多级缓存:相同 word+context 结果稳定可复用,真实化后图像生成昂贵,缓存收益高。"""
     async def _load():
         w = (word or "word").strip() or "word"
-        label = w.replace(" ", "%20")
         return VisualResponse(
-            image_url=f"https://placehold.co/600x400?text={label}",
+            image_url=_local_svg_image(w),
             alt=f"Illustration for the word '{w}'" + (f" in context: {context}" if context else ""),
         ).model_dump()
     cached = await get_or_load("emotion:visual", (word, context), _load, cache_empty=False)

@@ -4,6 +4,7 @@
 > 评估视角:教授级高级工程师 / 互联网大厂资深架构师。
 > 数据来源:SRS §4 用例 + SDD 各服务章端到端流程注释 + ADR-01 Disruptor / ADR-langgraph / ADR-Seata→Saga。
 > 日期:2026-08-13。
+> 更新:2026-08-17 追加内容学习流和社区互动流。
 
 ## 目的
 
@@ -93,20 +94,81 @@ flowchart LR
 
 **关联利益相关者**:教师 S-2(主)、学员 S-1(受益)、SRE S-5(Dubbo 超时、Seata 全局锁)。
 **关联 ADR**:ADR-Seata→Saga(teacher 学情汇总从 Seata AT 迁移到应用层 Saga 补偿)、ADR-new-services。
-**验收 KPI**:教案生成时延;AI 与教师评分吻合度(终审率);Dubbo Triple 调用稳定(INT-2 超时 3s→10s)。
+**验收 KPI**:教案生成时延;AI 与教师评分吻合度(终审率);Dubbo Triple 调用稳定(INT-2 超时 3s->10s)。
 
 ---
 
-## 三价值流小结
+## 价值流 4:学员一次内容学习闭环(content-go)
+
+> 2026-08-17 追加。覆盖课程浏览→作答→学情反馈→排行榜联动端到端路径。
+
+```mermaid
+flowchart LR
+    A[Trigger:学员进入内容库] --> B[S1 课程/课时浏览]
+    B -->|REST sync| C[S2 作答 content_attempts]
+    C -->|DB write + outbox| D[S3 事件投递 learning_event_outbox]
+    D -->|OutboxRelay async| E[S4 学情采集 worker]
+    E -->|Pulsar async| F[S5 掌握度+XP更新]
+    F -->|Redis ZSET| G[S6 排行榜实时更新]
+    G -->|日切 cron| H[S7 快照落库 CRDB]
+```
+
+| Stage | trigger | 入口 | 产出 | 执行者 | value 增量 | 通信类型 | 数据表 |
+|---|---|---|---|---|---|---|---|
+| S1 课程浏览 | 学员进入内容库 | GET /api/content/courses | 课程列表(含 exam_tag/cefr_range) | content-go | 策展目录就绪 | REST sync | courses, lessons |
+| S2 作答 | 选课程/课时 | POST /api/content/attempt | 评分+正误 | content-go | 即时反馈 | REST sync | content_items, content_attempts |
+| S3 事件投递 | 作答写入 | learning_event_outbox INSERT(pending) | 事件持久化(不丢) | content-go | 可靠事件(Transactional Outbox) | DB write | learning_event_outbox |
+| S4 学情采集 | outbox pending | OutboxRelay 轮询→重投 | 学情事件送达 | learning-worker | 异步解耦 | async | learning_events |
+| S5 掌握度+XP | worker 消费 | learning_events 落库 + user_mastery 更新 | 掌握度+XP 增量 | learning-java + gamification-go | 闭环学情 | Dubbo/async | user_mastery, achievements |
+| S6 排行榜更新 | XP 变更 | Redis ZUPDATE(score) | 实时排行 | gamification-go | 竞争激励 | Redis sync | Redis ZSET |
+| S7 快照落库 | 日切定时 | CRDB INSERT leaderboard_snapshots | 历史快照+percentile | gamification-go | 排行榜可追溯 | async/cron | leaderboard_snapshots |
+
+**关联利益相关者**:学员 S-1(主)、运营 S-3(内容运营)、SRE S-5(content-go 可观测)。
+**关联 ADR**:ADR-01(Disruptor 学情采集),ADR-new-services(content-go 选型)。
+**验收 KPI**:content_attempts 写入 P95<500ms;outbox 投递延迟<5s;排行榜 Redis 更新 P95<100ms。
+
+---
+
+## 价值流 5:学员一次社区互动闭环(community-go)
+
+> 2026-08-17 追加。覆盖建圈→互动→举报→自动治理端到端路径。
+
+```mermaid
+flowchart LR
+    A[Trigger:学员建圈/加入] --> B[S1 圈子管理]
+    B -->|REST sync| C[S2 发帖/评论]
+    C -->|REST sync| D[S3 举报 content_reports]
+    D -->|阈值检测| E[S4 自动隐藏 post.status=hidden]
+    E -->|事件| F[S5 通知运营审核]
+    F -->|REST sync| G[S6 社区活跃度统计]
+```
+
+| Stage | trigger | 入口 | 产出 | 执行者 | value 增量 | 通信类型 | 数据表 |
+|---|---|---|---|---|---|---|---|
+| S1 圈子管理 | 建圈/加入 | POST /api/circles | 圈子+邀请码 | community-go | 学习社交基础 | REST sync | circles, circle_memberships |
+| S2 发帖/评论 | 圈子互动 | POST /api/circles/:id/posts | 帖子/评论 | community-go | 内容互动 | REST sync | circle_posts, circle_post_comments |
+| S3 举报 | 不良内容 | POST /api/reports | 举报记录 | community-go | 内容合规 | REST sync | content_reports |
+| S4 自动隐藏 | 举报达阈值 | report_count >= config | post.status: published->hidden | community-go | 自动治理 | 内部 sync | circle_posts |
+| S5 通知运营 | 帖子隐藏 | Pulsar/回调 | 运营审核通知 | 运营后台 | 人工复核 | async | content_reports(status=reviewed) |
+| S6 统计 | 定期聚合 | 内部查询 | 社区活跃度指标 | community-go | 运营数据 | REST sync | circles, circle_posts, circle_post_comments |
+
+**关联利益相关者**:学员 S-1(社交)、运营 S-3(社区运营)、法务 S-4(UGC 合规)。
+**验收 KPI**:举报阈值检测 P95<1s;自动隐藏链路端到端<5s;社区帖子 API P95<300ms。
+
+---
+
+## 五价值流小结
 
 | 价值流 | 横跨能力 | 横跨服务 | 通信类型多样性 | 关键风险 |
 |---|---|---|---|---|
-| 1 学习闭环 | 口语陪练 + 自适应学习 | gateway→learning→worker→course-path | REST/WS/Disruptor/Pulsar/Dubbo | LLM 长尾 + 单节点瓶颈 |
-| 2 写作批改 | 写作批改 + 自适应联动 | writing-coach→writing-py→learning | REST/LLM/缓存透传/Dubbo | langgraph breaking change + LLM 长尾 |
-| 3 教研闭环 | 教师教研 + 自适应学习 + 写作聚合 | frontend→teacher→learning | REST/Dubbo Triple/Seata→Saga | Dubbo 超时 + 全局锁 |
+| 1 学习闭环 | 口语陪练 + 自适应学习 | gateway->learning->worker->course-path | REST/WS/Disruptor/Pulsar/Dubbo | LLM 长尾 + 单节点瓶颈 |
+| 2 写作批改 | 写作批改 + 自适应联动 | writing-coach->writing-py->learning | REST/LLM/缓存透传/Dubbo | langgraph breaking change + LLM 长尾 |
+| 3 教研闭环 | 教师教研 + 自适应学习 + 写作聚合 | frontend->teacher->learning | REST/Dubbo Triple/Seata->Saga | Dubbo 超时 + 全局锁 |
+| 4 内容学习流 | 内容库策展 + 学情联动 + 排行榜 | content-go->learning->gamification | REST/Outbox/Pulsar/Dubbo/Redis | outbox 投递延迟 + Redis ZSET 大小 |
+| 5 社区互动流 | 圈子社交 + UGC + 内容治理 | community-go->运营后台 | REST/内部阈值/async | 举报阈值准确性 + UGC 合规 |
 
-**三流共同横切**:接入鉴权(BFF/gateway RS256)、可观测(traceId 贯通)、缓存 key 三端契约统一、读写分离(follower lag 防读后写)。
+**五流共同横切**:接入鉴权(BFF/gateway RS256)、可观测(traceId 贯通)、缓存 key 三端契约统一、读写分离(follower lag 防读后写)。
 
 ## 出口条件
 
-3 条价值流图齐(已满足),与 SRS §4 UC 对应;每 stage 标注通信类型(REST/Dubbo/Pulsar/WS/Disruptor);关联利益相关者与 KPI 已标。
+5 条价值流图齐(已满足),与 SRS §4 UC 对应;每 stage 标注通信类型(REST/Dubbo/Pulsar/WS/Disruptor/Redis/Outbox);关联利益相关者与 KPI 已标。

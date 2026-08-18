@@ -5,7 +5,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-@SpringBootApplication(scanBasePackages = {"com.esp.learning", "com.esp.cache"})
+@SpringBootApplication(scanBasePackages = {"com.esp.learning", "com.esp.cache", "com.esp.common"})
 @EnableDubbo
 @EnableScheduling   // P1-10: OutboxRelay @Scheduled 轮询重投
 public class LearningApplication {

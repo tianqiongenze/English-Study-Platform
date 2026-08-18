@@ -50,10 +50,13 @@ class DbLearningEventConsumerTest {
         List<Object[]> outboxArgs = captor.getValue();
         assertNotNull(outboxArgs, "outbox batch args should be captured");
         assertEquals(2, outboxArgs.size(), "all failed events should route to outbox");
-        assertEquals(1L, outboxArgs.get(0)[0]);
-        assertEquals("answer", outboxArgs.get(0)[1]);
-        assertEquals("{\"u\":1}", outboxArgs.get(0)[2]);
-        assertEquals(2L, outboxArgs.get(1)[0]);
+        // OUTBOX_SQL 参数顺序: (message_id, user_id, event_type, payload)
+        assertEquals("msg-1", outboxArgs.get(0)[0], "message_id");
+        assertEquals(1L, outboxArgs.get(0)[1], "user_id");
+        assertEquals("answer", outboxArgs.get(0)[2], "event_type");
+        assertEquals("{\"u\":1}", outboxArgs.get(0)[3], "payload");
+        assertEquals("msg-2", outboxArgs.get(1)[0], "第二个事件的 message_id");
+        assertEquals(2L, outboxArgs.get(1)[1], "第二个事件的 user_id");
         assertEquals(2, consumer.outboxRoutedCount(), "outbox routed counter should equal batch size");
     }
 
@@ -94,6 +97,7 @@ class DbLearningEventConsumerTest {
             e.setEventType("answer");
             e.setPayload("{\"u\":" + i + "}");
             e.setCreatedAt(i * 1000L);
+            e.setMessageId("msg-" + i);
             list.add(e);
         }
         return list.toArray(new LearningEvent[0]);

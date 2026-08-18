@@ -1,0 +1,80 @@
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/teacher/10000100/kp-stats                                                    46     2(4.35%) |    654      25   10151    170 |    2.30        0.00
+GET      /api/teacher/10000101/kp-stats                                                    50     2(4.00%) |    582      10   10085    140 |    2.30        0.00
+GET      /api/teacher/10000102/kp-stats                                                    34     0(0.00%) |    870      13   10129    220 |    2.10        0.00
+GET      /api/teacher/10000103/kp-stats                                                    44     0(0.00%) |    658      11   10034    170 |    2.10        0.00
+GET      /api/teacher/10000104/kp-stats                                                    51     2(3.92%) |    597       8   10095    160 |    2.30        0.00
+GET      /api/teacher/10000105/kp-stats                                                    36     2(5.56%) |    812       7   11426    200 |    1.90        0.00
+GET      /api/teacher/10000106/kp-stats                                                    36     1(2.78%) |    841      14   11324    230 |    2.20        0.00
+GET      /api/teacher/10000107/kp-stats                                                    49     1(2.04%) |    601      25   10103    180 |    1.90        0.00
+GET      /api/teacher/10000108/kp-stats                                                    43     1(2.33%) |    655       9   10096    170 |    2.50        0.00
+GET      /api/teacher/10000109/kp-stats                                                    43     1(2.33%) |    692       8   10288    180 |    2.30        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       432    12(2.78%) |    683       7   11426    180 |   21.90        0.00
+
+[2026-08-16 03:12:52,751] locbench-teacher-kpstats-10-2gwg5/INFO/locust.main: --run-time limit reached, shutting down
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/teacher/10000100/kp-stats                                                    56     2(3.57%) |    571      25   10151    170 |    2.30        0.00
+GET      /api/teacher/10000101/kp-stats                                                    60     2(3.33%) |    520      10   10085    140 |    2.20        0.00
+GET      /api/teacher/10000102/kp-stats                                                    45     0(0.00%) |    699      13   10129    200 |    2.00        0.00
+GET      /api/teacher/10000103/kp-stats                                                    55     0(0.00%) |    561      11   10034    160 |    2.30        0.00
+GET      /api/teacher/10000104/kp-stats                                                    60     2(3.33%) |    543       8   10095    160 |    2.10        0.00
+GET      /api/teacher/10000105/kp-stats                                                    47     2(4.26%) |    664       7   11426    180 |    2.20        0.00
+GET      /api/teacher/10000106/kp-stats                                                    46     1(2.17%) |    687      14   11324    160 |    2.30        0.00
+GET      /api/teacher/10000107/kp-stats                                                    61     1(1.64%) |    515      13   10103    160 |    2.10        0.00
+GET      /api/teacher/10000108/kp-stats                                                    52     1(1.92%) |    577       9   10096    160 |    2.70        0.00
+GET      /api/teacher/10000109/kp-stats                                                    54     1(1.85%) |    584       8   10288    160 |    2.50        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       536    12(2.24%) |    586       7   11426    160 |   22.70        0.00
+
+[2026-08-16 03:12:53,260] locbench-teacher-kpstats-10-2gwg5/INFO/locust.main: Shutting down (exit code 1)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/teacher/10000100/kp-stats                                                    56     2(3.57%) |    571      25   10151    170 |    1.62        0.06
+GET      /api/teacher/10000101/kp-stats                                                    60     2(3.33%) |    520      10   10085    140 |    1.73        0.06
+GET      /api/teacher/10000102/kp-stats                                                    45     0(0.00%) |    699      13   10129    200 |    1.30        0.00
+GET      /api/teacher/10000103/kp-stats                                                    55     0(0.00%) |    561      11   10034    160 |    1.59        0.00
+GET      /api/teacher/10000104/kp-stats                                                    60     2(3.33%) |    543       8   10095    160 |    1.73        0.06
+GET      /api/teacher/10000105/kp-stats                                                    47     2(4.26%) |    664       7   11426    180 |    1.36        0.06
+GET      /api/teacher/10000106/kp-stats                                                    46     1(2.17%) |    687      14   11324    160 |    1.33        0.03
+GET      /api/teacher/10000107/kp-stats                                                    61     1(1.64%) |    515      13   10103    160 |    1.76        0.03
+GET      /api/teacher/10000108/kp-stats                                                    52     1(1.92%) |    577       9   10096    160 |    1.50        0.03
+GET      /api/teacher/10000109/kp-stats                                                    54     1(1.85%) |    584       8   10288    160 |    1.56        0.03
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                       536    12(2.24%) |    586       7   11426    160 |   15.48        0.35
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+GET      /api/teacher/10000100/kp-stats                                                        170    240    310    410   1000   2100   6600  10000  10000  10000  10000     56
+GET      /api/teacher/10000101/kp-stats                                                        140    250    290    390    690   2100   7300  10000  10000  10000  10000     60
+GET      /api/teacher/10000102/kp-stats                                                        200    250    360    430   1000   2400  10000  10000  10000  10000  10000     45
+GET      /api/teacher/10000103/kp-stats                                                        160    250    330    370    630   2100   7300  10000  10000  10000  10000     55
+GET      /api/teacher/10000104/kp-stats                                                        160    250    380    480   1000   2100   6400  10000  10000  10000  10000     60
+GET      /api/teacher/10000105/kp-stats                                                        180    280    420    520    920   1600  11000  11000  11000  11000  11000     47
+GET      /api/teacher/10000106/kp-stats                                                        160    260    410    480    870   1600  11000  11000  11000  11000  11000     46
+GET      /api/teacher/10000107/kp-stats                                                        160    290    360    400    620   1300   5700  10000  10000  10000  10000     61
+GET      /api/teacher/10000108/kp-stats                                                        170    240    330    430    580   2100   7800  10000  10000  10000  10000     52
+GET      /api/teacher/10000109/kp-stats                                                        170    230    290    380    690   2400   6600  10000  10000  10000  10000     54
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                            170    250    340    410    740   2100   8200  10000  11000  11000  11000    536
+
+Error report
+# occurrences      Error                                                                                               
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+1                  GET /api/teacher/10000105/kp-stats: ConnectionRefusedError(111, 'Connection refused')               
+1                  GET /api/teacher/10000104/kp-stats: ConnectionRefusedError(111, 'Connection refused')               
+1                  GET /api/teacher/10000101/kp-stats: ConnectionRefusedError(111, 'Connection refused')               
+1                  GET /api/teacher/10000100/kp-stats: ConnectionRefusedError(111, 'Connection refused')               
+1                  GET /api/teacher/10000109/kp-stats: ConnectionRefusedError(111, 'Connection refused')               
+1                  GET /api/teacher/10000108/kp-stats: ConnectionRefusedError(111, 'Connection refused')               
+1                  GET /api/teacher/10000106/kp-stats: HTTPError('503 Server Error: Service Unavailable for url: /api/teacher/10000106/kp-stats')
+1                  GET /api/teacher/10000105/kp-stats: HTTPError('503 Server Error: Service Unavailable for url: /api/teacher/10000105/kp-stats')
+1                  GET /api/teacher/10000100/kp-stats: HTTPError('503 Server Error: Service Unavailable for url: /api/teacher/10000100/kp-stats')
+1                  GET /api/teacher/10000107/kp-stats: HTTPError('503 Server Error: Service Unavailable for url: /api/teacher/10000107/kp-stats')
+1                  GET /api/teacher/10000101/kp-stats: HTTPError('503 Server Error: Service Unavailable for url: /api/teacher/10000101/kp-stats')
+1                  GET /api/teacher/10000104/kp-stats: HTTPError('503 Server Error: Service Unavailable for url: /api/teacher/10000104/kp-stats')
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+>>> Test stopped. requests=536 failures=12 avg_rps=15.48 avg_latency_ms=586.02 p95_ms=2100.00 fail_rate=0.0224
+

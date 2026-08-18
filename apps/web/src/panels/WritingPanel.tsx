@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { api } from "../api";
 import type { GradeResult, PolishResult, TranslateResult } from "../types";
+import { useI18n } from "@esp/ui-tokens";
+import SafeImg, { UNSPLASH } from "../components/SafeImg";
 
 type Tab = "grade" | "polish" | "translate" | "agent";
 
 export default function WritingPanel() {
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("grade");
   const [prompt, setPrompt] = useState("Do you agree technology improves education?");
   const [essay, setEssay] = useState("");
@@ -62,17 +65,22 @@ export default function WritingPanel() {
 
   return (
     <div>
+      {/* 写作场景横幅 */}
+      <SafeImg src={UNSPLASH.writing} alt="" tone={3} className="scene-banner">
+        <span className="scene-banner__label">{t("nav.writing")}</span>
+      </SafeImg>
+
       <div className="tabs">
-        <button className={tab === "grade" ? "active" : ""} onClick={() => setTab("grade")}>AI 批改</button>
-        <button className={tab === "polish" ? "active" : ""} onClick={() => setTab("polish")}>润色</button>
-        <button className={tab === "translate" ? "active" : ""} onClick={() => setTab("translate")}>翻译</button>
+        <button className={tab === "grade" ? "active" : ""} onClick={() => setTab("grade")}>{t("writing.grade")}</button>
+        <button className={tab === "polish" ? "active" : ""} onClick={() => setTab("polish")}>{t("writing.polish")}</button>
+        <button className={tab === "translate" ? "active" : ""} onClick={() => setTab("translate")}>{t("writing.translate")}</button>
         <button className={tab === "agent" ? "active" : ""} onClick={() => setTab("agent")}>智能体批改</button>
       </div>
       {tab === "grade" && (
         <>
-          <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="作文题目" />
-          <textarea rows={6} value={essay} onChange={(e) => setEssay(e.target.value)} placeholder="在此输入你的英文作文..." />
-          <button className="primary" onClick={run} disabled={loading}>{loading ? "批改中..." : "AI 批改"}</button>
+          <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t("writing.topic")} />
+          <textarea rows={6} value={essay} onChange={(e) => setEssay(e.target.value)} placeholder={t("writing.placeholder")} />
+          <button className="primary" onClick={run} disabled={loading}>{loading ? t("action.loading") : t("writing.grade")}</button>
           {grade && (
             <div>
               <h3>预测分值: {grade.score}/30</h3>
@@ -92,7 +100,7 @@ export default function WritingPanel() {
       {tab === "polish" && (
         <>
           <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="输入要润色的英文..." />
-          <button className="primary" onClick={run} disabled={loading}>{loading ? "润色中..." : "润色"}</button>
+          <button className="primary" onClick={run} disabled={loading}>{loading ? t("action.loading") : t("writing.polish")}</button>
           {polish && (
             <div>
               <h4>润色结果</h4>
@@ -107,10 +115,10 @@ export default function WritingPanel() {
       {tab === "translate" && (
         <>
           <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="输入要翻译的英文..." />
-          <button className="primary" onClick={run} disabled={loading}>{loading ? "翻译中..." : "翻译"}</button>
+          <button className="primary" onClick={run} disabled={loading}>{loading ? t("action.loading") : t("writing.translate")}</button>
           {translate && (
             <div>
-              <h4>翻译</h4>
+              <h4>{t("writing.translate")}</h4>
               <p>{translate.translation}</p>
               {translate.vocab.length > 0 && (
                 <>
@@ -125,9 +133,9 @@ export default function WritingPanel() {
       {err && <p className="err">{err}</p>}
       {tab === "agent" && (
         <>
-          <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="作文题目" />
-          <textarea rows={6} value={essay} onChange={(e) => setEssay(e.target.value)} placeholder="在此输入你的英文作文..." />
-          <button className="primary" onClick={agentRun} disabled={loading}>{loading ? "运行中..." : "发起 Human-in-Loop 批改"}</button>
+          <input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t("writing.topic")} />
+          <textarea rows={6} value={essay} onChange={(e) => setEssay(e.target.value)} placeholder={t("writing.placeholder")} />
+          <button className="primary" onClick={agentRun} disabled={loading}>{loading ? t("action.loading") : "发起 Human-in-Loop 批改"}</button>
           {threadId && (
             <div>
               <p>thread_id: {threadId}</p>

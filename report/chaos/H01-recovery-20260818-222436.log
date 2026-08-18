@@ -1,0 +1,27 @@
+=== H-01 恢复监控(每10s采样,共120s) ===
+时间 | nacos-pod | bff-pod | learning-pod | teacher-pod | GW:30080 | BFF:30009
+------|-----------|---------|--------------|-------------|----------|---------
+22:24:40 | nacos-5d7c9b569b-5mfht:Running/0/1 | bff-java-5c57d7cd84-vrqdp:Pending/0/1,bff-java-5c57d7cd84-zwd8w:Running/0/1,bff-java-7c9c4fb8c5-dx7xv:Pending/0/1,bff-java-7c9c4fb8c5-pnvq5:Running/1/1 | learning-java-79bcf6b787-dlltc:Running/1/1
+learning-java-79bcf6b787-nv42s:Pending/0/1
+learning-java-79bcf6b787-ppchm:Running/0/1 | teacher-java-dc4559c6b-gbkzg:Running/0/1,teacher-java-dc4559c6b-k72wt:Running/1/1,teacher-java-dc4559c6b-t7dwr:Running/1/1 | 200 | 200
+22:24:55 | nacos-5d7c9b569b-5mfht:Running/0/1 | bff-java-5c57d7cd84-vrqdp:Pending/0/1,bff-java-5c57d7cd84-zwd8w:Running/0/1,bff-java-7c9c4fb8c5-dx7xv:Pending/0/1,bff-java-7c9c4fb8c5-pnvq5:Running/1/1 | learning-java-79bcf6b787-dlltc:Running/1/1
+learning-java-79bcf6b787-nv42s:Pending/0/1
+learning-java-79bcf6b787-ppchm:Running/0/1 | teacher-java-dc4559c6b-gbkzg:Running/0/1,teacher-java-dc4559c6b-k72wt:Running/1/1,teacher-java-dc4559c6b-t7dwr:Running/1/1 | 200 | 200
+22:25:09 | nacos-5d7c9b569b-5mfht:Running/0/1 | bff-java-5c57d7cd84-vrqdp:ContainerCreating/0/1,bff-java-5c57d7cd84-zwd8w:Running/0/1,bff-java-7c9c4fb8c5-dx7xv:ContainerCreating/0/1,bff-java-7c9c4fb8c5-pnvq5:Running/1/1 | learning-java-79bcf6b787-dlltc:Running/1/1
+learning-java-79bcf6b787-nv42s:Pending/0/1
+learning-java-79bcf6b787-ppchm:Running/0/1 | teacher-java-dc4559c6b-gbkzg:Running/0/1,teacher-java-dc4559c6b-k72wt:Running/1/1,teacher-java-dc4559c6b-t7dwr:Running/1/1 | 200 | 200
+22:25:21 | nacos-5d7c9b569b-5mfht:Running/0/1 | bff-java-5c57d7cd84-vrqdp:ContainerCreating/0/1,bff-java-5c57d7cd84-zwd8w:Running/0/1,bff-java-7c9c4fb8c5-dx7xv:ContainerCreating/0/1,bff-java-7c9c4fb8c5-pnvq5:Running/1/1 | learning-java-79bcf6b787-dlltc:Running/1/1
+learning-java-79bcf6b787-nv42s:Pending/0/1
+learning-java-79bcf6b787-ppchm:Running/0/1 | teacher-java-dc4559c6b-gbkzg:Running/0/1,teacher-java-dc4559c6b-k72wt:Running/1/1,teacher-java-dc4559c6b-t7dwr:Running/1/1 | 200 | 200
+22:25:33 | nacos-5d7c9b569b-5mfht:Running/0/1 | bff-java-5c57d7cd84-vrqdp:ContainerCreating/0/1,bff-java-5c57d7cd84-zwd8w:Running/0/1,bff-java-7c9c4fb8c5-dx7xv:ContainerCreating/0/1,bff-java-7c9c4fb8c5-pnvq5:Running/1/1 | learning-java-79bcf6b787-dlltc:Running/1/1
+learning-java-79bcf6b787-nv42s:ContainerCreating/0/1
+learning-java-79bcf6b787-ppchm:Running/0/1 | teacher-java-dc4559c6b-gbkzg:Running/0/1,teacher-java-dc4559c6b-k72wt:Running/1/1,teacher-java-dc4559c6b-t7dwr:Running/1/1 | 200 | 200
+22:25:48 | nacos-5d7c9b569b-5mfht:Running/0/1 | bff-java-5c57d7cd84-vrqdp:ContainerCreating/0/1,bff-java-5c57d7cd84-zwd8w:Running/0/1,bff-java-7c9c4fb8c5-dx7xv:ContainerCreating/0/1,bff-java-7c9c4fb8c5-pnvq5:Running/1/1 | learning-java-79bcf6b787-dlltc:Running/1/1
+learning-java-79bcf6b787-nv42s:ContainerCreating/0/1
+learning-java-79bcf6b787-ppchm:Running/0/1 | teacher-java-dc4559c6b-gbkzg:Running/0/1,teacher-java-dc4559c6b-k72wt:Running/1/1,teacher-java-dc4559c6b-t7dwr:Running/1/1 | 200 | 200
+22:26:12 | nacos-5d7c9b569b-5mfht:Running/0/1 | bff-java-5c57d7cd84-vrqdp:ContainerCreating/0/1,bff-java-5c57d7cd84-zwd8w:Running/0/1,bff-java-7c9c4fb8c5-dx7xv:ContainerCreating/0/1,bff-java-7c9c4fb8c5-pnvq5:Running/1/1 | learning-java-79bcf6b787-dlltc:Running/1/1
+learning-java-79bcf6b787-nv42s:ContainerCreating/0/1
+learning-java-79bcf6b787-ppchm:Running/0/1 | teacher-java-dc4559c6b-gbkzg:Running/0/1,teacher-java-dc4559c6b-k72wt:Running/1/1,teacher-java-dc4559c6b-t7dwr:Running/1/1 | 200 | 200
+22:26:25 | nacos-5d7c9b569b-5mfht:Running/0/1 | bff-java-5c57d7cd84-vrqdp:ContainerCreating/0/1,bff-java-5c57d7cd84-zwd8w:Running/0/1,bff-java-7c9c4fb8c5-dx7xv:ContainerCreating/0/1,bff-java-7c9c4fb8c5-pnvq5:Running/1/1 | learning-java-79bcf6b787-dlltc:Running/1/1
+learning-java-79bcf6b787-nv42s:ContainerCreating/0/1
+learning-java-79bcf6b787-ppchm:Running/0/1 | teacher-java-dc4559c6b-gbkzg:Running/0/1,teacher-java-dc4559c6b-k72wt:Running/1/1,teacher-java-dc4559c6b-t7dwr:Running/1/1 | 200 | 200

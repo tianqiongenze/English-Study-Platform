@@ -1,1 +1,1 @@
-export default definePageConfig({ navigationBarTitleText: "Home-Tutor" });
+export default definePageConfig({ navigationBarTitleText: "洁语 · Verity" });

@@ -20,7 +20,9 @@ import (
 
 	"esp/common-go/config"
 	"esp/common-go/db"
+	"esp/common-go/middleware"
 	"esp/common-go/redisx"
+	"esp/common-go/registry"
 
 	"esp/conversation-go/src/asr"
 	"esp/conversation-go/src/dialog"
@@ -41,6 +43,8 @@ var upgrader = websocket.Upgrader{
 	// G-04:WS 握手超时,防慢速连接占满 goroutine。
 	HandshakeTimeout: 10 * time.Second,
 }
+
+const serviceName = "gateway-go"
 
 // WS 心跳/超时参数(G-04 加固)。
 const (
@@ -100,14 +104,17 @@ func main() {
 		sessions:  session.NewManager(rdb, 2*time.Hour),
 		scenarios: scenario.NewRepository(),
 		engine:    &dialog.Engine{LLM: llm.New(), HintIdle: 8 * time.Second},
-		asr:       &asr.MockProvider{},
-		tts:       &tts.MockProvider{},
+		asr:       asr.New(),
+		tts:       tts.New(),
 		jwt:       jwtValidator,
 		hub:       wsHub,
 	}
 	// AppLog 异步写 TiDB app_logs(ADR-observability-rebuild):业务事件结构化落库,
 	// trace_id 关联 Tempo/Loki。降级:TiDB 不可用时仅 slog.Warn 不阻断业务。
 	gwlog.Init()
+
+	// Nacos 服务注册(优雅退出时注销)
+	nacosCli := registry.RegisterNacos(serviceName, 8080)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
@@ -123,11 +130,11 @@ func main() {
 
 	addr := ":" + config.Getenv("PORT", "8080")
 	slog.Info("gateway-go starting", "addr", addr)
-	// Wrap mux with otelhttp so every HTTP request gets a span.
-	// /ws/speech upgrade happens after the handler-level span is created,
-	// so WS connections are traced at the handshake level; inner WS
-	// message loops keep the original logic untouched.
-	tracedHandler := otelhttp.NewHandler(mux, "gateway-go")
+	// Wrap mux with rate limit + circuit breaker + otelhttp tracing.
+	// Rate limit first (reject early), then circuit breaker, then tracing.
+	rateLimited := middleware.HTTPRateLimit(mux, 100, 200)                                              // 100 rps,桶容量200
+	cbProtected := middleware.HTTPCircuitBreaker(rateLimited, 5, 30*time.Second, serviceName)            // 5次失败触发30s熔断
+	tracedHandler := otelhttp.NewHandler(cbProtected, "gateway-go")
 	httpSrv := &http.Server{Addr: addr, Handler: tracedHandler}
 
 	go func() {
@@ -141,6 +148,7 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	slog.Info("shutting down")
+	registry.DeRegister(serviceName, 8080, nacosCli)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(ctx)

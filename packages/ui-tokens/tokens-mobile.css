@@ -1,0 +1,37 @@
+/* antd-mobile(5.x)CSS 变量映射 —— H5 专用。
+   引入 tokens.css 之后引入本文件;亮/暗/accent 三态与 ESP tokens 对齐。
+   覆盖核心 10 项,其余随组件默认。 */
+
+/* 亮色:brand 随 accent */
+html[data-accent="coral"] {
+  --adm-color-primary: #ff6b4a;
+  --adm-color-primary-weak: rgba(255, 107, 74, 0.4);
+}
+html[data-accent="forest"] {
+  --adm-color-primary: #22a06b;
+  --adm-color-primary-weak: rgba(34, 160, 107, 0.4);
+}
+html[data-accent="grape"] {
+  --adm-color-primary: #8b5cf6;
+  --adm-color-primary-weak: rgba(139, 92, 246, 0.4);
+}
+
+/* 暗色:neutral 对齐 ESP dark;primary 用 ESP primary(再被 accent 覆盖) */
+html[data-theme="dark"] {
+  --adm-color-primary: #1668dc;
+  --adm-color-success: #49aa19;
+  --adm-color-warning: #d89614;
+  --adm-color-danger: #dc4444;
+  --adm-color-text: rgba(255, 255, 255, 0.85);
+  --adm-color-text-secondary: rgba(255, 255, 255, 0.65);
+  --adm-color-weak: rgba(255, 255, 255, 0.45);
+  --adm-color-light: rgba(255, 255, 255, 0.25);
+  --adm-color-border: #424242;
+  --adm-color-background: #141414;
+  --adm-color-background-body: #000000;
+  --adm-color-fill-content: rgba(255, 255, 255, 0.08);
+  --adm-color-fill-content-bg: rgba(255, 255, 255, 0.04);
+}
+html[data-theme="dark"][data-accent="coral"] { --adm-color-primary: #ff6b4a; }
+html[data-theme="dark"][data-accent="forest"] { --adm-color-primary: #22a06b; }
+html[data-theme="dark"][data-accent="grape"] { --adm-color-primary: #8b5cf6; }

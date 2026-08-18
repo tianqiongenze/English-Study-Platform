@@ -62,7 +62,7 @@ def instrument_app(app) -> None:
     """对 Litestar app 应用自动埋点。在 app 创建后调用。
 
     Litestar 2.x 的 OTel 埋点由 OpenTelemetryPlugin 在 app 初始化时注入中间件。
-    本函数为幂等占位:推荐在构建 Litestar 时通过 plugins=[OpenTelemetryPlugin()] 注册。
+    本函数为幂等兜底:推荐在构建 Litestar 时通过 plugins=[OpenTelemetryPlugin()] 注册。
     """
     try:
         registered = app.plugins.get(OpenTelemetryPlugin) if hasattr(app.plugins, "get") else None

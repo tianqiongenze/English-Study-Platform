@@ -27,6 +27,9 @@ PORTAL = "http://localhost:30070"
 NS = "esp-prod"
 PROBE_POD = "tmp-probe-manual73"
 TIMEOUT = 10
+# TC-W-7/E2E-2 的 finalize 目标 submission(CRDB 为 snowflake id,硬编码 1 不存在 → 500)。
+# 覆盖:ESP_SUBMISSION_ID=xxx;缺省用种子库实有 id(2026-08-16 探测,幂等 SETNX 可重跑)。
+SUBMISSION_ID = os.environ.get("ESP_SUBMISSION_ID", "1201593833013084163")
 TS = datetime.now().strftime("%Y%m%d%H%M%S")
 
 RESULTS = []  # {tc,name,status,detail}
@@ -246,7 +249,7 @@ def main():
     if want("TC-W-7"):
         c1, r1 = http("POST", BFF + "/api/teacher/assignments/1/auto-grade?classId=1", None,
                       token=teacher_tok, timeout=30)
-        c2, r2 = http("POST", BFF + "/api/teacher/submissions/1/finalize",
+        c2, r2 = http("POST", BFF + f"/api/teacher/submissions/{SUBMISSION_ID}/finalize",
                       {"final_score": 85}, token=teacher_tok, timeout=30)
         if c1 == 200 and c2 == 200:
             record("TC-W-7", "作业评阅", "PASS", f"auto-grade 200(graded={r1.get('graded') if isinstance(r1,dict) else '?'}) finalize 200(幂等 SETNX)")
@@ -574,7 +577,7 @@ def main():
             record("TC-GR-24", "assessment 会话详情", "SKIP", "建会响应无 session_id")
     if a_id is not None:
         gr("TC-GR-25", "assessment 提交答题", "POST", f"http://assessment-rs/api/assessment/sessions/{a_id}/answer",
-           body={"answer": "A"})
+           body={"question_id": 1, "answer_json": {"selected": "A"}})
         gr("TC-GR-26", "assessment 结束测评", "POST", f"http://assessment-rs/api/assessment/sessions/{a_id}/finalize")
     else:
         for tc, nm in [("TC-GR-25", "assessment 提交答题"), ("TC-GR-26", "assessment 结束测评")]:
@@ -620,7 +623,7 @@ def main():
         record("TC-E2E-1", "写作→批改→mastery", "PASS" if ok else "FAIL",
                f"grade code={c} score={r.get('score') if isinstance(r,dict) else '?'};Pulsar事件/DB核验需人工(writing.graded→teacher→user_mastery)")
     if want("TC-E2E-2"):
-        c, r = http("POST", BFF + "/api/teacher/submissions/1/finalize", {"final_score": 88},
+        c, r = http("POST", BFF + f"/api/teacher/submissions/{SUBMISSION_ID}/finalize", {"final_score": 88},
                     token=teacher_tok, timeout=30)
         if c == 200:
             record("TC-E2E-2", "教师终审→mastery", "PASS", "finalize 200(幂等 SETNX)")

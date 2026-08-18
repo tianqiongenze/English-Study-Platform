@@ -9,7 +9,7 @@ spec:
   replicas: 1
   selector: {matchLabels: {app: bff-java}}
   template:
-    metadata: {labels: {app: bff-java}}
+    metadata: {labels: {app: bff-java}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8090", prometheus.io/path: "/actuator/prometheus"}}
     spec:
       containers:
       - name: bff-java
@@ -19,6 +19,10 @@ spec:
         - {containerPort: 8090,  name: mvc}
         - {containerPort: 9090,  name: edge}
         - {containerPort: 50090, name: dubbo}
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
         env:
         - {name: NACOS_ADDR,    value: "nacos:8848"}
         - {name: NACOS_NS,      value: "public"}
@@ -32,7 +36,7 @@ spec:
         - {name: ESP_RW_COCKROACHDB_HOST,   value: "crdb-public"}
         - {name: ESP_RW_COCKROACHDB_READ_HOST, value: "crdb-public"}   # 单节点 CRDB,读写同址(follower-read 由 esp-common-go/esp-rw 在连接参数层加 AS OF SYSTEM TIME)
         - {name: ESP_RW_COCKROACHDB_PORT,   value: "26257"}
-        - {name: ESP_RW_COCKROACHDB_DB,     value: "esp"}
+        - {name: ESP_RW_COCKROACHDB_DB,     value: "esp_auth"}   # #227 根因修复:BFF users 表对齐 gamification-go 写入的 esp_auth.users(超集,含 digital_human/ranking_opt_out/region_code);原 esp.users 仅 6 列缺这些列致 gamification UPDATE 静默失败。esp.users 257 行已迁移 esp_auth.users
         - {name: ESP_RW_COCKROACHDB_USER,   value: "root"}
         - {name: WRITE_DB_URL,  value: "jdbc:mysql://tidb-primary:4000/esp?useSSL=false&allowPublicKeyRetrieval=true"}   # 可回切保留
         - {name: DB_USER,       value: "root"}
@@ -43,9 +47,8 @@ spec:
         # 这里只补 OTEL_* env 配置(agent 已加载,仅需配置 service 名/exporter 端点)。
         # 注:本轮只写 manifest + 代码,不 build 部署(资源紧张,灌数完成后再 build+scale)
         - {name: OTEL_SERVICE_NAME, value: "bff"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         - {name: OTEL_TRACES_EXPORTER, value: "otlp"}
-        - {name: OTEL_METRICS_EXPORTER, value: "none"}
         - {name: OTEL_LOGS_EXPORTER, value: "none"}
         envFrom:
         - secretRef: {name: esp-rsa-jwt-sign}   # P0-1 私钥收敛:BFF 是唯一签发方,持有私钥(RS256 sign)
@@ -53,8 +56,8 @@ spec:
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8090}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8090}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
         resources:
-          requests: {cpu: "200m", memory: 512Mi}
-          limits:   {cpu: "1",     memory: 1536Mi}   # 原 1Gi 偏紧,Netty+Dubbo+Seata 三件套加压升内存
+          requests: {cpu: "200m", memory: 512Mi}   # BFF 作为边缘接入层需要更高 CPU 分配以处理 Netty I/O + Spring MVC + Dubbo Triple
+          limits:   {cpu: "2",     memory: 2Gi}   # 1536Mi 偏紧导致 OOMKill;2Gi 给 Netty+Dubbo+Seata+Spring WebMVC 足够余量
 ---
 apiVersion: v1
 kind: Service
@@ -67,3 +70,23 @@ spec:
   - {name: mvc,   port: 8090,  targetPort: 8090}
   - {name: edge,  port: 9090,  targetPort: 9090}
   - {name: dubbo, port: 50090, targetPort: 50090}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bff-java
+  namespace: esp-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bff-java
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

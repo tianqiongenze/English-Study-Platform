@@ -12,25 +12,113 @@ use axum::{
     body::Body,
     extract::State,
     http::{HeaderMap, HeaderValue},
+    middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use governor::{Quota, RateLimiter as GovernorLimiter};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::num::NonZeroU32;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock};
+use tokio::sync::Semaphore;
 
 const SERVICE_NAME: &str = "llm-orchestrator-rs";
 
-/// 全局应用状态:连接池 + provider 注册表
+// ---------- governor 令牌桶限流(替代手写 AtomicU64) ----------
+type AppRateLimiter = GovernorLimiter<governor::state::NotKeyed, governor::state::InMemoryState, governor::clock::DefaultClock>;
+static RATE_LIMITER: LazyLock<AppRateLimiter> = LazyLock::new(|| {
+    GovernorLimiter::direct(Quota::per_second(NonZeroU32::new(100).unwrap()))
+});
+
+/// Rate-limit middleware: skip health endpoints
+async fn rate_limit_middleware(req: axum::http::Request<Body>, next: axum::middleware::Next) -> axum::response::Response {
+    let path = req.uri().path().to_string();
+    if path == "/healthz" || path == "/readyz" || path == "/livez" || path.starts_with("/actuator/health") {
+        return next.run(req).await;
+    }
+    if !RATE_LIMITER.check().is_ok() {
+        return (
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": "rate limit exceeded", "retry_after": 1})),
+        ).into_response();
+    }
+    next.run(req).await
+}
+
+// ---------- 自适应并发限制器(gradient2 思路) ----------
+/// 低 RTT 放量(+1),高 RTT 保持。进程内 tokio Semaphore,无需 Redis 共享。
+pub struct AdaptiveLimiter {
+    semaphore: Arc<Semaphore>,
+    initial: usize,
+    max_concurrency: AtomicUsize,
+    min_rtt_ms: AtomicUsize, // 整数化避免 atomic f64(精度足够:0.1ms)
+}
+
+impl AdaptiveLimiter {
+    fn new(initial: usize) -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(initial)),
+            initial,
+            max_concurrency: AtomicUsize::new(initial),
+            min_rtt_ms: AtomicUsize::new(u32::MAX as usize),
+        }
+    }
+
+    /// 获取 permit(阻塞直到有空位)
+    pub async fn acquire(&self) -> tokio::sync::OwnedSemaphorePermit {
+        self.semaphore.clone().acquire_owned().await
+            .unwrap_or_else(|_| {
+                tracing::warn!("adaptive limiter semaphore closed");
+                self.semaphore.clone().try_acquire_owned().unwrap()
+            })
+    }
+
+    /// 释放 permit + 根据 RTT 调整并发上限
+    fn release_with_rtt(&self, rtt: std::time::Duration) {
+        let rtt_ms = (rtt.as_secs_f64() * 1000.0) as usize;
+        if rtt_ms == 0 { return; }
+        let prev_min = self.min_rtt_ms.load(Ordering::Relaxed);
+        if prev_min == u32::MAX as usize || rtt_ms < prev_min {
+            self.min_rtt_ms.store(rtt_ms, Ordering::Relaxed);
+        }
+        // RTT < min * 1.5 → 低负载信号,尝试扩容(最多 2x)
+        let min = self.min_rtt_ms.load(Ordering::Relaxed);
+        if rtt_ms < min * 3 / 2 {
+            let cur = self.max_concurrency.load(Ordering::Relaxed);
+            let target = (self.initial * 2).min(cur + 1);
+            if target > cur {
+                self.max_concurrency.store(target, Ordering::Relaxed);
+                // 重建更大 Semaphore(旧的等释放后 GC;新增 permit 立即可用)
+                let old = self.semaphore.clone();
+                self.semaphore = Arc::new(Semaphore::new(target));
+                tracing::info!("adaptive limiter: max_concurrency {} -> {} (rtt={}ms, min={}ms)", cur, target, rtt_ms, min);
+                // 注:旧 Semaphore 仍持有可能的等待者,不丢弃;新 Semaphore 新 permit 可立即获取
+                let _ = old; // prevent drop warning; old permits still valid
+            }
+        }
+    }
+
+    /// 当前最大并发数(监控用)
+    pub fn max_permits(&self) -> usize {
+        self.max_concurrency.load(Ordering::Relaxed)
+    }
+}
+
+/// 全局应用状态:连接池 + provider 注册表 + LLM 并发限制器
 pub struct AppState {
     // Redis Cluster 异步连接(支持 MOVED/ASK 自动重定向)。
     // ClusterConnection 实现 ConnectionLike + Clone,可直接 query_async。
     pub redis: redis::cluster_async::ClusterConnection,
     pub pg: sqlx::PgPool,
     pub providers: provider::ProviderRegistry,
+    /// LLM 调用并发限制器(gradient2 自适应):低 RTT 放量、高 RTT 缩容。
+    /// 单节点进程内 tokio::sync::Semaphore,无需 Redis 共享。
+    pub llm_limiter: Arc<AdaptiveLimiter>,
 }
 
 #[derive(Clone)]
@@ -58,7 +146,8 @@ async fn main() {
         .route("/api/dialogue/sessions/:id", get(dialogue::get_session))
         .route("/api/dialogue/sessions/:id/turns", get(dialogue::list_turns))
         .route("/api/dialogue/personas", get(dialogue::list_personas).post(dialogue::create_persona))
-        .with_state(handle);
+        .with_state(handle)
+        .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -79,7 +168,14 @@ async fn init_state() -> AppState {
 
     let providers = provider::ProviderRegistry::from_env();
 
-    AppState { redis, pg, providers }
+    // LLM 并发限制(gradient2 自适应):env LLM_MAX_CONCURRENCY 控制初始值(默认 10)
+    let max_concurrency: usize = env::var("LLM_MAX_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    tracing::info!("[{}] llm adaptive limiter: initial={}", SERVICE_NAME, max_concurrency);
+
+    AppState { redis, pg, providers, llm_limiter: Arc::new(AdaptiveLimiter::new(max_concurrency)) }
 }
 
 // ---------------- health ----------------
@@ -209,7 +305,8 @@ async fn llm_chat(
         return Json(resp).into_response();
     }
 
-    // 调 provider
+    // 调 provider:自适应并发限制(acquire → 调用 → release_with_rtt)
+    let _permit = h.0.llm_limiter.acquire().await;
     let started = std::time::Instant::now();
     let result = h.0.providers
         .call(
@@ -223,6 +320,9 @@ async fn llm_chat(
         .await;
 
     let latency_ms = started.elapsed().as_millis() as i32;
+    // 释放 permit(自动 drop) + 自适应调整并发上限
+    h.0.llm_limiter.release_with_rtt(started.elapsed());
+    drop(_permit);
     let (provider, model, status, error_msg) = match &result {
         Ok(r) => (r.provider.clone(), r.model.clone(), "ok".to_string(), None),
         Err(e) => {

@@ -1,11 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { api } from "../api";
+import { useAuth } from "../auth";
 import type { Scenario } from "../types";
 import { EspWsClient } from "@esp/ws-client";
 import Avatar, { Emotion } from "../components/Avatar";
 import Skeleton from "../Skeleton";
+import { useI18n, resolvePersona, type Persona } from "@esp/ui-tokens";
 
 export default function Speech() {
+  const { t } = useI18n();
+  const { user } = useAuth();
   const [scenarios, setScenarios] = useState<Scenario[]>([{ code: "airport", title: "机场登机", system: "", difficulty: 2 }]);
   // 场景列表加载态:复用通用骨架屏
   const [scenariosLoading, setScenariosLoading] = useState(true);
@@ -17,9 +21,14 @@ export default function Speech() {
   const [emotion, setEmotion] = useState<Emotion>("neutral");
   const [speaking, setSpeaking] = useState(false);
   const [bubble, setBubble] = useState("");
+  const [persona, setPersona] = useState<Persona>(() => resolvePersona(undefined, user?.id));
   const add = (s: string) => setLog((l) => [...l, s]);
 
-  useEffect(() => { api.scenarios().then(setScenarios).catch(() => {}).finally(() => setScenariosLoading(false)); return () => wsRef.current?.close(); }, []);
+  useEffect(() => {
+    api.scenarios().then(setScenarios).catch(() => {}).finally(() => setScenariosLoading(false));
+    api.getDigitalHuman().then((r) => setPersona(resolvePersona(r.persona_id, user?.id))).catch(() => {});
+    return () => wsRef.current?.close();
+  }, []);
 
   async function start() {
     try {
@@ -49,20 +58,20 @@ export default function Speech() {
   const end = () => wsRef.current?.send(JSON.stringify({ type: "end" }));
 
   return (
-    <div>
+    <div className="immersive" style={{ padding: "var(--esp-space-3)" }}>
       {scenariosLoading ? <Skeleton height={40} /> : (
         <select value={scenario} onChange={(e) => setScenario(e.target.value)}>
           {scenarios.map((s) => <option key={s.code} value={s.code}>{s.title}</option>)}
         </select>
       )}
-      <button className="primary" onClick={start} style={{ marginTop: 6 }}>开始陪练</button>
-      <Avatar emotion={emotion} active={speaking} text={bubble || undefined} />
+      <button className="primary" onClick={start} style={{ marginTop: 6 }}>{t("scenarios.start")}</button>
+      <Avatar persona={persona} emotion={emotion} active={speaking} text={bubble || undefined} />
       <div className="log">{log.map((l, i) => <div key={i}>{l}</div>)}</div>
       <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="说点什么(英文)..." onKeyDown={(e) => e.key === "Enter" && send()} />
       <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
         <button className="primary" onClick={send} style={{ flex: 1 }}>发送</button>
         <button onClick={hint}>提示</button>
-        <button onClick={end}>结束</button>
+        <button onClick={end}>{t("action.stop")}</button>
       </div>
     </div>
   );

@@ -20,6 +20,9 @@ spring:
       discovery:
         server-addr: ${NACOS_ADDR:nacos:8848}
         namespace: ${NACOS_NS:public}
+        fail-fast: false        # Nacos 不可达时不阻塞启动(降级模式)
+        watch:
+          enabled: false        # 关闭 watch 减少重连风暴
       config:
         server-addr: ${NACOS_ADDR:nacos:8848}
         file-extension: yaml
@@ -75,7 +78,7 @@ dubbo:
   application:
     name: ${spring.application.name}
   registry:
-    address: nacos://${NACOS_ADDR:nacos:8848}
+    address: nacos://${NACOS_ADDR:nacos:8848}?wait=false
   protocol:
     name: tri
     port: 50090

@@ -1,0 +1,4 @@
+# 派生构建(registry 镜像源挂,见 memory esp-registry-mirror-outage):复用既有镜像底座(含 JRE21+otel-agent),
+# 仅替换业务 jar。用法:cd backend/services/learning-java && mvn -B package -DskipTests && docker build -t esp/learning-java:1.11.4 -f Dockerfile.derived .
+FROM esp/learning-java:1.11.3
+COPY target/learning-java-1.0.0.jar /app/app.jar

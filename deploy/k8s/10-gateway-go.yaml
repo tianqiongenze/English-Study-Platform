@@ -9,16 +9,24 @@ spec:
   replicas: 1
   selector: {matchLabels: {app: gateway-go}}
   template:
-    metadata: {labels: {app: gateway-go}}
+    metadata: {labels: {app: gateway-go}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080", prometheus.io/path: "/metrics"}}
     spec:
       containers:
       - name: gateway-go
         image: esp/gateway-go:1.11.0   # #140 CRDB 切库:统一层 esp-common-go pgx 双池 + COALESCE::STRING 修复
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8080}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: REDIS_ADDR, value: "redis-cluster:6379"}
-        - {name: LLM_MODE, value: "mock"}
+        # LLM 真实链路(上线达标 Phase0):gateway 数字人对话走 AnthropicProvider;经 CC Switch 代理
+        - {name: ANTHROPIC_API_KEY, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_API_KEY}}}
+        - {name: ANTHROPIC_BASE_URL, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_BASE_URL}}}
+        - {name: ANTHROPIC_AUTH_TOKEN, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_AUTH_TOKEN}}}
         - {name: JWT_SECRET, valueFrom: {secretKeyRef: {name: esp-secrets, key: JWT_SECRET}}}
         # CRDB esp_speaking(#140 全服务切 CRDB;统一层 db.ReadWriteDSN 双池:会话归档写库/场景加载读库,
         # 单端点同址 crdb-public,多区域阶段设 CRDB_READ_HOST 切 follower 零代码改动;AppLogClient 写 esp_shared)
@@ -27,7 +35,8 @@ spec:
         - {name: CRDB_PORT, value: "26257"}
         # OTel 注入(ADR-observability-rebuild):gateway-go 已内置 otel sdk(tracing.go),仅需 env
         - {name: OTEL_SERVICE_NAME, value: "gateway"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}
         envFrom:
         - secretRef: {name: esp-rsa-jwt-verify}   # P0-1 私钥收敛:仅校验,只注入公钥(防任一服务 RCE 伪造 admin JWT)
         # N-1 探针三分离(optimization-plan C-2):startupProbe 给 WS/gateway 慢启动 5min 宽容,

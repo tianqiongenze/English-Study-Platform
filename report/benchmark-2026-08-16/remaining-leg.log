@@ -1,0 +1,239 @@
+10:56:45 load-gate waiting
+10:58:27 OK  k6 teacher_kpstats v10
+11:02:48 OK  k6 vocab_review v10
+11:06:49 OK  k6 writing_grade v10
+11:10:52 OK  locust learning_review v10
+11:11:33 load-gate waiting
+11:16:19 OK  locust teacher_kpstats v10
+11:17:01 load-gate waiting
+11:18:02 load-gate waiting
+11:19:05 load-gate waiting
+11:20:08 load-gate waiting
+11:21:09 load-gate waiting
+11:22:10 load-gate waiting
+11:23:11 load-gate waiting
+11:24:12 load-gate waiting
+11:25:59 OK  locust gamification_prof v10
+11:30:00 OK  locust gamification_pts v10
+11:34:01 OK  locust vocab_due v10
+11:38:03 OK  locust vocab_review v10
+11:38:47 OK  locust emotion_recent v10
+ (start 11:02:48)
+==> pod-log-captured(phase!=Running) 11:06:49
+==> locust learning_review v10 dur=35s (start 11:06:49)
+==> pod-log-captured(phase!=Running) 11:10:52
+==> locust teacher_kpstats v10 dur=35s (start 11:12:13)
+==> pod-log-captured(phase!=Running) 11:16:19
+==> locust gamification_prof v10 dur=35s (start 11:25:13)
+==> completed 11:25:59
+Response time percentiles (approximated)
+>>> Test stopped. requests=12664 failures=0 avg_rps=373.39 avg_latency_ms=23.80 p95_ms=79.00 fail_rate=0.0000
+==> log: report/benchmark-2026-08-16/locust-gamification_prof-v10.log
+==> locust gamification_pts v10 dur=35s (start 11:25:59)
+==> pod-log-captured(phase!=Running) 11:30:00
+==> locust vocab_due v10 dur=35s (start 11:30:00)
+==> pod-log-captured(phase!=Running) 11:34:01
+==> locust vocab_review v10 dur=35s (start 11:34:02)
+==> pod-log-captured(phase!=Running) 11:38:03
+==> locust emotion_recent v10 dur=35s (start 11:38:03)
+==> completed 11:38:47
+Response time percentiles (approximated)
+>>> Test stopped. requests=521 failures=0 avg_rps=15.28 avg_latency_ms=647.73 p95_ms=1500.00 fail_rate=0.0000
+==> log: report/benchmark-2026-08-16/locust-emotion_recent-v10.log
+==> locust writingcoach_tpl v10 dur=35s (start 11:38:47)
+11:42:35 SKIP k6 teacher_kpstats v10 (已有数据)
+11:42:35 SKIP k6 vocab_review v10 (已有数据)
+11:42:36 SKIP k6 writing_grade v10 (已有数据)
+11:42:36 SKIP locust learning_review v10 (已有数据)
+11:42:36 SKIP locust teacher_kpstats v10 (已有数据)
+11:42:36 SKIP locust gamification_prof v10 (已有数据)
+11:42:36 SKIP locust gamification_pts v10 (已有数据)
+11:42:36 SKIP locust vocab_due v10 (已有数据)
+11:42:36 SKIP locust vocab_review v10 (已有数据)
+11:42:36 SKIP locust emotion_recent v10 (已有数据)
+==> locust writingcoach_tpl v10 dur=35s (start 11:42:36)
+==> completed 11:44:11
+Response time percentiles (approximated)
+>>> Test stopped. requests=9984 failures=6 avg_rps=287.48 avg_latency_ms=31.04 p95_ms=95.00 fail_rate=0.0006
+==> log: report/benchmark-2026-08-16/locust-writingcoach_tpl-v10.log
+11:44:11 OK  locust writingcoach_tpl v10
+==> locust assessment_report v10 dur=35s (start 11:44:11)
+==> completed 11:44:59
+Response time percentiles (approximated)
+>>> Test stopped. requests=15141 failures=0 avg_rps=442.78 avg_latency_ms=19.89 p95_ms=53.00 fail_rate=0.0000
+==> log: report/benchmark-2026-08-16/locust-assessment_report-v10.log
+11:44:59 OK  locust assessment_report v10
+==> locust llm_dialogue v10 dur=35s (start 11:45:00)
+==> pod-log-captured(phase!=Running) 11:49:01
+11:49:01 OK  locust llm_dialogue v10
+==> locust course_path v10 dur=35s (start 11:49:01)
+==> completed 11:49:46
+>>> Test stopped. requests=29015 failures=0 avg_rps=861.91 avg_latency_ms=7.16 p95_ms=16.00 fail_rate=0.0000
+Response time percentiles (approximated)
+==> log: report/benchmark-2026-08-16/locust-course_path-v10.log
+11:49:46 OK  locust course_path v10
+==> locust writing_grade v10 dur=35s (start 11:49:46)
+==> pod-log-captured(phase!=Running) 11:53:47
+11:53:47 OK  locust writing_grade v10
+11:53:47 SKIP locust bff_login v10 (已有数据)
+11:53:47 SKIP locust gw_scenarios v10 (已有数据)
+11:53:47 SKIP locust bff_scenarios v10 (已有数据)
+11:53:47 SKIP locust listening_mat v10 (已有数据)
+11:53:47 SKIP locust reading_passages v10 (已有数据)
+==> locust learning_event v20 dur=35s (start 11:53:47)
+==> pod-log-captured(phase!=Running) 11:57:49
+11:57:49 OK  locust learning_event v20
+11:58:30 load-gate waiting
+==> locust gw_scenarios v20 dur=35s (start 11:59:11)
+==> completed 12:00:04
+>>> Test stopped. requests=4045 failures=0 avg_rps=117.53 avg_latency_ms=134.56 p95_ms=330.00 fail_rate=0.0000
+Response time percentiles (approximated)
+==> log: report/benchmark-2026-08-16/locust-gw_scenarios-v20.log
+12:00:04 OK  locust gw_scenarios v20
+==> locust bff_scenarios v20 dur=35s (start 12:00:04)
+==> completed 12:01:05
+Response time percentiles (approximated)
+>>> Test stopped. requests=883 failures=0 avg_rps=26.20 avg_latency_ms=695.74 p95_ms=1700.00 fail_rate=0.0000
+==> log: report/benchmark-2026-08-16/locust-bff_scenarios-v20.log
+12:01:05 OK  locust bff_scenarios v20
+==> locust learning_review v20 dur=35s (start 12:01:25)
+==> pod-log-captured(phase!=Running) 12:05:27
+12:05:27 OK  locust learning_review v20
+12:06:08 load-gate waiting
+12:07:09 load-gate waiting
+==> locust teacher_kpstats v20 dur=35s (start 12:07:50)
+==> completed 12:10:08
+Response time percentiles (approximated)
+>>> Test stopped. requests=217 failures=39 avg_rps=6.76 avg_latency_ms=2817.59 p95_ms=15000.00 fail_rate=0.1797
+==> log: report/benchmark-2026-08-16/locust-teacher_kpstats-v20.log
+12:10:08 OK  locust teacher_kpstats v20
+== mixed learning_event (12:10:28) ==
+OK   k6-mixed learning_event
+FAIL loc-mixed learning_event
+== mixed gw_scenarios (12:14:59) ==
+FAIL loc-mixed gw_scenarios
+FAIL k6-mixed gw_scenarios
+== mixed done 12:16:10 ==
+12:16:10 OK  mixed-proof
+== REMAINING LEG DONE 12:16:10 ==
+12:17:13 SKIP k6 teacher_kpstats v10 (已有数据)
+12:17:13 SKIP k6 vocab_review v10 (已有数据)
+12:17:13 SKIP k6 writing_grade v10 (已有数据)
+12:17:13 SKIP locust learning_review v10 (已有数据)
+12:17:13 SKIP locust teacher_kpstats v10 (已有数据)
+12:17:13 SKIP locust gamification_prof v10 (已有数据)
+12:17:13 SKIP locust gamification_pts v10 (已有数据)
+12:17:13 SKIP locust vocab_due v10 (已有数据)
+12:17:13 SKIP locust vocab_review v10 (已有数据)
+12:17:13 SKIP locust emotion_recent v10 (已有数据)
+12:17:13 SKIP locust writingcoach_tpl v10 (已有数据)
+12:17:13 SKIP locust assessment_report v10 (已有数据)
+12:17:13 SKIP locust llm_dialogue v10 (已有数据)
+12:17:13 SKIP locust course_path v10 (已有数据)
+12:17:13 SKIP locust writing_grade v10 (已有数据)
+12:17:56 load-gate waiting
+12:19:00 load-gate waiting
+12:20:03 load-gate waiting
+12:21:07 load-gate waiting
+12:22:10 load-gate waiting
+12:23:14 load-gate waiting
+12:24:18 load-gate waiting
+12:25:22 load-gate waiting
+12:26:25 load-gate waiting
+12:27:28 load-gate waiting
+12:28:32 load-gate waiting
+12:29:36 load-gate waiting
+12:30:39 load-gate waiting
+12:31:43 load-gate waiting
+12:32:47 load-gate waiting
+12:33:50 load-gate waiting
+12:34:54 load-gate waiting
+12:35:56 load-gate waiting
+12:37:01 load-gate waiting
+12:38:05 load-gate waiting
+12:39:09 load-gate waiting
+12:40:10 load-gate waiting
+12:41:12 load-gate waiting
+12:42:12 load-gate waiting
+12:43:14 load-gate waiting
+12:44:15 load-gate waiting
+12:45:17 load-gate waiting
+12:46:18 load-gate waiting
+12:47:19 load-gate waiting
+12:48:20 load-gate waiting
+12:49:21 load-gate waiting
+==> locust bff_login v10 dur=35s (start 12:49:41)
+==> pod-log-captured(phase!=Running) 12:55:21
+12:55:21 OK  locust bff_login v10
+12:56:03 load-gate waiting
+12:57:08 load-gate waiting
+12:58:10 load-gate waiting
+12:59:13 load-gate waiting
+13:00:15 load-gate waiting
+13:01:18 load-gate waiting
+13:02:20 load-gate waiting
+13:03:21 load-gate waiting
+13:04:22 load-gate waiting
+13:05:25 load-gate waiting
+13:06:28 load-gate waiting
+13:07:31 load-gate waiting
+13:08:35 load-gate waiting
+13:09:41 load-gate waiting
+13:10:43 load-gate waiting
+13:11:47 load-gate waiting
+13:12:49 load-gate waiting
+13:13:51 load-gate waiting
+13:14:53 load-gate waiting
+13:15:54 load-gate waiting
+13:16:56 load-gate waiting
+13:17:57 load-gate waiting
+13:19:00 load-gate waiting
+13:20:02 load-gate waiting
+13:21:03 load-gate waiting
+13:22:04 load-gate waiting
+==> locust gw_scenarios v10 dur=35s (start 13:22:45)
+==> completed 13:24:04
+Response time percentiles (approximated)
+>>> Test stopped. requests=1419 failures=0 avg_rps=41.80 avg_latency_ms=180.85 p95_ms=610.00 fail_rate=0.0000
+==> log: report/benchmark-2026-08-16/locust-gw_scenarios-v10.log
+13:24:04 OK  locust gw_scenarios v10
+13:24:46 load-gate waiting
+13:25:48 load-gate waiting
+13:26:50 load-gate waiting
+13:27:52 load-gate waiting
+==> locust bff_scenarios v10 dur=35s (start 13:28:53)
+==> completed 13:29:51
+Response time percentiles (approximated)
+>>> Test stopped. requests=487 failures=0 avg_rps=15.71 avg_latency_ms=589.95 p95_ms=1900.00 fail_rate=0.0000
+==> log: report/benchmark-2026-08-16/locust-bff_scenarios-v10.log
+13:29:51 OK  locust bff_scenarios v10
+13:30:32 load-gate waiting
+==> locust listening_mat v10 dur=35s (start 13:30:52)
+==> pod-log-captured(phase!=Running) 13:34:53
+13:34:53 OK  locust listening_mat v10
+==> locust reading_passages v10 dur=35s (start 13:34:53)
+==> completed 13:35:40
+>>> Test stopped. requests=5164 failures=0 avg_rps=145.05 avg_latency_ms=62.82 p95_ms=280.00 fail_rate=0.0000
+Response time percentiles (approximated)
+==> log: report/benchmark-2026-08-16/locust-reading_passages-v10.log
+13:35:40 OK  locust reading_passages v10
+==> locust learning_event v20 dur=35s (start 13:35:40)
+==> completed 13:36:50
+Response time percentiles (approximated)
+>>> Test stopped. requests=357 failures=0 avg_rps=11.02 avg_latency_ms=1743.57 p95_ms=22000.00 fail_rate=0.0000
+==> log: report/benchmark-2026-08-16/locust-learning_event-v20.log
+13:36:50 OK  locust learning_event v20
+13:36:50 SKIP locust gw_scenarios v20 (已有数据)
+13:36:50 SKIP locust bff_scenarios v20 (已有数据)
+13:36:50 SKIP locust learning_review v20 (已有数据)
+13:37:31 load-gate waiting
+13:38:33 load-gate waiting
+13:39:34 load-gate waiting
+13:40:36 load-gate waiting
+13:41:37 load-gate waiting
+13:42:39 load-gate waiting
+==> locust teacher_kpstats v20 dur=35s (start 13:43:40)
+==> pod-log-captured(phase!=Running) 13:47:42
+13:47:42 OK  locust teacher_kpstats v20
+13:47:42 SKIP mixed (已有 mixed-* 产物)
+== REMAINING LEG DONE 13:47:42 ==

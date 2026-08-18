@@ -61,3 +61,32 @@ metadata:
 spec:
   type: ExternalName
   externalName: neo4j.platform-infra.svc.cluster.local
+---
+# SCA 三件套(迁移自 esp-prod 原生 ClusterIP → ekb 共享 ns,2026-08-16)
+# 客户端短名 nacos:8848 / sentinel:8858 / seata:8091 不变,应用零改动
+apiVersion: v1
+kind: Service
+metadata:
+  name: nacos
+  namespace: esp-prod
+spec:
+  type: ExternalName
+  externalName: nacos.platform-infra.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel
+  namespace: esp-prod
+spec:
+  type: ExternalName
+  externalName: sentinel.platform-infra.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seata
+  namespace: esp-prod
+spec:
+  type: ExternalName
+  externalName: seata.platform-infra.svc.cluster.local

@@ -1,0 +1,18 @@
+gateway-go http://gateway-go:80/readyz => OK [HTTP/1.1 200]
+bff-java http://bff-java:8090/actuator/health/readiness => OK [HTTP/1.1 200]
+learning-java http://learning-java:80/actuator/health/readiness => OK [HTTP/1.1 200]
+teacher-java http://teacher-java:80/actuator/health/readiness => OK [HTTP/1.1 200]
+writing-py http://writing-py:80/healthz => OK [HTTP/1.1 200]
+emotion-svc http://emotion-svc:80/healthz => OK [HTTP/1.1 200]
+writing-coach http://writing-coach:80/healthz => OK [HTTP/1.1 200]
+course-path-go http://course-path-go:80/actuator/health/readiness => OK [HTTP/1.1 200]
+listening-go http://listening-go:80/readyz => OK [HTTP/1.1 200]
+reading-go http://reading-go:80/readyz => OK [HTTP/1.1 200]
+gamification-go http://gamification-go:80/readyz => OK [HTTP/1.1 200]
+live-tutor-go : replicas=0(scaffold) => SKIP
+vocab-srs-go http://vocab-srs-go:80/readyz => OK [HTTP/1.1 200]
+llm-orchestrator-rs http://llm-orchestrator-rs:80/readyz => OK [HTTP/1.1 200]
+media-learn-rs : replicas=0(scaffold) => SKIP
+pronunciation-rs http://pronunciation-rs:80/actuator/health/readiness => OK [HTTP/1.1 200]
+assessment-rs http://assessment-rs:80/actuator/health/readiness => OK [HTTP/1.1 200]
+learning-worker http://learning-worker:/actuator/health => FAIL(rc=1) []

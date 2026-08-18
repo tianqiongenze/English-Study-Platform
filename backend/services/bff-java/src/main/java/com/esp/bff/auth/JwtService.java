@@ -63,6 +63,11 @@ public class JwtService {
         this.cacheService = cacheService;
     }
 
+    /** 鉴权是否启用(私钥已注入才签发,公钥已注入才校验)。 */
+    public boolean enabled() {
+        return privateKey != null;
+    }
+
     /** 签发 access token(RS256,私钥签)。含 jti(单 token 撤销基础)。 */
     public String issue(long userId, String email, String name, String role) {
         return issue(userId, email, name, role, "access", ACCESS_TTL_MS);

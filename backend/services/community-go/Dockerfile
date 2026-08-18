@@ -1,0 +1,22 @@
+# community-go —— 圈子社区(功能拓展:组队/建圈共同学习、分享经验)
+FROM golang:1.25-alpine AS builder
+WORKDIR /app
+COPY shared/esp-common-go ./esp-common-go
+COPY services/community-go/go.mod ./
+ENV GOPROXY=https://goproxy.cn,direct
+RUN sed -i 's|replace esp/common-go => ../../shared/esp-common-go|replace esp/common-go => ./esp-common-go|' go.mod
+RUN go mod download
+COPY services/community-go/src ./src
+RUN go mod tidy && CGO_ENABLED=0 go build -o /out/community-go ./src
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates
+RUN addgroup -S app && adduser -S -G app app
+WORKDIR /app
+COPY --from=builder /out/community-go /app/community-go
+EXPOSE 8097
+ENV PORT=8097
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317
+ENV OTEL_SERVICE_NAME=community-go
+USER app
+ENTRYPOINT ["/app/community-go"]

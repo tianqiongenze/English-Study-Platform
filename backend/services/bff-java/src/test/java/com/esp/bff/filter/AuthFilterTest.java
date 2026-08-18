@@ -2,6 +2,7 @@ package com.esp.bff.filter;
 
 import com.esp.bff.auth.JwtService;
 import com.esp.cache.CacheService;
+import com.esp.common.jwt.BaseJwtValidator;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +35,7 @@ class AuthFilterTest {
         CacheService cache = mock(CacheService.class);
         when(cache.isEnabled()).thenReturn(false);
         jwt = new JwtService(priv, pub, cache);
-        filter = new AuthFilter(jwt);
+        filter = new AuthFilter(jwt, new BaseJwtValidator(pub));
     }
 
     @Test
@@ -122,5 +123,42 @@ class AuthFilterTest {
         java.util.List<String> ids = java.util.Collections.list(cap.getValue().getHeaders("X-User-Id"));
         assertEquals(1, ids.size());
         assertEquals("77", ids.get(0));
+    }
+
+    @Test
+    void cookieFallback_authenticatesWhenNoBearer() throws Exception {
+        String token = jwt.issue(88L, "c@d.com", "carol", "learner");
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/learning/due");
+        // 不设 Authorization header,改为 esp_token cookie
+        req.setCookies(new jakarta.servlet.http.Cookie("esp_token", token));
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(req, res, chain);
+
+        assertEquals(200, res.getStatus(), "esp_token cookie 应通过鉴权");
+        org.mockito.ArgumentCaptor<jakarta.servlet.http.HttpServletRequest> cap =
+                org.mockito.ArgumentCaptor.forClass(jakarta.servlet.http.HttpServletRequest.class);
+        verify(chain).doFilter(cap.capture(), any());
+        assertEquals("88", cap.getValue().getHeader("X-User-Id"));
+        assertEquals("learner", cap.getValue().getHeader("X-Role"));
+    }
+
+    @Test
+    void getHeaderNames_includesInjectedHeaders() throws Exception {
+        String token = jwt.issue(5L, "e@f.com", "dave", "teacher");
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/learning/due");
+        req.addHeader("Authorization", "Bearer " + token);
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(req, res, chain);
+
+        org.mockito.ArgumentCaptor<jakarta.servlet.http.HttpServletRequest> cap =
+                org.mockito.ArgumentCaptor.forClass(jakarta.servlet.http.HttpServletRequest.class);
+        verify(chain).doFilter(cap.capture(), any());
+        java.util.List<String> names = java.util.Collections.list(cap.getValue().getHeaderNames());
+        assertTrue(names.contains("X-User-Id"), "getHeaderNames 应包含注入的 X-User-Id");
+        assertTrue(names.contains("X-Role"), "getHeaderNames 应包含注入的 X-Role");
     }
 }

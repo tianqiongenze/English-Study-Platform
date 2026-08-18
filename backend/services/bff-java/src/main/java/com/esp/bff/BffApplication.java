@@ -1,8 +1,14 @@
 package com.esp.bff;
 
+import com.esp.bff.edge.RouteTable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.env.Environment;
 
 /**
  * ESP BFF(重构版,按用户要求:仅 Dubbo + Spring Cloud Alibaba,不再用 Spring Cloud Gateway)。
@@ -16,9 +22,25 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  *   分布式事务合理(Seata AT/@GlobalTransactional 跨服务一致)。
  */
 @EnableDiscoveryClient
-@SpringBootApplication(scanBasePackages = {"com.esp.bff", "com.esp.cache"})
+@SpringBootApplication(scanBasePackages = {"com.esp.bff", "com.esp.cache", "com.esp.common"})
 public class BffApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(BffApplication.class);
+
     public static void main(String[] args) {
         SpringApplication.run(BffApplication.class, args);
+    }
+
+    /**
+     * Spring Boot 启动完成后初始化 Nacos 动态路由表。
+     * Nacos 不可用时 RouteTable 自动 fallback 到本地默认路由。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void initRouteTable(ApplicationReadyEvent event) {
+        Environment env = event.getApplicationContext().getEnvironment();
+        String serverAddr = env.getProperty("spring.cloud.nacos.config.server-addr", "nacos:8848");
+        String namespace = env.getProperty("spring.cloud.nacos.config.namespace", "");
+        log.info("[BffApplication] Initializing RouteTable from Nacos: addr={}, ns={}", serverAddr, namespace);
+        RouteTable.init(serverAddr, namespace);
     }
 }

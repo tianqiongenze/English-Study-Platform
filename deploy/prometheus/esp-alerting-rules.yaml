@@ -1,0 +1,48 @@
+groups:
+  - name: esp-slo
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) 
+          / sum(rate(http_requests_total[5m])) > 0.001
+        for: 5m
+        labels:
+          severity: p1
+        annotations:
+          summary: "High error rate (> 0.1%)"
+          
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: p2
+        annotations:
+          summary: "P95 latency > 500ms"
+          
+      - alert: PodRestartFrequent
+        expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
+        for: 5m
+        labels:
+          severity: p2
+        annotations:
+          summary: "Pod restarted > 3 times in 1h"
+          
+      - alert: CRDBOOM
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace="esp-crdb"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: p0
+        annotations:
+          summary: "CRDB OOM detected"
+          
+      - alert: RedisClusterDown
+        expr: redis_cluster_state != 1
+        for: 0m
+        labels:
+          severity: p0
+        annotations:
+          summary: "Redis cluster state != ok"

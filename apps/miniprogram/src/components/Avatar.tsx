@@ -1,19 +1,44 @@
-// 数字人 Avatar(小程序,Taro,SVG,原型 6.6 / FR-6.1)
+// 数字人 Avatar(小程序,Taro,FR-6.1 升级):persona emoji 降级渲染。
+// 小程序无 DOM,ui-tokens 的 SVG DigitalHuman 用 web CSS vars 不可直接复用,
+// 故按 persona.emoji + persona 主题色展示;emotion 切换文案,active 切说话态。
 import { View } from "@tarojs/components";
+import { PERSONAS, resolvePersona, type Persona } from "@esp/ui-tokens";
+import { t } from "../i18n";
+
 export type Emotion = "happy" | "neutral" | "encouraging" | "sad";
-const FACE: Record<Emotion, { mouth: string; brow: string; color: string; label: string }> = {
-  happy:       { mouth: "M30 52 Q45 64 60 52", brow: "M28 34 L40 32 M50 32 L62 34", color: "#22c55e", label: "开心" },
-  neutral:     { mouth: "M30 56 L60 56",       brow: "M28 34 L40 34 M50 34 L62 34", color: "#64748b", label: "平静" },
-  encouraging: { mouth: "M30 54 Q45 60 60 54", brow: "M28 33 L40 31 M50 31 L62 33", color: "#2D6CDF", label: "鼓励" },
-  sad:         { mouth: "M30 60 Q45 50 60 60", brow: "M28 35 L40 33 M50 33 L62 35", color: "#f97316", label: "关切" },
+const EMOTION_KEY: Record<Emotion, "miniprogram.avatar.happy" | "miniprogram.avatar.neutral" | "miniprogram.avatar.encouraging" | "miniprogram.avatar.sad"> = {
+  happy: "miniprogram.avatar.happy",
+  neutral: "miniprogram.avatar.neutral",
+  encouraging: "miniprogram.avatar.encouraging",
+  sad: "miniprogram.avatar.sad",
 };
-export default function Avatar({ emotion = "neutral", active = false, text }: { emotion?: Emotion; active?: boolean; text?: string }) {
-  const f = FACE[emotion] || FACE.neutral;
+
+export interface AvatarProps {
+  persona?: Persona;
+  emotion?: Emotion;
+  active?: boolean;
+  text?: string;
+}
+
+export default function Avatar({ persona, emotion = "neutral", active = false, text }: AvatarProps) {
+  const p = persona ?? resolvePersona(undefined);
   return (
     <View style={{ textAlign: "center", margin: "12rpx 0" }}>
-      <View style={{ fontSize: "60rpx" }}>{active ? "🗣️" : "🧑‍🏫"}</View>
-      <View style={{ color: f.color, fontSize: "24rpx" }}>{f.label}{active ? "(说话中)" : ""}</View>
-      {text ? <View style={{ background: "#1e293b", border: "1rpx solid #334155", borderRadius: "8rpx", padding: "8rpx", fontSize: "26rpx", marginTop: "6rpx", color: "#e2e8f0" }}>{text}</View> : null}
+      <View style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: "120rpx", height: "120rpx", borderRadius: "60rpx",
+        background: p.outfit2, border: `4rpx solid ${p.outfit}`,
+      }}>
+        <View style={{ fontSize: "72rpx" }}>{active ? "🗣️" : p.emoji}</View>
+      </View>
+      <View style={{ color: p.outfit, fontSize: "24rpx", marginTop: "6rpx" }}>
+        {t(EMOTION_KEY[emotion] || EMOTION_KEY.neutral)}{active ? t("miniprogram.avatar.speaking") : ""}
+      </View>
+      {text ? (
+        <View style={{ background: "#1e293b", border: "1rpx solid #334155", borderRadius: "8rpx", padding: "8rpx", fontSize: "26rpx", marginTop: "6rpx", color: "#e2e8f0" }}>{text}</View>
+      ) : null}
     </View>
   );
 }
+
+export { PERSONAS, resolvePersona };

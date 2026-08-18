@@ -4,16 +4,24 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"esp/common-go/config"
 	"esp/common-go/health"
+	"esp/common-go/middleware"
 	"esp/common-go/redisx"
+	"esp/common-go/registry"
 	"esp/common-go/tracing"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const serviceName = "course-path-go"
@@ -29,6 +37,9 @@ func main() {
 	rdb := redisx.MustNewCluster(config.Getenv("REDIS_CLUSTER", ""), serviceName)
 	_ = rdb // scaffold:路径缓存待实装
 
+	// Nacos 服务注册(优雅退出时注销)
+	nacosCli := registry.RegisterNacos(serviceName, 8093)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/actuator/health", health.StdHealthz(serviceName))
 	mux.HandleFunc("/actuator/health/readiness", readiness)
@@ -36,15 +47,31 @@ func main() {
 	mux.HandleFunc("/api/path/generate", generatePath)     // 首登生成路径(桩)
 	mux.HandleFunc("/api/path/unlock", unlockNode)         // 节点解锁判定(桩)
 	mux.HandleFunc("/api/path/", getPath)                  // 读取学员路径(桩)
+	mux.Handle("/metrics", promhttp.Handler())
+
+	// 限流 + 熔断(net/http 中间件,同 gateway-go 模式)
+	rateLimited := middleware.HTTPRateLimit(mux, 100, 200)                                    // 100 rps,桶容量200
+	protected := middleware.HTTPCircuitBreaker(rateLimited, 5, 30*time.Second, serviceName)   // 5次失败触发30s熔断
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           mux,
+		Handler:           protected,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("[%s] server error: %v", serviceName, err)
-	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[%s] server error: %v", serviceName, err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Printf("[%s] shutting down", serviceName)
+	registry.DeRegister(serviceName, 8093, nacosCli)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
 }
 
 func readiness(w http.ResponseWriter, _ *http.Request) {

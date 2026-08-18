@@ -19,28 +19,36 @@ type Provider interface {
 
 // Result 数字人 TTS 合成结果:音频 + 情绪标签 + viseme 口型时间轴。
 type Result struct {
-	Audio   string      `json:"audio"`             // base64 占位音频
-	Emotion string      `json:"emotion"`           // positive / negative / neutral
-	Visemes []ws.Viseme `json:"visemes"`           // 口型时间轴(相对音频起点 ms)
+	Audio   string      `json:"audio"`   // base64 音频
+	Emotion string      `json:"emotion"` // 四态契约:happy / neutral / encouraging / sad(对齐 Avatar.tsx)
+	Visemes []ws.Viseme `json:"visemes"` // 口型时间轴(相对音频起点 ms)
 }
 
-// 情绪词表与 emotion-svc sense_emotion 对齐(同一份关键词规则的双语种实现)。
+// 情绪词表:前端 Avatar.tsx Emotion 四态契约(happy/neutral/encouraging/sad)。
+// 规则顺序:鼓励词(条件正)→ 消极词(sad)→ 积极词(happy)→ 默认中性。
+// 负/正/中 三分类与 emotion-svc sense_emotion 语义对齐,仅映射到四态契约。
 var (
-	negativeWords = []string{"sad", "tired", "frustrated", "angry", "anxious", "nervous", "worried", "afraid", "stressed", "difficult", "hard", "fail", "bad"}
-	positiveWords = []string{"happy", "excited", "great", "good", "love", "confident", "proud", "easy", "fun", "wonderful", "amazing"}
+	negativeWords  = []string{"sad", "tired", "frustrated", "angry", "anxious", "nervous", "worried", "afraid", "stressed", "difficult", "hard", "fail", "bad"}
+	positiveWords  = []string{"happy", "excited", "great", "good", "love", "confident", "proud", "easy", "fun", "wonderful", "amazing"}
+	encourageWords = []string{"great job", "well done", "excellent", "nice work", "awesome", "perfect", "keep going", "good progress"}
 )
 
-// SenseEmotion 关键词情绪感知(与 emotion-svc NEGATIVE/POSITIVE 同源)。
+// SenseEmotion 关键词情绪感知 → 四态契约(happy/neutral/encouraging/sad)。
 func SenseEmotion(text string) string {
 	low := strings.ToLower(text)
+	for _, w := range encourageWords {
+		if strings.Contains(low, w) {
+			return "encouraging"
+		}
+	}
 	for _, w := range negativeWords {
 		if strings.Contains(low, w) {
-			return "negative"
+			return "sad"
 		}
 	}
 	for _, w := range positiveWords {
 		if strings.Contains(low, w) {
-			return "positive"
+			return "happy"
 		}
 	}
 	return "neutral"

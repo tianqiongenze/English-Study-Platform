@@ -8,14 +8,37 @@
 // 配置(env):
 //   PORT/READ_DB_URL/WRITE_DB_URL/REDIS_CLUSTER
 
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{extract::State, middleware, response::IntoResponse, routing::post, Json, Router};
+use governor::{Quota, RateLimiter as GovernorLimiter};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::num::NonZeroU32;
+use std::sync::{Arc, LazyLock};
 
 const SERVICE_NAME: &str = "pronunciation-rs";
+
+// ---------- governor 令牌桶限流(替代手写 AtomicU64) ----------
+type AppRateLimiter = GovernorLimiter<governor::state::NotKeyed, governor::state::InMemoryState, governor::clock::DefaultClock>;
+static RATE_LIMITER: LazyLock<AppRateLimiter> = LazyLock::new(|| {
+    GovernorLimiter::direct(Quota::per_second(NonZeroU32::new(100).unwrap()))
+});
+
+/// Rate-limit middleware: skip health endpoints
+async fn rate_limit_middleware(req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next) -> axum::response::Response {
+    let path = req.uri().path().to_string();
+    if path == "/healthz" || path.starts_with("/actuator/health") {
+        return next.run(req).await;
+    }
+    if !RATE_LIMITER.check().is_ok() {
+        return (
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": "rate limit exceeded", "retry_after": 1})),
+        ).into_response();
+    }
+    next.run(req).await
+}
 
 pub struct AppState {
     pub pg_write: sqlx::PgPool,
@@ -58,7 +81,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/actuator/health/liveness", axum::routing::get(liveness))
         .route("/api/pronunciation/score", post(score))
         .route("/api/pronunciation/feedback", post(feedback))
-        .with_state(state);
+        .with_state(state)
+        .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -102,7 +126,7 @@ struct ScoreResp {
 /// 1. 写 pronunciation_attempts(本次评测记录)
 /// 2. GOP 真实算法待接入(需 ASR/强制对齐模型,桩返回 0.85)
 async fn score(State(h): State<AppHandle>, Json(req): Json<ScoreReq>) -> Result<Json<ScoreResp>, (axum::http::StatusCode, String)> {
-    let score = 0.85_f64; // scaffold 占位
+    let score = 0.85_f64; // DEFERRED-真实音素评分(需ASR引擎接入,见多节点清单#4)
     let phoneme = req.phoneme_scores.unwrap_or(json!({}));
     let asr = req.asr_text.unwrap_or_default();
 

@@ -1,0 +1,31 @@
+{
+  "services": [
+    {"name": "gateway-go",        "kind": "service", "lang": "Go",     "svc": "gateway-go",        "port": 80,   "path": "/livez",                       "type": "http"},
+    {"name": "bff-java",          "kind": "service", "lang": "Java",   "svc": "bff-java",          "port": 8090, "path": "/actuator/health/liveness",     "type": "http"},
+    {"name": "learning-java",     "kind": "service", "lang": "Java",   "svc": "learning-java",     "port": 80,   "path": "/actuator/health/liveness",     "type": "http"},
+    {"name": "teacher-java",      "kind": "service", "lang": "Java",   "svc": "teacher-java",      "port": 80,   "path": "/actuator/health/liveness",     "type": "http"},
+    {"name": "writing-py",        "kind": "service", "lang": "Python", "svc": "writing-py",        "port": 80,   "path": "/healthz",                      "type": "http"},
+    {"name": "reading-go",        "kind": "service", "lang": "Go",     "svc": "reading-go",        "port": 80,   "path": "/livez",                        "type": "http"},
+    {"name": "listening-go",      "kind": "service", "lang": "Go",     "svc": "listening-go",      "port": 80,   "path": "/livez",                        "type": "http"},
+    {"name": "gamification-go",   "kind": "service", "lang": "Go",     "svc": "gamification-go",   "port": 80,   "path": "/livez",                        "type": "http"},
+    {"name": "vocab-srs-go",      "kind": "service", "lang": "Go",     "svc": "vocab-srs-go",      "port": 80,   "path": "/healthz",                      "type": "http"},
+    {"name": "emotion-svc",       "kind": "service", "lang": "Python", "svc": "emotion-svc",       "port": 80,   "path": "/healthz",                      "type": "http"},
+    {"name": "writing-coach",     "kind": "service", "lang": "Python", "svc": "writing-coach",     "port": 80,   "path": "/healthz",                      "type": "http"},
+    {"name": "course-path-go",    "kind": "service", "lang": "Go",     "svc": "course-path-go",    "port": 80,   "path": "/actuator/health/liveness",     "type": "http"},
+    {"name": "assessment-rs",     "kind": "service", "lang": "Rust",   "svc": "assessment-rs",     "port": 80,   "path": "/actuator/health/liveness",     "type": "http"},
+    {"name": "llm-orchestrator-rs","kind": "service","lang": "Rust",   "svc": "llm-orchestrator-rs","port": 80,  "path": "/healthz",                      "type": "http"},
+    {"name": "pronunciation-rs",  "kind": "service", "lang": "Rust",   "svc": "pronunciation-rs",  "port": 80,   "path": "/actuator/health/liveness",     "type": "http"},
+    {"name": "live-tutor-go",     "kind": "service", "lang": "Go",     "svc": "live-tutor-go",     "port": 80,   "path": "/actuator/health/liveness",     "type": "http"},
+    {"name": "media-learn-rs",    "kind": "service", "lang": "Rust",   "svc": "media-learn-rs",    "port": 80,   "path": "/actuator/health/liveness",     "type": "http"}
+  ],
+  "infra": [
+    {"name": "redis-cluster",  "kind": "infra", "lang": "", "svc": "redis-cluster",  "port": 6379, "path": "", "type": "tcp"},
+    {"name": "pulsar-broker",  "kind": "infra", "lang": "", "svc": "pulsar-broker",  "port": 6650, "path": "", "type": "tcp"},
+    {"name": "tidb-primary",   "kind": "infra", "lang": "", "svc": "tidb-primary",   "port": 4000, "path": "", "type": "tcp"},
+    {"name": "crdb-public",    "kind": "infra", "lang": "", "svc": "crdb-public",    "port": 26257,"path": "", "type": "tcp"},
+    {"name": "nacos",          "kind": "infra", "lang": "", "svc": "nacos",          "port": 8848, "path": "/nacos/v1/console/health/readiness", "type": "http"},
+    {"name": "sentinel",       "kind": "infra", "lang": "", "svc": "sentinel",       "port": 8858, "path": "", "type": "tcp"},
+    {"name": "otel-collector", "kind": "infra", "lang": "", "svc": "otel-collector.esp-observability.svc.cluster.local", "port": 4317, "path": "", "type": "tcp"},
+    {"name": "prometheus",     "kind": "infra", "lang": "", "svc": "prometheus.esp-observability.svc.cluster.local", "port": 9090, "path": "/-/healthy", "type": "http"}
+  ]
+}

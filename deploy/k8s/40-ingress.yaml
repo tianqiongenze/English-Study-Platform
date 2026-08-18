@@ -52,3 +52,12 @@ spec:
       - path: /api/emotion
         pathType: Prefix
         backend: {service: {name: bff-java, port: {number: 8090}}}
+      - path: /api/content
+        pathType: Prefix
+        backend: {service: {name: bff-java, port: {number: 8090}}}
+      - path: /api/community
+        pathType: Prefix
+        backend: {service: {name: bff-java, port: {number: 8090}}}
+      - path: /api/gamification
+        pathType: Prefix
+        backend: {service: {name: bff-java, port: {number: 8090}}}

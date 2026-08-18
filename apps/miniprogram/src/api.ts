@@ -66,6 +66,9 @@ export const api = {
   writingState: client.writingState.bind(client),
   reportBehavior: client.reportBehavior.bind(client),
   recommend: client.recommend.bind(client),
+  // 数字人 persona(功能拓展:per-user 形象,跨设备持久化)
+  getDigitalHuman: () => client.getDigitalHuman(),
+  setDigitalHuman: (persona_id: string) => client.setDigitalHuman(persona_id),
 };
 
 // 小程序 WS:EspWsClient(P2-17,重连+心跳) + wx.connectSocket 传输适配
@@ -93,11 +96,14 @@ class WxSocketTransport implements WsTransport {
 }
 
 export function openSpeechWs(sessionId: string, onMsg: (f: any) => void): EspWsClient {
-  const c = new EspWsClient({
-    url: `${TARO_APP_WS || "ws://localhost:8080"}/ws/speech/${sessionId}`,
-    transport: new WxSocketTransport(),
-    onFrame: (f) => onMsg(f),
-  });
+  // P0-5 修复(2026-08-16 小程序契约核查):gateway-go /ws/speech 强制鉴权(?token= 或 cookie),
+  // 原实现未带 token → 口语 WS 握手必 403,链路断。按 P1-13 设计补 ?token=(wx.request 不自动带 cookie)。
+  const token = wxStorage.getToken();
+  const wsBase = TARO_APP_WS || "ws://localhost:8080";
+  const url = token
+    ? `${wsBase}/ws/speech/${sessionId}?token=${encodeURIComponent(token)}`
+    : `${wsBase}/ws/speech/${sessionId}`;
+  const c = new EspWsClient({ url, transport: new WxSocketTransport(), onFrame: (f) => onMsg(f) });
   c.connect();
   return c;
 }

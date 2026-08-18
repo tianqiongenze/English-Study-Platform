@@ -9,6 +9,7 @@ import com.esp.learning.domain.UserMasteryId;
 import com.esp.rw.DataSource;
 import com.esp.rw.DataSourceType;
 import com.esp.learning.repository.UserMasteryRepository;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -87,19 +88,29 @@ public class LearningService {
 
     /**
      * FR-2.1 初测:批量写入 mastery 基线(写主库)。写后失效 due/weak 缓存。
-     * 批量 saveAll(原逐条 save 在 kpIds 多时 N 次 INSERT 往返,坑㉖)。
+     * 幂等(修"定级跳过"500):先按 (userId,kpId) 投影过滤已存在 kpId(坑㉖投影查询),
+     * 重复触发 / StrictMode 双发不再撞 @Version 乐观锁或 (userId,kpId) 主键冲突。
+     * 批量 saveAll(原逐条 save 在 kpIds 多时 N 次 INSERT 往返)。
+     * @return 实际新增条数(0=已初始化,幂等跳过)
      */
     @DataSource(DataSourceType.WRITE)
-    public void initMastery(long userId, List<Long> kpIds, double initialScore) {
+    public int initMastery(long userId, List<Long> kpIds, double initialScore) {
+        java.util.Set<Long> existKp = new java.util.HashSet<>(masteryRepo.findKpIdsByUserId(userId));
+        java.util.List<Long> missing = kpIds.stream().filter(k -> !existKp.contains(k)).toList();
+        if (missing.isEmpty()) {
+            log.debug("initMastery already inited, skip userId={}", userId);
+            return 0;
+        }
         Instant now = Instant.now();
-        java.util.List<UserMastery> batch = new java.util.ArrayList<>(kpIds.size());
-        for (Long kpId : kpIds) {
+        java.util.List<UserMastery> batch = new java.util.ArrayList<>(missing.size());
+        for (Long kpId : missing) {
             UserMastery m = new UserMastery(userId, kpId);
             m.initBaseline(BigDecimal.valueOf(initialScore), now);
             batch.add(m);
         }
         masteryRepo.saveAll(batch);
         evictUserCache(userId);
+        return missing.size();
     }
 
     /**
@@ -112,6 +123,7 @@ public class LearningService {
      * {@code List<UserMastery>}。HTTP 入口(LearningController/BehaviorController)不强类型,
      * 交 Spring Jackson 序列化即可;RPC provider(LearningRpcProvider)调 getter,自行 {@code toUserMastery} 适配。
      */
+    @CircuitBreaker(name = "dbSlowCall", fallbackMethod = "dueReviewFallback")
     @DataSource(value = DataSourceType.READ, consistent = true)
     public List<UserMastery> dueReview(long userId) {
         String key = "learning:due:" + userId;
@@ -125,6 +137,7 @@ public class LearningService {
      * P2-6: consistent=true 强制走主库(同 dueReview 理由:写后立即读)。
      * §2.2 同 dueReview:L2 命中返回 List<LinkedHashMap>,调用方需注意类型(见 dueReview 注释)。
      */
+    @CircuitBreaker(name = "dbSlowCall", fallbackMethod = "weakestPointsFallback")
     @DataSource(value = DataSourceType.READ, consistent = true)
     public List<UserMastery> weakestPoints(long userId) {
         String key = "learning:weak:" + userId;
@@ -163,5 +176,19 @@ public class LearningService {
 
     public double speedMultiplier(int difficulty) {
         return DifficultyAdjuster.speedMultiplier(difficulty);
+    }
+
+    // ---- Resilience4j fallback:慢调用熔断降级 ----
+
+    /** dueReview 熔断降级:返回空列表,前端可展示"暂无复习任务"。 */
+    public List<UserMastery> dueReviewFallback(long userId, Throwable t) {
+        log.warn("dueReview circuit breaker fallback: userId={}, cause={}", userId, t.getMessage());
+        return List.of();
+    }
+
+    /** weakestPoints 熔断降级:返回空列表,前端可展示"暂无薄弱点"。 */
+    public List<UserMastery> weakestPointsFallback(long userId, Throwable t) {
+        log.warn("weakestPoints circuit breaker fallback: userId={}, cause={}", userId, t.getMessage());
+        return List.of();
     }
 }

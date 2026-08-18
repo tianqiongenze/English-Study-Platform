@@ -21,6 +21,11 @@ spec:
         image: esp/pronunciation-rs:0.3.0
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8088}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8088"}
         # CRDB esp_pronunciation(#140 全服务切 CRDB;tidb TIDB_* 残留仅探针兼容,代码读 WRITE_DB_URL/READ_DB_URL)
@@ -29,7 +34,10 @@ spec:
         - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_pronunciation?sslmode=disable"}
         - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "pronunciation-rs"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        # Nacos 服务注册(entrypoint 脚本 nacos-register.sh)
+        - {name: NACOS_ADDR, value: "nacos:8848"}
+        - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
         startupProbe:   {httpGet: {path: /actuator/health/liveness, port: 8088}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8088}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8088}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}
@@ -69,12 +77,18 @@ spec:
         image: esp/listening-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8089}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8089"}
         - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_listening?sslmode=disable"}
         - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_listening?sslmode=disable"}
         - {name: OTEL_SERVICE_NAME, value: "listening-go"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}
         startupProbe:   {httpGet: {path: /livez, port: 8089}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /readyz, port: 8089}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /livez, port: 8089}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}
@@ -111,9 +125,14 @@ spec:
     spec:
       containers:
       - name: assessment-rs
-        image: esp/assessment-rs:0.3.0
+        image: esp/assessment-rs:0.3.1   # 0.3.1 = TC-GR-25 修复:correct 由 i8 改 i16(pgx v5 i8 编码缺陷),skill_tag 改 Option<String> bind
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8090}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8090"}
         # CRDB esp_assessment(#140 全服务切 CRDB;代码读 WRITE_DB_URL/READ_DB_URL)
@@ -122,7 +141,10 @@ spec:
         - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_assessment?sslmode=disable"}
         - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "assessment-rs"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        # Nacos 服务注册(entrypoint 脚本 nacos-register.sh)
+        - {name: NACOS_ADDR, value: "nacos:8848"}
+        - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
         startupProbe:   {httpGet: {path: /actuator/health/liveness, port: 8090}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8090}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8090}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}
@@ -162,12 +184,18 @@ spec:
         image: esp/reading-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8091}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8091"}
         - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_reading?sslmode=disable"}
         - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_reading?sslmode=disable"}
         - {name: OTEL_SERVICE_NAME, value: "reading-go"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}
         startupProbe:   {httpGet: {path: /livez, port: 8091}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /readyz, port: 8091}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /livez, port: 8091}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}
@@ -204,16 +232,22 @@ spec:
     spec:
       containers:
       - name: gamification-go
-        image: esp/gamification-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
+        image: esp/gamification-go:0.4.2   # #220 #226 数字人 persona:GET/PUT /me/digital-human 写 esp_auth.users.digital_human(跨 schema)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8092}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8092"}
         - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_gamification?sslmode=disable"}
         - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_gamification?sslmode=disable"}
         - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         - {name: OTEL_SERVICE_NAME, value: "gamification-go"}
-        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4317"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}
         startupProbe:   {httpGet: {path: /livez, port: 8092}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /readyz, port: 8092}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /livez, port: 8092}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}

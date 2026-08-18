@@ -223,12 +223,12 @@ TOGAF ADM(Architecture Development Method)是企业架构建模与治理的迭�
 | Phase D 技术架构 | 10 | 7.0 | 技术栈+GitOps+CI 齐全,缺多节点拓扑 + Capacity + DR + SLO |
 | Phase E 机会/方案 | 10 | 5.0 | 历史演进轨迹有,过渡架构未成文 |
 | Phase F 迁移规划 | 10 | 5.5 | PROGRESS 任务链有,缺里程碑-依赖图 |
-| Phase G 实施治理 | 10 | **7.0** | ADR 优秀+GitOps+CI+Pact(部分)+安全扫描,缺治理委员会章程 + 合规模板 + ADR 索引 |
-| Phase H 变更治理 | 10 | 5.0 | PROGRESS 坑链有,缺结构化技术债登记 + CR 流程 |
+| Phase G 实施治理 | 10 | **8.5**(08-17 重评) | CI 10 job(原 6 + 新增 4:rust-services/go-extra/go-coverage/security-scan) + ArgoCD syncPolicy + ADR 索引已建 + 治理委员会章程已补 |
+| Phase H 变更治理 | 10 | **7.0**(08-17 重评) | Java 公共包评估文档已补;tech-debt-register.md 已建立;Java 26 基础镜像评估 + Go DI 重构记录完善 |
 | ReqMC 需求治理 | 10 | 6.5 | SAD §14 需追已做,缺三向追溯 |
-| **TOGAF 平均** | 10 | **6.20** | **相当于 B**(passed, but with notable治理 gaps;需补强 G/H/E 阶段与多节点拓扑闭环) |
+| **TOGAF 平均** | 10 | **6.55**(08-17 重评,旧 6.20) | **相当于 B+**(Phase G +1.5, Phase H +2.0;仍需补强 A/E/F 阶段治理产出物) |
 
-**关键诊断**:ESP 在 B/C/D 三个"做架构"的阶段产出物丰沛(DDD 好 + SDD 完整 + 技术栈清单 + GitOps/CI 已落地),但 **G/H(治理)+ A(愿景)+ E/F(过渡规划)四个"管架构"的阶段** 明显欠账,这是从"好的架构实现"到"工业级架构治理"的最后一公里。
+**关键诊断(08-17 更新)**:ESP 在 B/C/D 三个"做架构"的阶段产出物丰沛(DDD 好 + SDD 完整 + 技术栈清单 + GitOps/CI 已落地),Phase G 实施治理因 CI 补全 + ADR 索引 + 治理委员会章程从 7.0 升至 8.5;Phase H 变更治理因技术债登记建立从 5.0 升至 7.0。**剩余短板**:A(愿景 5.0)+ E(过渡 5.0)+ F(迁移 5.5)三个"规划与愿景"阶段仍明显欠账,是 TOGAF 维度突破 7.0 的关键阻断。
 
 ---
 

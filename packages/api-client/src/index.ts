@@ -4,12 +4,28 @@
 
 import type {
   ClassAnalytics,
+  CommunityCircle,
+  CommunityComment,
+  CommunityCreateResult,
+  CommunityMember,
+  CommunityPost,
+  CommunityReportResult,
+  ContentAnswerResult,
+  ContentCourse,
+  ContentItem,
+  ContentLesson,
   DifficultyResp,
   GradeResult,
   LessonPlan,
   LoginResp,
   Mastery,
   PolishResult,
+  RankingGap,
+  RankingResponse,
+  RankPeriod,
+  RankScope,
+  RankType,
+  RegionOption,
   Scenario,
   SessionResp,
   SessionSummary,
@@ -23,6 +39,24 @@ export { ApiError, FetchTransport } from "./transport";
 export type { Transport, TransportRequest, TransportResponse } from "./transport";
 export type { TokenStorage } from "./storage";
 export { LocalStorageTokenStorage, CookieTokenStorage } from "./storage";
+
+// 管理端类型(探活/Prometheus/治理)
+export interface AdminProbe {
+  name: string; kind: string; lang: string; svc: string; port: number;
+  path: string; status: string; code?: number; msg?: string; latency_ms: number;
+}
+export interface AdminProbeResponse {
+  kind: string; checked_at: string; summary: { total: number; up: number; down: number }; items: AdminProbe[];
+}
+export interface AdminCatalog {
+  services: AdminProbe[]; infra: AdminProbe[];
+}
+export interface AdminNacosService {
+  name: string; group: string; instances: number; healthy: number;
+}
+export interface AdminSentinelRule {
+  resource: string; grade: number; count: number; strategy: number; controlBehavior?: number;
+}
 
 // 简版 traceparent 生成(00-<32hex>-<16hex>-01),与三端原 trace.ts 行为一致
 function traceparent(): string {
@@ -155,6 +189,155 @@ export class ApiClient {
     similar_scenarios: unknown[];
   }> {
     return this.request("GET", `/api/learning/recommend?user_id=${user_id}`);
+  }
+
+  // ---- content:统一内容库(功能拓展阶段1;BFF 注入 X-User-Id/X-Role) ----
+  listCourses(examTag?: string, status = "published"): Promise<ContentCourse[]> {
+    const q = new URLSearchParams();
+    if (examTag) q.set("exam_tag", examTag);
+    q.set("status", status);
+    return this.request("GET", `/api/content/courses?${q.toString()}`);
+  }
+  getCourse(id: number | string): Promise<ContentCourse> {
+    return this.request("GET", `/api/content/courses/${id}`);
+  }
+  listLessons(courseId: number | string): Promise<ContentLesson[]> {
+    return this.request("GET", `/api/content/courses/${courseId}/lessons`);
+  }
+  listItems(lessonId: number | string): Promise<ContentItem[]> {
+    return this.request("GET", `/api/content/lessons/${lessonId}/items`);
+  }
+  submitAnswer(
+    itemId: number | string,
+    answers: Record<string, unknown>,
+    durationMs = 0
+  ): Promise<ContentAnswerResult> {
+    return this.request("POST", `/api/content/items/${itemId}/answer`, {
+      answers,
+      duration_ms: durationMs,
+    });
+  }
+  // 管理端 CRUD(role=admin 才放行)
+  createCourse(body: Record<string, unknown>): Promise<{ id: number }> {
+    return this.request("POST", "/api/content/courses", body);
+  }
+  updateCourse(id: number | string, body: Record<string, unknown>): Promise<{ id: number }> {
+    return this.request("PUT", `/api/content/courses/${id}`, body);
+  }
+  createLesson(body: Record<string, unknown>): Promise<{ id: number }> {
+    return this.request("POST", "/api/content/lessons", body);
+  }
+  createItem(body: Record<string, unknown>): Promise<{ id: number }> {
+    return this.request("POST", "/api/content/items", body);
+  }
+  updateItem(id: number | string, body: Record<string, unknown>): Promise<{ id: number }> {
+    return this.request("PUT", `/api/content/items/${id}`, body);
+  }
+  importContent(items: unknown[]): Promise<{ created: number }> {
+    return this.request("POST", "/api/content/import", items);
+  }
+
+  // ---- admin:运维监测(探活/Prometheus/治理) ----
+  adminServices(): Promise<AdminProbeResponse> {
+    return this.request("GET", "/api/admin/services");
+  }
+  adminInfra(): Promise<AdminProbeResponse> {
+    return this.request("GET", "/api/admin/infra");
+  }
+  adminCatalog(): Promise<AdminCatalog> {
+    return this.request("GET", "/api/admin/catalog");
+  }
+  adminAlerts(): Promise<{ status: string; data: { alerts: unknown[] } }> {
+    return this.request("GET", "/api/admin/metrics/alerts");
+  }
+  adminPromQuery(query: string): Promise<{ data: { result: unknown[] } }> {
+    return this.request("GET", `/api/admin/metrics/query?query=${encodeURIComponent(query)}`);
+  }
+  adminGovernanceNacos(): Promise<{ services: AdminNacosService[] }> {
+    return this.request("GET", "/api/admin/governance/nacos");
+  }
+  adminGovernanceSentinel(): Promise<{ rules: Record<string, AdminSentinelRule[]> }> {
+    return this.request("GET", "/api/admin/governance/sentinel");
+  }
+
+  // ---- community:圈子社区(功能拓展阶段2) ----
+  createCircle(body: { name: string; description?: string; member_limit?: number }): Promise<CommunityCreateResult> {
+    return this.request("POST", "/api/community/circles", body);
+  }
+  listCircles(q = "", mine = false): Promise<CommunityCircle[]> {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    return this.request("GET", mine ? "/api/community/circles/mine" : `/api/community/circles?${params.toString()}`);
+  }
+  getCircle(id: number | string): Promise<CommunityCircle> {
+    return this.request("GET", `/api/community/circles/${id}`);
+  }
+  listCircleMembers(id: number | string): Promise<CommunityMember[]> {
+    return this.request("GET", `/api/community/circles/${id}/members`);
+  }
+  joinCircle(id: number | string, inviteCode: string): Promise<{ id: number; joined?: boolean; already_member?: boolean }> {
+    return this.request("POST", `/api/community/circles/${id}/join`, { invite_code: inviteCode });
+  }
+  leaveCircle(id: number | string): Promise<{ id: number; left: boolean }> {
+    return this.request("POST", `/api/community/circles/${id}/leave`, {});
+  }
+  createPost(circleId: number | string, body: string): Promise<{ id: number }> {
+    return this.request("POST", `/api/community/circles/${circleId}/posts`, { body });
+  }
+  listPosts(circleId: number | string): Promise<CommunityPost[]> {
+    return this.request("GET", `/api/community/circles/${circleId}/posts`);
+  }
+  createComment(postId: number | string, body: string): Promise<{ id: number }> {
+    return this.request("POST", `/api/community/posts/${postId}/comments`, { body });
+  }
+  listComments(postId: number | string): Promise<CommunityComment[]> {
+    return this.request("GET", `/api/community/posts/${postId}/comments`);
+  }
+  reportContent(target_type: "post" | "comment", target_id: number, reason: string): Promise<CommunityReportResult> {
+    return this.request("POST", "/api/community/reports", { target_type, target_id, reason });
+  }
+
+  // ---- gamification 排行榜(功能拓展阶段3;type=xp|prog,scope=global|region|circle|category) ----
+  rankings(params: {
+    type?: RankType;
+    scope?: RankScope;
+    scope_id?: string;
+    period?: RankPeriod;
+    limit?: number;
+  }): Promise<RankingResponse> {
+    const q = new URLSearchParams();
+    if (params.type) q.set("type", params.type);
+    if (params.scope) q.set("scope", params.scope);
+    if (params.scope_id) q.set("scope_id", params.scope_id);
+    if (params.period) q.set("period", params.period);
+    if (params.limit) q.set("limit", String(params.limit));
+    return this.request("GET", `/api/gamification/rankings?${q.toString()}`);
+  }
+  rankingGap(params: {
+    type?: RankType;
+    scope?: RankScope;
+    scope_id?: string;
+    period?: RankPeriod;
+  }): Promise<RankingGap> {
+    const q = new URLSearchParams();
+    if (params.type) q.set("type", params.type);
+    if (params.scope) q.set("scope", params.scope);
+    if (params.scope_id) q.set("scope_id", params.scope_id);
+    if (params.period) q.set("period", params.period);
+    return this.request("GET", `/api/gamification/rankings/gap?${q.toString()}`);
+  }
+  rankingRegions(): Promise<RegionOption[]> {
+    return this.request("GET", "/api/gamification/rankings/regions");
+  }
+  setRankingOptOut(optOut: boolean): Promise<{ opt_out: boolean }> {
+    return this.request("POST", "/api/gamification/users/optout", { opt_out: optOut });
+  }
+  // 数字人形象偏好(per-user,跨设备持久化;X-User-Id 由 BFF 注入)
+  getDigitalHuman(): Promise<{ persona_id: string }> {
+    return this.request("GET", "/api/gamification/me/digital-human");
+  }
+  setDigitalHuman(persona_id: string): Promise<{ persona_id: string }> {
+    return this.request("PUT", "/api/gamification/me/digital-human", { persona_id });
   }
 
   // ---- writing(统一完整签名:prompt/essay/exam 全显式,消灭 H5/小程序硬编码) ----

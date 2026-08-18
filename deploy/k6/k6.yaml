@@ -1,0 +1,40 @@
+# k6 全服务基准 Job(集群内 ClusterIP 直连,grafana/k6:0.54.0)
+# 用法:bash scripts/run_k6_bench.sh <EP> <VUS> [DUR](见脚本内 EP 清单)。
+# 脚本经 configmap 挂载;JWT 经 esp-bench-tokens configmap 注入(预签 RS256)。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __JOB__
+  namespace: esp-prod
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: esp-k6:0.54.0
+          imagePullPolicy: IfNotPresent
+          command: ["k6", "run"]
+          args:
+            - "--summary-export=/tmp/summary.json"
+            - "-e"
+            - "EP=__EP__"
+            - "-e"
+            - "VUS=__VUS__"
+            - "/k6/scenarios-fullbench.js"
+          env:
+            - name: LEARNER_TOKENS
+              valueFrom:
+                configMapKeyRef: {name: esp-bench-tokens, key: LEARNER_TOKENS}
+            - name: TEACHER_TOKEN
+              valueFrom:
+                configMapKeyRef: {name: esp-bench-tokens, key: TEACHER_TOKEN}
+          volumeMounts:
+            - name: scripts
+              mountPath: /k6
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap: {name: k6-scripts}

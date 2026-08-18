@@ -5,21 +5,30 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"esp/common-go/config"
 	"esp/common-go/db"
 	"esp/common-go/health"
+	"esp/common-go/llm"
+	"esp/common-go/middleware"
+	"esp/common-go/registry"
 )
 
 const serviceName = "reading-go"
@@ -38,11 +47,17 @@ func main() {
 	writeDB = db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_reading")), serviceName)
 	log.Printf("[%s] CRDB pools ready (read+write)", serviceName)
 
+	// Nacos 服务注册(优雅退出时注销)
+	nacosCli := registry.RegisterNacos(serviceName, 8091)
+
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.GinRateLimit(100, 200))                                           // 100 rps,桶容量200(突发余量)
+	r.Use(middleware.GinCircuitBreaker(5, 30*time.Second, serviceName))                // 5次失败触发30s熔断
 	r.GET("/healthz", health.GinHealthz(serviceName))
 	r.GET("/livez", health.GinLivez())
 	r.GET("/readyz", readyz)
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	api := r.Group("/api/reading")
 	api.GET("/passages", listPassages)        // 分级文章列表
@@ -61,6 +76,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Printf("[%s] shutting down", serviceName)
+	registry.DeRegister(serviceName, 8091, nacosCli)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
@@ -149,21 +165,71 @@ func submitAttempt(c *gin.Context) {
 	c.JSON(202, gin.H{"accepted": true, "score": body.Score})
 }
 
-// 长难句解析(桩)
+// 长难句解析(真实 LLM;L1 进程缓存,超容量清空。L2 Redis 统一在 Phase 2 接 esp-cache)
+var (
+	parseCacheMu sync.Mutex
+	parseCache   = map[string]parseResult{}
+)
+
+type parseResult struct {
+	Sentence    string   `json:"sentence"`
+	MainClause  string   `json:"main_clause"`
+	Subordinate []string `json:"subordinate"`
+	Translation string   `json:"translation"`
+}
+
+func sval(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
 func parseSentence(c *gin.Context) {
 	var body struct {
 		Sentence string `json:"sentence"`
 	}
-	if err := c.BindJSON(&body); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+	if err := c.BindJSON(&body); err != nil || strings.TrimSpace(body.Sentence) == "" {
+		c.JSON(400, gin.H{"error": "sentence required"})
 		return
 	}
-	c.JSON(200, gin.H{
-		"sentence":   body.Sentence,
-		"main_clause": "占位主句(LLM 长难句解析待接入)",
-		"subordinate": []string{},
-		"translation": "占位翻译",
-	})
+	sum := sha256.Sum256([]byte(body.Sentence))
+	key := hex.EncodeToString(sum[:])
+	parseCacheMu.Lock()
+	if r, ok := parseCache[key]; ok {
+		parseCacheMu.Unlock()
+		c.JSON(200, r)
+		return
+	}
+	if len(parseCache) >= 1024 {
+		parseCache = map[string]parseResult{}
+	}
+	parseCacheMu.Unlock()
+
+	cl := llm.New()
+	system := "你是英语长难句解析助手。只输出 JSON,格式 {\"main_clause\":string,\"subordinate\":[string...],\"translation\":string}。main_clause 用英文原文主句,subordinate 是修饰性从句/短语列表,translation 是通顺中文翻译。"
+	out, err := cl.Chat(c.Request.Context(), system, body.Sentence)
+	if err != nil {
+		c.JSON(502, gin.H{"error": "LLM unavailable: " + err.Error()})
+		return
+	}
+	m, err := llm.ExtractJSON(out)
+	if err != nil {
+		c.JSON(502, gin.H{"error": "LLM output parse failed"})
+		return
+	}
+	r := parseResult{Sentence: body.Sentence, MainClause: sval(m["main_clause"]), Translation: sval(m["translation"])}
+	if subs, ok := m["subordinate"].([]any); ok {
+		for _, s := range subs {
+			if s != nil {
+				r.Subordinate = append(r.Subordinate, fmt.Sprintf("%v", s))
+			}
+		}
+	}
+	parseCacheMu.Lock()
+	parseCache[key] = r
+	parseCacheMu.Unlock()
+	c.JSON(200, r)
 }
 
 func mustConnectDB(dsn string) *sql.DB {

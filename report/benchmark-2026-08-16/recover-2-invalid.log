@@ -1,0 +1,16 @@
+13:51:02 gate waiting (load/pods not settled)
+13:52:04 gate waiting (load/pods not settled)
+13:52:25 ==> bff_login v10 (start)
+==> locust bff_login v10 dur=35s (start 13:52:25)
+==> completed 13:53:48
+Response time percentiles (approximated)
+>>> Test stopped. requests=0 failures=0 avg_rps=0.00 avg_latency_ms=0.00 p95_ms=0.00 fail_rate=0.0000
+==> log: report/benchmark-2026-08-16/locust-bff_login-v10.log
+13:53:49 OK  bff_login v10 (req=0 fail=0.0000)
+13:54:29 gate waiting (load/pods not settled)
+13:55:30 gate waiting (load/pods not settled)
+13:56:11 ==> teacher_kpstats v20 (start)
+==> locust teacher_kpstats v20 dur=35s (start 13:56:11)
+==> pod-log-captured(phase!=Running) 14:00:13
+14:00:13 OK  teacher_kpstats v20 (req=1544 fail=0.0039)
+== RECOVER-2 DONE 14:00:13 ==

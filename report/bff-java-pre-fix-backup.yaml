@@ -1,0 +1,165 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: esp-platform:apps/Deployment:esp-prod/bff-java
+    deployment.kubernetes.io/revision: "54"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"name":"bff-java","namespace":"esp-prod"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"bff-java"}},"template":{"metadata":{"annotations":{"prometheus.io/path":"/actuator/prometheus","prometheus.io/port":"8090","prometheus.io/scrape":"true"},"labels":{"app":"bff-java"}},"spec":{"containers":[{"env":[{"name":"NACOS_ADDR","value":"nacos:8848"},{"name":"NACOS_NS","value":"public"},{"name":"SENTINEL_DASH","value":"sentinel:8858"},{"name":"SEATA_ENABLED","value":"false"},{"name":"JWT_SECRET","valueFrom":{"secretKeyRef":{"key":"JWT_SECRET","name":"esp-secrets","optional":true}}},{"name":"ESP_RW_STORAGE_TYPE","value":"cockroachdb"},{"name":"ESP_RW_COCKROACHDB_HOST","value":"crdb-public"},{"name":"ESP_RW_COCKROACHDB_READ_HOST","value":"crdb-public"},{"name":"ESP_RW_COCKROACHDB_PORT","value":"26257"},{"name":"ESP_RW_COCKROACHDB_DB","value":"esp_auth"},{"name":"ESP_RW_COCKROACHDB_USER","value":"root"},{"name":"WRITE_DB_URL","value":"jdbc:mysql://tidb-primary:4000/esp?useSSL=false\u0026allowPublicKeyRetrieval=true"},{"name":"DB_USER","value":"root"},{"name":"DB_PASS","value":""},{"name":"REDIS_HOST","value":"redis-cluster"},{"name":"WX_LOGIN_ENABLED","value":"false"},{"name":"OTEL_SERVICE_NAME","value":"bff"},{"name":"OTEL_EXPORTER_OTLP_ENDPOINT","value":"http://otel-collector.esp-prod.svc.cluster.local:4317"},{"name":"OTEL_TRACES_EXPORTER","value":"otlp"},{"name":"OTEL_LOGS_EXPORTER","value":"none"}],"envFrom":[{"secretRef":{"name":"esp-rsa-jwt-sign"}}],"image":"esp/bff-java:1.10.0","imagePullPolicy":"IfNotPresent","livenessProbe":{"failureThreshold":5,"httpGet":{"path":"/actuator/health/liveness","port":8090},"periodSeconds":15,"timeoutSeconds":3},"name":"bff-java","ports":[{"containerPort":8090,"name":"mvc"},{"containerPort":9090,"name":"edge"},{"containerPort":50090,"name":"dubbo"}],"readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/actuator/health/readiness","port":8090},"periodSeconds":10,"timeoutSeconds":3},"resources":{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"200m","memory":"512Mi"}},"securityContext":{"allowPrivilegeEscalation":false,"runAsNonRoot":true,"runAsUser":1000},"startupProbe":{"failureThreshold":120,"httpGet":{"path":"/actuator/health/liveness","port":8090},"initialDelaySeconds":30,"periodSeconds":10,"timeoutSeconds":5}}]}}}}
+  creationTimestamp: "2026-08-13T13:48:19Z"
+  generation: 70
+  name: bff-java
+  namespace: esp-prod
+  resourceVersion: "1750885"
+  uid: d68826dc-ffd2-41a6-8151-318ce9cadaa4
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 4
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: bff-java
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2026-08-18T07:26:49+08:00"
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: "8090"
+        prometheus.io/scrape: "true"
+      labels:
+        app: bff-java
+    spec:
+      containers:
+      - env:
+        - name: NACOS_ADDR
+          value: nacos:8848
+        - name: NACOS_NS
+          value: public
+        - name: SENTINEL_DASH
+          value: sentinel:8858
+        - name: SEATA_ENABLED
+          value: "false"
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: JWT_SECRET
+              name: esp-secrets
+              optional: true
+        - name: ESP_RW_STORAGE_TYPE
+          value: cockroachdb
+        - name: ESP_RW_COCKROACHDB_HOST
+          value: crdb-public
+        - name: ESP_RW_COCKROACHDB_READ_HOST
+          value: crdb-public
+        - name: ESP_RW_COCKROACHDB_PORT
+          value: "26257"
+        - name: ESP_RW_COCKROACHDB_DB
+          value: esp_auth
+        - name: ESP_RW_COCKROACHDB_USER
+          value: root
+        - name: WRITE_DB_URL
+          value: jdbc:mysql://tidb-primary:4000/esp?useSSL=false&allowPublicKeyRetrieval=true
+        - name: DB_USER
+          value: root
+        - name: DB_PASS
+        - name: REDIS_HOST
+          value: redis-cluster
+        - name: WX_LOGIN_ENABLED
+          value: "false"
+        - name: OTEL_SERVICE_NAME
+          value: bff
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector.esp-prod.svc.cluster.local:4317
+        - name: OTEL_TRACES_EXPORTER
+          value: otlp
+        - name: OTEL_METRICS_EXPORTER
+          value: none
+        - name: OTEL_LOGS_EXPORTER
+          value: none
+        envFrom:
+        - secretRef:
+            name: esp-rsa-jwt-sign
+        image: esp/bff-java:1.10.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8090
+            scheme: HTTP
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 3
+        name: bff-java
+        ports:
+        - containerPort: 8090
+          name: mvc
+          protocol: TCP
+        - containerPort: 9090
+          name: edge
+          protocol: TCP
+        - containerPort: 50090
+          name: dubbo
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8090
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: "2"
+            memory: 2Gi
+          requests:
+            cpu: 200m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+        startupProbe:
+          failureThreshold: 120
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8090
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+status:
+  availableReplicas: 2
+  conditions:
+  - lastTransitionTime: "2026-08-18T15:03:03Z"
+    lastUpdateTime: "2026-08-18T15:03:03Z"
+    message: Deployment does not have minimum availability.
+    reason: MinimumReplicasUnavailable
+    status: "False"
+    type: Available
+  - lastTransitionTime: "2026-08-18T15:16:27Z"
+    lastUpdateTime: "2026-08-18T15:16:27Z"
+    message: ReplicaSet "bff-java-5c57d7cd84" has timed out progressing.
+    reason: ProgressDeadlineExceeded
+    status: "False"
+    type: Progressing
+  observedGeneration: 70
+  readyReplicas: 2
+  replicas: 5
+  unavailableReplicas: 3
+  updatedReplicas: 3

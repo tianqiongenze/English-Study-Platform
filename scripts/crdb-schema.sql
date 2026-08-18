@@ -212,3 +212,155 @@ CREATE TABLE esp_shared.app_logs (
   INDEX idx_trace (trace_id),
   INDEX idx_user_event (user_id, event, ts)
 );
+
+-- ============================================================================
+-- feature-expansion(功能拓展):内容库 / 圈子社区 / 排行榜 新增表
+-- ============================================================================
+
+-- ---------------- esp_content 内容库:course → lesson → content_item ----------------
+-- 统一策展目录(四六级/托福/雅思/教材),所有用户共享;版本快照 is_current,状态生命周期。
+CREATE TABLE esp_content.courses (
+  id          BIGINT NOT NULL DEFAULT unique_rowid() PRIMARY KEY,
+  code        VARCHAR(32) NOT NULL,          -- cet4/cet6/toefl/ielts/textbook
+  title       VARCHAR(128) NOT NULL,
+  exam_tag    VARCHAR(16) NOT NULL,          -- CET4/CET6/TOEFL/IELTS/GENERAL
+  cefr_range  VARCHAR(16) NOT NULL DEFAULT '',
+  description TEXT,
+  cover_url   VARCHAR(256),
+  status      VARCHAR(16) NOT NULL DEFAULT 'published', -- draft/pending/published/archived
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uk_course_code UNIQUE (code)
+);
+
+CREATE TABLE esp_content.lessons (
+  id         BIGINT NOT NULL DEFAULT unique_rowid() PRIMARY KEY,
+  course_id  BIGINT NOT NULL,
+  seq        INT NOT NULL DEFAULT 0,
+  title      VARCHAR(128) NOT NULL,
+  skill      VARCHAR(16) NOT NULL,           -- vocab/reading/listening/grammar/cloze
+  cefr       VARCHAR(16) NOT NULL DEFAULT '',
+  status     VARCHAR(16) NOT NULL DEFAULT 'published',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  INDEX idx_course_seq (course_id, seq)
+);
+
+CREATE TABLE esp_content.content_items (
+  id          BIGINT NOT NULL DEFAULT unique_rowid() PRIMARY KEY,
+  lesson_id   BIGINT NOT NULL,
+  item_type   VARCHAR(16) NOT NULL,          -- vocab/reading/listening/grammar/cloze
+  prompt      JSONB NOT NULL,                -- 结构化题干(word/def/passage/options/audio_ref)
+  answer      JSONB,                         -- 答案与判分基准
+  explanation TEXT,
+  difficulty  INT NOT NULL DEFAULT 3,        -- 1-5
+  cefr        VARCHAR(16) NOT NULL DEFAULT '',
+  tags        STRING[],                      -- 主题/题型标签
+  source      VARCHAR(64),                   -- 内容来源(版权标注)
+  license     VARCHAR(32),                   -- 授权标注
+  version     INT NOT NULL DEFAULT 1,        -- 版本快照(编辑建新版本,不覆盖)
+  is_current  BOOL NOT NULL DEFAULT true,
+  status      VARCHAR(16) NOT NULL DEFAULT 'published', -- draft/pending/published/archived
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  INDEX idx_lesson (lesson_id),
+  INDEX idx_current (is_current, status)
+);
+
+-- 内容作答(内容库学习进度真源;经 learning_event_outbox 发事件供 XP/掌握度)
+CREATE TABLE esp_content.content_attempts (
+  id           BIGINT NOT NULL DEFAULT unique_rowid() PRIMARY KEY,
+  user_id      BIGINT NOT NULL,
+  item_id      BIGINT NOT NULL,
+  answers_json JSONB,
+  score        DECIMAL(5,2) NOT NULL DEFAULT 0,
+  correct      BOOL NOT NULL DEFAULT false,
+  duration_ms  INT NOT NULL DEFAULT 0,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  INDEX idx_user_item (user_id, item_id),
+  INDEX idx_item (item_id)
+);
+
+-- ---------------- esp_community 圈子社区 ----------------
+CREATE DATABASE IF NOT EXISTS esp_community;
+
+CREATE TABLE esp_community.circles (
+  id           BIGINT NOT NULL DEFAULT unique_rowid() PRIMARY KEY,
+  name         VARCHAR(64) NOT NULL,
+  description  TEXT,
+  invite_code  VARCHAR(8) NOT NULL,
+  owner_id     BIGINT NOT NULL,
+  member_limit INT NOT NULL DEFAULT 50,
+  status       VARCHAR(16) NOT NULL DEFAULT 'active', -- active/closed
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uk_invite_code UNIQUE (invite_code),
+  INDEX idx_owner (owner_id)
+);
+
+CREATE TABLE esp_community.circle_memberships (
+  circle_id BIGINT NOT NULL,
+  user_id   BIGINT NOT NULL,
+  role      VARCHAR(16) NOT NULL DEFAULT 'member',   -- owner/admin/member
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (circle_id, user_id),
+  INDEX idx_user (user_id)
+);
+
+CREATE TABLE esp_community.circle_posts (
+  id           BIGINT NOT NULL DEFAULT unique_rowid() PRIMARY KEY,
+  circle_id    BIGINT NOT NULL,
+  user_id      BIGINT NOT NULL,
+  body         TEXT NOT NULL,
+  status       VARCHAR(16) NOT NULL DEFAULT 'published', -- published/hidden(举报达阈值自动隐藏)
+  report_count INT NOT NULL DEFAULT 0,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  INDEX idx_circle_time (circle_id, created_at)
+);
+
+CREATE TABLE esp_community.circle_post_comments (
+  id         BIGINT NOT NULL DEFAULT unique_rowid() PRIMARY KEY,
+  post_id    BIGINT NOT NULL,
+  user_id    BIGINT NOT NULL,
+  body       TEXT NOT NULL,
+  status     VARCHAR(16) NOT NULL DEFAULT 'published',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  INDEX idx_post (post_id)
+);
+
+CREATE TABLE esp_community.content_reports (
+  id          BIGINT NOT NULL DEFAULT unique_rowid() PRIMARY KEY,
+  target_type VARCHAR(16) NOT NULL,          -- post/comment/circle
+  target_id   BIGINT NOT NULL,
+  reporter_id BIGINT NOT NULL,
+  reason      VARCHAR(128),
+  status      VARCHAR(16) NOT NULL DEFAULT 'pending', -- pending/reviewed/dismissed
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- UK 防重复举报:同一用户对同一目标只能举报一次
+ALTER TABLE esp_community.content_reports ADD CONSTRAINT uk_report_user_target UNIQUE (reporter_id, target_type, target_id);
+-- 索引:举报列表查询按 target_type + target_id 过滤
+CREATE INDEX IF NOT EXISTS idx_content_reports_target ON esp_community.content_reports (target_type, target_id);
+
+-- ---------------- esp_gamif 排行榜快照(历史/大盘 percentile) ----------------
+CREATE DATABASE IF NOT EXISTS esp_gamif;
+
+CREATE TABLE esp_gamif.leaderboard_snapshots (
+  id         BIGINT NOT NULL DEFAULT unique_rowid() PRIMARY KEY,
+  scope_type VARCHAR(16) NOT NULL,           -- global/region/circle/category
+  scope_id   VARCHAR(64) NOT NULL,           -- all/region_code/circle_id/category
+  period     VARCHAR(16) NOT NULL,           -- daily/weekly/monthly
+  rank       INT NOT NULL,
+  user_id    BIGINT NOT NULL,
+  score      DECIMAL(18,4) NOT NULL,
+  total_members INT,                          -- 偏差④:当日该榜总人数,支持 percentile
+  ts         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  INDEX idx_scope_period_rank (scope_type, scope_id, period, rank),
+  INDEX idx_scope_period_user (scope_type, scope_id, period, user_id)
+);
+
+-- 兼容已建表:补列(幂等)
+ALTER TABLE esp_gamif.leaderboard_snapshots ADD COLUMN IF NOT EXISTS total_members INT;
+CREATE INDEX IF NOT EXISTS idx_scope_period_user ON esp_gamif.leaderboard_snapshots (scope_type, scope_id, period, user_id);
+
+-- ---------------- esp_auth.users 扩展(地域 / 排行隐私 / 社区资料) ----------------
+ALTER TABLE esp_auth.users ADD COLUMN IF NOT EXISTS region_code STRING;      -- ISO2 或 CN/GB-T(如 CN/440300)
+ALTER TABLE esp_auth.users ADD COLUMN IF NOT EXISTS ranking_opt_out BOOL NOT NULL DEFAULT false;
+ALTER TABLE esp_auth.users ADD COLUMN IF NOT EXISTS avatar_url STRING;
+ALTER TABLE esp_auth.users ADD COLUMN IF NOT EXISTS bio STRING;

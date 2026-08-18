@@ -1,0 +1,6 @@
+# esp-k6 — 本地 k6 镜像(registry mirror 403 期间 FROM 本地既有基础镜像派生)
+# k6 二进制从 GitHub releases 下载(linux-arm64,静态 Go),基础用本地 esp-locust(python:3.12-slim/glibc)。
+FROM esp-locust:2.46
+COPY linux-arm64/k6 /usr/local/bin/k6
+RUN chmod +x /usr/local/bin/k6 && k6 version
+ENTRYPOINT ["/usr/local/bin/k6"]

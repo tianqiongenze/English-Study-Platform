@@ -10,7 +10,7 @@ metadata: {name: gateway-go, namespace: esp-prod}
 spec:
   scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: gateway-go}
   minReplicas: 1              # 单节点 RD 资源紧张,各服务 minReplicas 下调;多节点生产恢复原值
-  maxReplicas: 20
+  maxReplicas: 4             # Phase2:单节点 RD cap(原20,坑㉟ overshoot致CPU饥饿);多节点生产恢复20
   metrics:
   - type: Resource
     resource: {name: cpu, target: {type: Utilization, averageUtilization: 60}}
@@ -34,7 +34,7 @@ metadata: {name: learning-java, namespace: esp-prod}
 spec:
   scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: learning-java}
   minReplicas: 1              # 单节点 RD 资源紧张;多节点生产恢复 3
-  maxReplicas: 15
+  maxReplicas: 6             # Phase2:单节点 RD cap(原15);多节点生产恢复 15
   metrics:
   - type: Resource
     resource: {name: cpu, target: {type: Utilization, averageUtilization: 65}}
@@ -74,7 +74,7 @@ metadata: {name: teacher-java, namespace: esp-prod}
 spec:
   scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: teacher-java}
   minReplicas: 1              # 单节点 RD 资源紧张;多节点生产恢复 2
-  maxReplicas: 8
+  maxReplicas: 6             # Phase2:单节点 RD cap(原8);多节点生产恢复 8
   metrics:
   - type: Resource
     resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}

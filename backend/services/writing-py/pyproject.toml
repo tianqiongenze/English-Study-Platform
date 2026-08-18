@@ -27,6 +27,8 @@ dependencies = [
     # OTel 自动埋点:Litestar 2.x 内置 OpenTelemetryPlugin(litestar.contrib.opentelemetry),
     # PyPI 上 opentelemetry-instrumentation-litestar 无真实发布,故不单独依赖。
     "opentelemetry-instrumentation-asgi>=0.49b0,<1.0",
+    # Nacos 服务注册
+    "nacos-sdk-python>=0.1.15,<1.0",
 ]
 
 [project.optional-dependencies]

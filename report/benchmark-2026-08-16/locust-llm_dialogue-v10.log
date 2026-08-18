@@ -1,0 +1,80 @@
+GET      /api/dialogue/sessions?user_id=10000108&limit=20                                1159     0(0.00%) |     22       2    1125     13 |   39.40        0.00
+GET      /api/dialogue/sessions?user_id=10000109&limit=20                                1109     0(0.00%) |     23       2    1169     14 |   33.70        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                     11753     6(0.05%) |     22       2    1169     13 |  405.80        0.00
+
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/dialogue/sessions?user_id=10000100&limit=20                                1205     1(0.08%) |     23       2    1143     13 |   37.60        0.00
+GET      /api/dialogue/sessions?user_id=10000101&limit=20                                1225     1(0.08%) |     22       2    1144     13 |   39.90        0.00
+GET      /api/dialogue/sessions?user_id=10000102&limit=20                                1228     1(0.08%) |     23       2    1141     13 |   39.40        0.00
+GET      /api/dialogue/sessions?user_id=10000103&limit=20                                1147     1(0.09%) |     24       3    1159     13 |   33.40        0.00
+GET      /api/dialogue/sessions?user_id=10000104&limit=20                                1202     1(0.08%) |     23       2    1142     13 |   40.20        0.00
+GET      /api/dialogue/sessions?user_id=10000105&limit=20                                1263     1(0.08%) |     22       2    1159     13 |   44.60        0.00
+GET      /api/dialogue/sessions?user_id=10000106&limit=20                                1182     0(0.00%) |     23       2    1167     13 |   38.30        0.00
+GET      /api/dialogue/sessions?user_id=10000107&limit=20                                1260     0(0.00%) |     22       3    1164     13 |   44.50        0.00
+GET      /api/dialogue/sessions?user_id=10000108&limit=20                                1194     0(0.00%) |     23       2    1125     13 |   37.60        0.00
+GET      /api/dialogue/sessions?user_id=10000109&limit=20                                1137     0(0.00%) |     24       2    1169     14 |   30.30        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                     12043     6(0.05%) |     23       2    1169     13 |  385.80        0.00
+
+[2026-08-16 03:45:38,188] locbench-llm-dialogue-10-ctfz9/INFO/locust.main: --run-time limit reached, shutting down
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/dialogue/sessions?user_id=10000100&limit=20                                1272     1(0.08%) |     23       2    1143     13 |   29.90        0.00
+GET      /api/dialogue/sessions?user_id=10000101&limit=20                                1291     1(0.08%) |     22       2    1144     13 |   35.00        0.00
+GET      /api/dialogue/sessions?user_id=10000102&limit=20                                1299     1(0.08%) |     23       2    1141     13 |   34.00        0.00
+GET      /api/dialogue/sessions?user_id=10000103&limit=20                                1196     1(0.08%) |     25       3    1159     13 |   26.30        0.00
+GET      /api/dialogue/sessions?user_id=10000104&limit=20                                1262     1(0.08%) |     23       2    1142     13 |   32.70        0.00
+GET      /api/dialogue/sessions?user_id=10000105&limit=20                                1326     1(0.08%) |     22       2    1159     13 |   37.60        0.00
+GET      /api/dialogue/sessions?user_id=10000106&limit=20                                1224     0(0.00%) |     24       2    1167     13 |   32.50        0.00
+GET      /api/dialogue/sessions?user_id=10000107&limit=20                                1320     0(0.00%) |     22       3    1164     13 |   38.20        0.00
+GET      /api/dialogue/sessions?user_id=10000108&limit=20                                1255     0(0.00%) |     24       2    1125     13 |   30.60        0.00
+GET      /api/dialogue/sessions?user_id=10000109&limit=20                                1196     0(0.00%) |     24       2    1169     14 |   26.00        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                     12641     6(0.05%) |     23       2    1169     13 |  322.80        0.00
+
+[2026-08-16 03:45:38,338] locbench-llm-dialogue-10-ctfz9/INFO/locust.main: Shutting down (exit code 1)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/dialogue/sessions?user_id=10000100&limit=20                                1273     1(0.08%) |     23       2    1143     13 |   37.02        0.03
+GET      /api/dialogue/sessions?user_id=10000101&limit=20                                1292     1(0.08%) |     22       2    1144     13 |   37.58        0.03
+GET      /api/dialogue/sessions?user_id=10000102&limit=20                                1300     1(0.08%) |     23       2    1141     13 |   37.81        0.03
+GET      /api/dialogue/sessions?user_id=10000103&limit=20                                1197     1(0.08%) |     25       3    1159     13 |   34.81        0.03
+GET      /api/dialogue/sessions?user_id=10000104&limit=20                                1263     1(0.08%) |     23       2    1142     13 |   36.73        0.03
+GET      /api/dialogue/sessions?user_id=10000105&limit=20                                1327     1(0.08%) |     22       2    1159     13 |   38.59        0.03
+GET      /api/dialogue/sessions?user_id=10000106&limit=20                                1225     0(0.00%) |     24       2    1167     13 |   35.63        0.00
+GET      /api/dialogue/sessions?user_id=10000107&limit=20                                1321     0(0.00%) |     22       3    1164     13 |   38.42        0.00
+GET      /api/dialogue/sessions?user_id=10000108&limit=20                                1256     0(0.00%) |     24       2    1125     13 |   36.53        0.00
+GET      /api/dialogue/sessions?user_id=10000109&limit=20                                1197     0(0.00%) |     24       2    1169     14 |   34.81        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                     12651     6(0.05%) |     23       2    1169     13 |  367.94        0.17
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+GET      /api/dialogue/sessions?user_id=10000100&limit=20                                       13     18     22     27     43     76    130    190    320   1100   1100   1273
+GET      /api/dialogue/sessions?user_id=10000101&limit=20                                       13     17     21     25     42     69    140    180    400   1100   1100   1292
+GET      /api/dialogue/sessions?user_id=10000102&limit=20                                       13     18     22     25     41     74    140    180    400   1100   1100   1300
+GET      /api/dialogue/sessions?user_id=10000103&limit=20                                       13     19     24     28     46     88    160    190    390   1200   1200   1197
+GET      /api/dialogue/sessions?user_id=10000104&limit=20                                       13     17     21     25     41     71    150    190    730   1100   1100   1263
+GET      /api/dialogue/sessions?user_id=10000105&limit=20                                       13     18     22     25     41     66    120    170    660   1200   1200   1327
+GET      /api/dialogue/sessions?user_id=10000106&limit=20                                       13     19     23     27     49     82    150    190    410   1200   1200   1225
+GET      /api/dialogue/sessions?user_id=10000107&limit=20                                       13     18     22     25     40     65    120    170    400   1200   1200   1321
+GET      /api/dialogue/sessions?user_id=10000108&limit=20                                       13     18     22     25     44     82    150    210    400   1100   1100   1256
+GET      /api/dialogue/sessions?user_id=10000109&limit=20                                       14     19     23     27     46     83    150    200    390   1200   1200   1197
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                             13     18     22     26     43     75    140    180    410   1200   1200  12651
+
+Error report
+# occurrences      Error                                                                                               
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+1                  GET /api/dialogue/sessions?user_id=10000105&limit=20: ConnectionRefusedError(111, 'Connection refused')
+1                  GET /api/dialogue/sessions?user_id=10000104&limit=20: ConnectionRefusedError(111, 'Connection refused')
+1                  GET /api/dialogue/sessions?user_id=10000103&limit=20: ConnectionRefusedError(111, 'Connection refused')
+1                  GET /api/dialogue/sessions?user_id=10000102&limit=20: ConnectionRefusedError(111, 'Connection refused')
+1                  GET /api/dialogue/sessions?user_id=10000101&limit=20: ConnectionRefusedError(111, 'Connection refused')
+1                  GET /api/dialogue/sessions?user_id=10000100&limit=20: ConnectionRefusedError(111, 'Connection refused')
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+
+>>> Test stopped. requests=12651 failures=6 avg_rps=367.94 avg_latency_ms=23.80 p95_ms=75.00 fail_rate=0.0005

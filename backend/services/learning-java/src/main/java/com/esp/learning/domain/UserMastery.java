@@ -37,7 +37,12 @@ public class UserMastery {
     /**
      * P2-6: 乐观锁版本号。review 的读-改-写在并发复习(同 user 同 kp 双端同时提交)下
      * 防 lost update,Hibernate 在 UPDATE 追加 WHERE version=? 并自增。
-     * 表列 version INT NOT NULL DEFAULT 0,INSERT 时由构造器显式置 0 兜底。
+     * 表列 version INT NOT NULL DEFAULT 0。
+     *
+     * <p>注意:新实体构造时 version 必须保持 null——Spring Data 的 {@code save()} 靠
+     * {@code version == null} 判定"新实体"走 persist(INSERT);若显式置 0 会被判为
+     * "已分离"走 merge,DB 无该行时 Hibernate 抛 StaleObjectStateException(修 22-40:
+     * placement 定级新 kpId 首插 500 的根因)。INSERT 时 Hibernate 自动写 version=0。
      */
     @Version
     private Integer version;
@@ -56,7 +61,8 @@ public class UserMastery {
         this.kpId = kpId;
         this.masteryScore = BigDecimal.ZERO;
         this.reviewCount = 0;
-        this.version = 0;
+        // version 保持 null:见字段注释,新实体须被 Spring Data 判为 new(persist/INSERT),
+        // Hibernate 会在 INSERT 时自动写 version=0。
     }
 
     /**

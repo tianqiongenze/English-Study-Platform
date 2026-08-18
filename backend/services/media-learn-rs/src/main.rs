@@ -2,12 +2,36 @@
 // 单节点 RD:scaffold + 字幕同步 API,音视频对齐用预录样本离线验证,不在线转码。
 // 完整 ADR/PRD/schema 见 docs/design/adr-new-services.md / prd-new-services.md / adr-schema-per-service.md
 
-use axum::{routing::get, Router};
+use axum::{routing::get, Router, http::StatusCode, middleware, response::IntoResponse, Json};
+use governor::{Quota, RateLimiter as GovernorLimiter};
 use serde_json::json;
 use std::env;
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
+use std::sync::LazyLock;
 
 const SERVICE_NAME: &str = "media-learn-rs";
+
+// ---------- governor 令牌桶限流(替代手写 AtomicU64) ----------
+type AppRateLimiter = GovernorLimiter<governor::state::NotKeyed, governor::state::InMemoryState, governor::clock::DefaultClock>;
+static RATE_LIMITER: LazyLock<AppRateLimiter> = LazyLock::new(|| {
+    GovernorLimiter::direct(Quota::per_second(NonZeroU32::new(100).unwrap()))
+});
+
+/// Rate-limit middleware for all non-healthz requests
+async fn rate_limit_middleware(req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next) -> axum::response::Response {
+    let path = req.uri().path().to_string();
+    if path == "/healthz" || path.starts_with("/actuator/health") {
+        return next.run(req).await;
+    }
+    if !RATE_LIMITER.check().is_ok() {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": "rate limit exceeded", "retry_after": 1})),
+        ).into_response();
+    }
+    next.run(req).await
+}
 
 #[tokio::main]
 async fn main() {
@@ -20,12 +44,14 @@ async fn main() {
     tracing::info!("[{}] starting on :{}", SERVICE_NAME, port);
 
     let app = Router::new()
+        .route("/healthz", get(health))
         .route("/actuator/health", get(health))
         .route("/actuator/health/readiness", get(readiness))
         .route("/actuator/health/liveness", get(liveness))
         .route("/api/media/clips", get(list_clips))         // 片段列表(桩)
         .route("/api/media/clips/:id/subtitles", get(subtitles)) // 字幕同步(桩)
-        .route("/api/media/clips/:id/cards", get(cards));   // 表达卡片(桩)
+        .route("/api/media/clips/:id/cards", get(cards))   // 表达卡片(桩)
+        .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();

@@ -4,7 +4,7 @@ import com.esp.api.dubbo.KpStat;
 import com.esp.api.dubbo.LearningRpcService;
 import com.esp.teacher.service.LessonPlanGenerator;
 import com.esp.teacher.service.TeacherService;
-import com.esp.teacher.config.JwtValidator;
+import com.esp.common.jwt.BaseJwtValidator;
 import com.esp.cache.CacheService;
 import org.apache.dubbo.rpc.RpcException;
 import org.junit.jupiter.api.Test;
@@ -36,7 +36,7 @@ class TeacherControllerTest {
     @MockitoBean TeacherService teacherService;
     @MockitoBean LearningRpcService learningRpc;
     @MockitoBean CacheService cacheService;
-    @MockitoBean JwtValidator jwtValidator;
+    @MockitoBean BaseJwtValidator jwtValidator;
 
     @Test
     void lessonPlan_returnsGeneratedPlan() throws Exception {

@@ -6,14 +6,38 @@
 // 表 assessment_sessions(id,user_id,goal,cefr_result,status,score,started_at,finished_at)
 // 表 assessment_answers(id,session_id,question_id,answer_json,is_correct,skill_tag,created_at)
 
-use axum::{extract::{Path, State}, routing::{get, post}, Json, Router};
+use axum::{extract::{Path, State}, http::StatusCode, middleware, response::IntoResponse, routing::{get, post}, Json, Router};
+use governor::{Quota, RateLimiter as GovernorLimiter};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::num::NonZeroU32;
+use std::sync::{Arc, LazyLock};
 
 const SERVICE_NAME: &str = "assessment-rs";
+
+// ---------- governor 令牌桶限流(替代手写 AtomicU64) ----------
+type AppRateLimiter = GovernorLimiter<governor::state::NotKeyed, governor::state::InMemoryState, governor::clock::DefaultClock>;
+static RATE_LIMITER: LazyLock<AppRateLimiter> = LazyLock::new(|| {
+    GovernorLimiter::direct(Quota::per_second(NonZeroU32::new(100).unwrap()))
+});
+
+/// Rate-limit middleware for all non-healthz requests
+async fn rate_limit_middleware(req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next) -> axum::response::Response {
+    let path = req.uri().path().to_string();
+    // Skip rate limiting for health check endpoints
+    if path == "/healthz" || path.starts_with("/actuator/health") {
+        return next.run(req).await;
+    }
+    if !RATE_LIMITER.check().is_ok() {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            axum::Json(json!({"error": "rate limit exceeded", "retry_after": 1})),
+        ).into_response();
+    }
+    next.run(req).await
+}
 
 pub struct AppState {
     pub pg_write: sqlx::PgPool,
@@ -50,6 +74,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppHandle(Arc::new(AppState { pg_write, pg_read, redis }));
 
     let app = Router::new()
+        .route("/healthz", get(health))
         .route("/actuator/health", get(health))
         .route("/actuator/health/readiness", get(readiness))
         .route("/actuator/health/liveness", get(liveness))
@@ -58,7 +83,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assessment/sessions/:id/answer", post(submit_answer))
         .route("/api/assessment/sessions/:id/finalize", post(finalize_session))
         .route("/api/assessment/report/:user_id", get(diagnostic_report))
-        .with_state(state);
+        .with_state(state)
+        .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -146,7 +172,9 @@ async fn submit_answer(
     Path(session_id): Path<i64>,
     Json(req): Json<AnswerReq>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, String)> {
-    let correct = req.is_correct.unwrap_or(false) as i8;
+    // 坑:pgx v5 对 Rust i8 的编码有缺陷(0 被发成空串 → strconv.ParseInt("") 报错)。
+    // is_correct 列为 INT2,i16 是原生支持类型。
+    let correct: i16 = if req.is_correct.unwrap_or(false) { 1 } else { 0 };
     let row: (i64,) = sqlx::query_as(
         "INSERT INTO assessment_answers (session_id, question_id, answer_json, is_correct, skill_tag) VALUES ($1, $2, $3, $4, $5) RETURNING id",
     )
@@ -154,7 +182,7 @@ async fn submit_answer(
     .bind(req.question_id)
     .bind(serde_json::to_string(&req.answer_json).unwrap_or_else(|_| "{}".into()))
     .bind(correct)
-    .bind(req.skill_tag.unwrap_or_default())
+    .bind(req.skill_tag)
     .fetch_one(&h.0.pg_write)
     .await
     .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("db insert: {e}")))?;
@@ -201,5 +229,5 @@ async fn diagnostic_report(
         .map(|(id, goal, cefr, st)| json!({"session_id": id, "goal": goal, "cefr_result": cefr, "status": st}))
         .collect();
 
-    Ok(Json(json!({"user_id": user_id, "recent_sessions": arr, "diagnosis": "占位诊断报告(真实 IRT 诊断待接入)"})))
+    Ok(Json(json!({"user_id": user_id, "recent_sessions": arr, "diagnosis": "DEFERRED-真实IRT诊断待接入(需IRT引擎,见多节点清单#6):现状返回结构化空诊断"})))
 }

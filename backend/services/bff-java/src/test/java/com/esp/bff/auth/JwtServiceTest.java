@@ -15,6 +15,7 @@ import java.security.PublicKey;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.*;
 
 /**
  * JwtService 单测(ADR-12 安全核心,RS256 非对称密钥)。
@@ -93,6 +94,42 @@ class JwtServiceTest {
         String header = token.split("\\.")[0];
         String headerJson = new String(java.util.Base64.getDecoder().decode(header));
         assertTrue(headerJson.contains("\"RS256\""), "签发算法应为 RS256,实际 header: " + headerJson);
+    }
+
+    @Test
+    void issueRefresh_andParse_roundtripPreservesTyp() {
+        String token = jwt.issueRefresh(42L, "u@x.com", "alice", "learner");
+        Claims c = jwt.parse(token);
+        assertEquals("42", c.getSubject());
+        assertEquals("refresh", c.get("typ", String.class), "refresh token 的 typ 应为 refresh");
+        assertEquals("u@x.com", c.get("email", String.class));
+    }
+
+    @Test
+    void revoke_throwsTokenRevoked_whenCacheEnabled() {
+        // 构造一个 cache enabled 的 JwtService
+        CacheService enabledCache = mock(CacheService.class);
+        when(enabledCache.isEnabled()).thenReturn(true);
+        // 初始:不在黑名单(null); revoke 后返回"1"(在黑名单中)
+        java.util.concurrent.atomic.AtomicBoolean revoked = new java.util.concurrent.atomic.AtomicBoolean(false);
+        when(enabledCache.getOrLoad(anyString(), anyString(), any(), anyLong(), anyBoolean()))
+                .thenAnswer(inv -> revoked.get() ? "1" : null);
+        JwtService svc = new JwtService(privateKeyPem, publicKeyPem, enabledCache);
+
+        String token = svc.issue(1L, "a@b.com", "n", "learner");
+        // 首次解析应成功(未拉黑)
+        Claims c = svc.parse(token);
+        assertEquals("1", c.getSubject());
+        // 拉黑
+        svc.revoke(c);
+        revoked.set(true);
+        // 再解析同一 token 应被拒绝(token revoked)
+        assertThrows(TokenRevokedException.class, () -> svc.parse(token), "revoked token 应抛 TokenRevokedException");
+    }
+
+    @Test
+    void getAccessTtlSeconds_returns3600() {
+        assertEquals(3600, jwt.getAccessTtlSeconds(), "access TTL 应为 3600s(1h)");
     }
 
     /** 内存生成 RSA keypair 并返回 PEM(仅用于测试"不同密钥对互斥")。 */

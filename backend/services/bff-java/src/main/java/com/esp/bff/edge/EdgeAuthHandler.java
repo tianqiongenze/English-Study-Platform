@@ -1,6 +1,7 @@
 package com.esp.bff.edge;
 
 import com.esp.bff.auth.JwtService;
+import com.esp.common.health.HealthConfig;
 import io.jsonwebtoken.Claims;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -40,12 +41,16 @@ import java.util.List;
 public class EdgeAuthHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
     private static final Logger log = LoggerFactory.getLogger(EdgeAuthHandler.class);
-    // 放行:认证、健康、actuator、API 门户(springdoc /v3/api-docs + /docs 聚合 Swagger UI +
-    // /swagger-ui 静态资源 + /openapi-go-rust.yaml Go/Rust 手写清单)。门户为只读 API 文档,无敏感数据;
-    // 实际业务接口仍受本 Handler 保护。与 AuthFilter 白名单保持一致。
-    private static final List<String> WHITELIST = List.of(
-            "/api/auth/", "/healthz", "/actuator/", "/.well-known/",
-            "/v3/api-docs", "/docs", "/swagger-ui", "/openapi-go-rust.yaml");
+    // BFF 特有白名单:在共享基线(HealthConfig.COMMON_WHITELIST)上追加。
+    // 顺序敏感:更具体的前缀先于通配(/api/auth/ 前于 /actuator/)。
+    private static final List<String> WHITELIST;
+    static {
+        var list = new java.util.ArrayList<>(HealthConfig.COMMON_WHITELIST);
+        list.add(0, "/api/auth/");           // BFF 认证端点
+        list.add("/.well-known/");           // OIDC/JWKS discovery
+        list.add("/openapi-go-rust.yaml");   // Go/Rust 手写 API 清单
+        WHITELIST = java.util.Collections.unmodifiableList(list);
+    }
 
     private static final Tracer TRACER = GlobalOpenTelemetry.getTracer("bff-edge");
 

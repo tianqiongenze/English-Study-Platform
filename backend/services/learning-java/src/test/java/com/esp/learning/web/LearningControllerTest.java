@@ -3,7 +3,7 @@ package com.esp.learning.web;
 import com.esp.learning.service.DifficultyAdjuster;
 import com.esp.learning.service.EbbinghausScheduler;
 import com.esp.learning.service.LearningService;
-import com.esp.learning.auth.JwtValidator;
+import com.esp.common.jwt.BaseJwtValidator;
 import com.esp.learning.disruptor.LearningEventDisruptor;
 import com.esp.learning.repository.UserMasteryRepository;
 import com.esp.cache.CacheService;
@@ -38,7 +38,7 @@ class LearningControllerTest {
     @MockitoBean LearningEventDisruptor disruptor;
     @MockitoBean EbbinghausScheduler scheduler;
     @MockitoBean DifficultyAdjuster adjuster;
-    @MockitoBean JwtValidator jwtValidator;
+    @MockitoBean BaseJwtValidator jwtValidator;
     @MockitoBean CacheService cacheService;
 
     @Test
@@ -81,7 +81,7 @@ class LearningControllerTest {
 
     @Test
     void placement_usesDefaults_whenBodyEmpty() throws Exception {
-        doNothing().when(learningService).initMastery(anyLong(), anyList(), anyDouble());
+        when(learningService.initMastery(anyLong(), anyList(), anyDouble())).thenReturn(0);
 
         mvc.perform(post("/api/learning/placement")
                         .requestAttr("userId", 7)

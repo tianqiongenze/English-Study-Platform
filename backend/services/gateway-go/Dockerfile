@@ -9,7 +9,7 @@ RUN sed -i 's|replace esp/common-go => ../../shared/esp-common-go|replace esp/co
  && sed -i 's|replace esp/conversation-go => ../conversation-go|replace esp/conversation-go => ./conversation-go|' go.mod
 RUN go mod download
 COPY services/gateway-go/src ./src
-RUN CGO_ENABLED=0 go build -o /out/gateway-go ./src
+RUN go mod tidy && CGO_ENABLED=0 go build -o /out/gateway-go ./src
 
 # 运行阶段
 FROM alpine:3.22

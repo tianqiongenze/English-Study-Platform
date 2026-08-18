@@ -2,12 +2,8 @@ import React from "react";
 
 /**
  * 通用骨架屏组件(纯 CSS shimmer 动画)。
- *
- * 说明:@esp/ui-tokens 的 tokens.css 在 :root 下是亮色主题值
- * (如 --esp-color-bg-layout: #f5f5f5),而本应用为深色主题(#0f172a 底 /
- * #1e293b 容器),直接引用 token 会出现亮色骨架与深色背景冲突。
- * 故此处使用与 styles.css 完全一致的深色常量(#1e293b / #334155),
- * 保证视觉风格统一;样式由组件自注入,零外部依赖。
+ * 颜色走 @esp/ui-tokens 的 CSS 变量(--esp-color-bg-container / --esp-color-border),
+ * 随 data-theme 亮暗自动切换,与全局 styles.css 一致。
  */
 
 let styleInjected = false;
@@ -20,10 +16,10 @@ function injectStyle() {
   100% { background-position: -200% 0; }
 }
 .esp-skeleton {
-  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background: linear-gradient(90deg, var(--esp-color-bg-container) 25%, var(--esp-color-bg-subtle) 50%, var(--esp-color-bg-container) 75%);
   background-size: 200% 100%;
   animation: esp-shimmer 1.4s linear infinite;
-  border-radius: 6px;
+  border-radius: var(--esp-radius-base);
 }
 `;
   document.head.appendChild(style);

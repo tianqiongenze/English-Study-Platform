@@ -1,0 +1,52 @@
+# locust 全服务基准 Job(bench-runner exec 的替代——loadavg 高时 kubectl exec stream 升级会超时,
+# Job 走 API 轮询 wait/logs 更为稳健;与 k6 Job 同模式)。镜像 esp-locust:2.46(本地,不打拉取)。
+# 用法:bash scripts/run_locust_bench.sh <EP> <VUS> [DUR](脚本内 sed 填空)。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __JOB__
+  namespace: esp-prod
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: locust
+          image: esp-locust:2.46
+          imagePullPolicy: IfNotPresent
+          command: ["locust"]
+          args:
+            - "-f"
+            - "/bench/locustfile_fullbench.py"
+            - "--host"
+            - "http://esp-prod"
+            - "--headless"
+            - "-u"
+            - "__VUS__"
+            - "-r"
+            - "__VUS__"
+            - "--run-time"
+            - "__DUR__"
+          env:
+            - name: EP
+              value: "__EP__"
+            - name: LEARNER_TOKENS
+              valueFrom:
+                configMapKeyRef: {name: esp-bench-tokens, key: LEARNER_TOKENS}
+            - name: JWT_RSA_PRIVATE_KEY_PEM
+              valueFrom:
+                secretKeyRef: {name: esp-rsa-jwt-sign, key: JWT_RSA_PRIVATE_KEY_PEM}
+            - name: ESP_JWT_SECRET
+              valueFrom:
+                secretKeyRef: {name: esp-secrets, key: JWT_SECRET}
+          volumeMounts:
+            - name: scripts
+              mountPath: /bench
+              readOnly: true
+          # 坑㉟b: 单节点 CPU request 已 99%(CRDB3×500m + 三区域TiDB/tikv/pd + pulsar/obs) → 100m request pod NodeUnschedulable。
+          # 与 k6 Job 一致用 BestEffort(无 resources)→ 保证可调度;45s 短命 Job 可接受。
+      volumes:
+        - name: scripts
+          configMap: {name: bench-scripts}

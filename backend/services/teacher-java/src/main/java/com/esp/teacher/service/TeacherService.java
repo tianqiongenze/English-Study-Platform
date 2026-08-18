@@ -11,6 +11,7 @@ import com.esp.teacher.domain.Submission;
 import com.esp.rw.DataSource;
 import com.esp.rw.DataSourceType;
 import com.esp.teacher.repository.SubmissionRepository;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -47,7 +48,7 @@ public class TeacherService {
         return lessonPlanGenerator.generate(topic, level);
     }
 
-    /** FR-4.2 班级共性难题(走 TiFlash 列存 OLAP,读副本)。热点读:同一班级短时间重复查询 → L1+L2 缓存。 */
+    @CircuitBreaker(name = "dbSlowCall", fallbackMethod = "classAnalyticsFallback")
     @DataSource(value = DataSourceType.READ, tiflash = true)
     public List<Object[]> classAnalytics(Long classId) {
         return cacheService.getOrLoad("teacher:class-weak", "teacher:class-weak:" + classId,
@@ -149,5 +150,13 @@ public class TeacherService {
             return "Add linking words (however, therefore, because) to improve coherence.";
         }
         return "Well-structured. Check grammar and vocabulary variety.";
+    }
+
+    // ---- Resilience4j fallback:慢调用熔断降级 ----
+
+    /** classAnalytics 熔断降级:返回空列表,前端可展示"暂无分析数据"。 */
+    public List<Object[]> classAnalyticsFallback(Long classId, Throwable t) {
+        log.warn("classAnalytics circuit breaker fallback: classId={}, cause={}", classId, t.getMessage());
+        return List.of();
     }
 }

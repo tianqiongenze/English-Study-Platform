@@ -1,0 +1,26 @@
+# 一次性 schema 应用 pod(功能拓展区段):挂载 apply 脚本 + crdb-schema.sql,跑完即退出。
+# 用法:
+#   kubectl create configmap esp-schema-fe-scripts --from-file=scripts/apply_crdb_schema.py
+#   kubectl create configmap esp-schema-fe-schema --from-file=scripts/crdb-schema.sql
+#   kubectl apply -f _schema-fe-pod.yaml;kubectl logs -f esp-schema-fe-apply
+apiVersion: v1
+kind: Pod
+metadata: {name: esp-schema-fe-apply, namespace: esp-prod}
+spec:
+  restartPolicy: Never
+  containers:
+  - name: apply
+    image: python:3.12-slim
+    command: ["bash", "-lc"]
+    args:
+    - |
+      pip install -q -i https://pypi.tuna.tsinghua.edu.cn/simple psycopg2-binary
+      SCHEMA_PATH=/schema/crdb-schema.sql python3 /scripts/apply_crdb_schema.py
+    volumeMounts:
+    - {name: scripts, mountPath: /scripts}
+    - {name: schema, mountPath: /schema}
+  volumes:
+  - name: scripts
+    configMap: {name: esp-schema-fe-scripts}
+  - name: schema
+    configMap: {name: esp-schema-fe-schema}

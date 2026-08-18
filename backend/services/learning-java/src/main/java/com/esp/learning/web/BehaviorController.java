@@ -72,7 +72,7 @@ public class BehaviorController {
         Object cached = cacheService.getOrLoad("learning:agg", cacheKey,
                 () -> {
                     String sql = "SELECT user_id, COUNT(*) cnt FROM app_logs " +
-                            "WHERE event LIKE 'behavior.%' AND ts > NOW() - INTERVAL ? DAY " +
+                            "WHERE event LIKE 'behavior.%' AND ts > NOW() - INTERVAL '1 day' * ? " +
                             "GROUP BY user_id ORDER BY cnt DESC LIMIT ?";
                     return sharedJdbc.queryForList(sql, days, limit);
                 }, 60, true);
@@ -90,7 +90,7 @@ public class BehaviorController {
                     List<Map<String, Object>> result = new ArrayList<>();
                     for (String s : stages) {
                         String sql = "SELECT COUNT(DISTINCT user_id) users FROM app_logs " +
-                                "WHERE event = ? AND ts > NOW() - INTERVAL ? DAY";
+                                "WHERE event = ? AND ts > NOW() - INTERVAL '1 day' * ?";
                         List<Map<String, Object>> rows = sharedJdbc.queryForList(sql, "behavior." + s.trim(), days);
                         Map<String, Object> row = new LinkedHashMap<>();
                         row.put("stage", s.trim());
@@ -110,7 +110,7 @@ public class BehaviorController {
         Object cached = cacheService.getOrLoad("learning:agg", cacheKey,
                 () -> {
                     String sql = "SELECT event, COUNT(*) cnt FROM app_logs " +
-                            "WHERE user_id = ? AND event LIKE 'behavior.%' AND ts > NOW() - INTERVAL ? DAY " +
+                            "WHERE user_id = ? AND event LIKE 'behavior.%' AND ts > NOW() - INTERVAL '1 day' * ? " +
                             "GROUP BY event ORDER BY cnt DESC";
                     return sharedJdbc.queryForList(sql, user_id, days);
                 }, 60, true);

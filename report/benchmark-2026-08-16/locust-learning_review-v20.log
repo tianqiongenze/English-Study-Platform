@@ -1,0 +1,80 @@
+GET      /api/learning/review?userId=10000108                                             163     0(0.00%) |    164      10   12066     67 |    7.80        0.00
+GET      /api/learning/review?userId=10000109                                             513     0(0.00%) |     46       3    1602     26 |   10.60        0.00
+GET      /api/learning/review?userId=10000110                                             181     0(0.00%) |    150       8   12067     59 |    8.90        0.00
+GET      /api/learning/review?userId=10000111                                             537     0(0.00%) |     44       2    1587     25 |   11.30        0.00
+GET      /api/learning/review?userId=10000112                                             492     0(0.00%) |     46       2    1599     25 |   10.20        0.00
+GET      /api/learning/review?userId=10000113                                             507     0(0.00%) |     47       3    1667     26 |   10.10        0.00
+GET      /api/learning/review?userId=10000114                                             544     0(0.00%) |     44       3    1579     25 |   11.40        0.00
+GET      /api/learning/review?userId=10000115                                             181     0(0.00%) |    156      10   12060     67 |    8.70        0.00
+GET      /api/learning/review?userId=10000116                                             165     0(0.00%) |    165      10   12068     72 |    7.80        0.00
+GET      /api/learning/review?userId=10000117                                             168     0(0.00%) |    162      19   12060     63 |    8.10        0.00
+GET      /api/learning/review?userId=10000118                                             169     0(0.00%) |    161      13   12060     61 |    8.00        0.00
+GET      /api/learning/review?userId=10000119                                             162     0(0.00%) |    165      12   12059     63 |    7.80        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      7915     6(0.08%) |     63       2   12068     29 |  197.60        0.00
+
+[2026-08-16 04:02:03,107] locbench-learning-review-20-7mzcw/INFO/locust.main: --run-time limit reached, shutting down
+[2026-08-16 04:02:03,426] locbench-learning-review-20-7mzcw/INFO/locust.main: Shutting down (exit code 1)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+GET      /api/learning/review?userId=10000100                                             513     1(0.19%) |     46       2    1579     27 |   14.69        0.03
+GET      /api/learning/review?userId=10000101                                             553     1(0.18%) |     44       2    1584     25 |   15.84        0.03
+GET      /api/learning/review?userId=10000102                                             498     1(0.20%) |     46       3    1555     25 |   14.26        0.03
+GET      /api/learning/review?userId=10000103                                             504     1(0.20%) |     48       3    1566     24 |   14.43        0.03
+GET      /api/learning/review?userId=10000104                                             554     0(0.00%) |     44       3    1617     24 |   15.87        0.00
+GET      /api/learning/review?userId=10000105                                             497     1(0.20%) |     47       5    1585     24 |   14.23        0.03
+GET      /api/learning/review?userId=10000106                                             523     1(0.19%) |     46       3    1571     24 |   14.98        0.03
+GET      /api/learning/review?userId=10000107                                             515     0(0.00%) |     46       3    1599     25 |   14.75        0.00
+GET      /api/learning/review?userId=10000108                                             166     0(0.00%) |    163      10   12066     67 |    4.75        0.00
+GET      /api/learning/review?userId=10000109                                             516     0(0.00%) |     46       3    1602     26 |   14.78        0.00
+GET      /api/learning/review?userId=10000110                                             184     0(0.00%) |    149       8   12067     59 |    5.27        0.00
+GET      /api/learning/review?userId=10000111                                             540     0(0.00%) |     45       2    1587     25 |   15.46        0.00
+GET      /api/learning/review?userId=10000112                                             495     0(0.00%) |     47       2    1599     25 |   14.18        0.00
+GET      /api/learning/review?userId=10000113                                             510     0(0.00%) |     47       3    1667     26 |   14.61        0.00
+GET      /api/learning/review?userId=10000114                                             547     0(0.00%) |     44       3    1579     25 |   15.66        0.00
+GET      /api/learning/review?userId=10000115                                             184     0(0.00%) |    155      10   12060     65 |    5.27        0.00
+GET      /api/learning/review?userId=10000116                                             168     0(0.00%) |    164      10   12068     72 |    4.81        0.00
+GET      /api/learning/review?userId=10000117                                             171     0(0.00%) |    161      19   12060     63 |    4.90        0.00
+GET      /api/learning/review?userId=10000118                                             172     0(0.00%) |    160      13   12060     61 |    4.93        0.00
+GET      /api/learning/review?userId=10000119                                             165     0(0.00%) |    164      12   12059     63 |    4.73        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      7975     6(0.08%) |     63       2   12068     30 |  228.39        0.17
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+GET      /api/learning/review?userId=10000100                                                   27     38     52     59     94    130    220    310   1600   1600   1600    513
+GET      /api/learning/review?userId=10000101                                                   25     38     50     56     87    140    200    310   1600   1600   1600    553
+GET      /api/learning/review?userId=10000102                                                   26     39     51     59     91    140    220    400   1600   1600   1600    498
+GET      /api/learning/review?userId=10000103                                                   24     39     53     60     97    150    220    370   1600   1600   1600    504
+GET      /api/learning/review?userId=10000104                                                   24     37     49     57     92    140    190    310   1600   1600   1600    554
+GET      /api/learning/review?userId=10000105                                                   24     39     52     57     91    160    260    420   1600   1600   1600    497
+GET      /api/learning/review?userId=10000106                                                   24     37     49     57     88    150    270    400   1600   1600   1600    523
+GET      /api/learning/review?userId=10000107                                                   25     38     50     59     96    150    220    350   1600   1600   1600    515
+GET      /api/learning/review?userId=10000108                                                   67     94    110    130    170    220    370    840  12000  12000  12000    166
+GET      /api/learning/review?userId=10000109                                                   26     38     52     59     89    150    190    280   1600   1600   1600    516
+GET      /api/learning/review?userId=10000110                                                   59     83     97    110    180    240    370    850  12000  12000  12000    184
+GET      /api/learning/review?userId=10000111                                                   25     39     51     59     93    140    200    370   1600   1600   1600    540
+GET      /api/learning/review?userId=10000112                                                   25     37     50     60     96    150    250    410   1600   1600   1600    495
+GET      /api/learning/review?userId=10000113                                                   26     37     51     59     93    150    210    310   1700   1700   1700    510
+GET      /api/learning/review?userId=10000114                                                   25     37     49     56     87    140    220    340   1600   1600   1600    547
+GET      /api/learning/review?userId=10000115                                                   67     82    100    130    190    230    380    850  12000  12000  12000    184
+GET      /api/learning/review?userId=10000116                                                   72     91    120    130    170    250    370    840  12000  12000  12000    168
+GET      /api/learning/review?userId=10000117                                                   63     95    120    130    170    230    370    740  12000  12000  12000    171
+GET      /api/learning/review?userId=10000118                                                   61     83    100    130    180    260    420    850  12000  12000  12000    172
+GET      /api/learning/review?userId=10000119                                                   63     91    110    140    190    240    370    840  12000  12000  12000    165
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                             30     46     59     69    110    160    250    400   1700  12000  12000   7975
+
+Error report
+# occurrences      Error                                                                                               
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+1                  GET /api/learning/review?userId=10000106: ConnectionRefusedError(111, 'Connection refused')         
+1                  GET /api/learning/review?userId=10000105: ConnectionRefusedError(111, 'Connection refused')         
+1                  GET /api/learning/review?userId=10000103: ConnectionRefusedError(111, 'Connection refused')         
+1                  GET /api/learning/review?userId=10000101: ConnectionRefusedError(111, 'Connection refused')         
+1                  GET /api/learning/review?userId=10000100: ConnectionRefusedError(111, 'Connection refused')         
+1                  GET /api/learning/review?userId=10000102: ConnectionRefusedError(111, 'Connection refused')         
+------------------|---------------------------------------------------------------------------------------------------------------------------------------------
+
+>>> Test stopped. requests=7975 failures=6 avg_rps=228.39 avg_latency_ms=63.61 p95_ms=160.00 fail_rate=0.0008

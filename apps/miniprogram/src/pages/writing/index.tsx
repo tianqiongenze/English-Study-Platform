@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { View, Text, Textarea, Button } from "@tarojs/components";
 import { api } from "../../api";
+import { t } from "../../i18n";
 
 type Tab = "grade" | "polish" | "translate" | "agent";
 
@@ -28,7 +29,7 @@ export default function Writing() {
     try {
       const res = await api.writingRun("Describe your day", essay, "toefl", false);
       setThreadId(res.thread_id); setAgentStatus(res.status);
-    } catch (e) { setAgentStatus(`失败:${e}`); }
+    } catch (e) { setAgentStatus(`${t("miniprogram.failed")}:${e}`); }
     finally { setLoading(false); }
   }
   async function agentState() {
@@ -39,39 +40,39 @@ export default function Writing() {
 
   return (
     <View className="page">
-      <Text>写作</Text>
+      <Text style={{ fontSize: "32rpx", fontWeight: 700 }}>{t("writing.title")}</Text>
       <View style={{ display: "flex", gap: "12rpx", marginTop: "12rpx" }}>
-        <Button size="mini" type={tab === "grade" ? "primary" : "default"} onClick={() => setTab("grade")}>批改</Button>
-        <Button size="mini" type={tab === "polish" ? "primary" : "default"} onClick={() => setTab("polish")}>润色</Button>
-        <Button size="mini" type={tab === "translate" ? "primary" : "default"} onClick={() => setTab("translate")}>翻译</Button>
-        <Button size="mini" type={tab === "agent" ? "primary" : "default"} onClick={() => setTab("agent")}>智能体</Button>
+        <Button size="mini" type={tab === "grade" ? "primary" : "default"} onClick={() => setTab("grade")}>{t("miniprogram.writing.tabGrade")}</Button>
+        <Button size="mini" type={tab === "polish" ? "primary" : "default"} onClick={() => setTab("polish")}>{t("writing.polish")}</Button>
+        <Button size="mini" type={tab === "translate" ? "primary" : "default"} onClick={() => setTab("translate")}>{t("writing.translate")}</Button>
+        <Button size="mini" type={tab === "agent" ? "primary" : "default"} onClick={() => setTab("agent")}>{t("miniprogram.writing.tabAgent")}</Button>
       </View>
       {tab === "grade" && (
-        <View>
-          <Textarea value={essay} onInput={(e) => setEssay(e.detail.value)} placeholder="输入英文作文..." style={{ width: "100%", height: "200rpx" }} />
-          <Button type="primary" loading={loading} onClick={run}>AI 批改</Button>
-          {r && <View><Text>分数:{r.score}/30</Text><Text className="hint">{r.feedback}</Text></View>}
+        <View className="card">
+          <Textarea value={essay} onInput={(e) => setEssay(e.detail.value)} placeholder={t("writing.placeholder")} style={{ width: "100%", height: "200rpx" }} />
+          <Button type="primary" loading={loading} onClick={run}>{t("miniprogram.writing.aiGrade")}</Button>
+          {r && <View><Text>{t("result.score")}:{r.score}/30</Text><Text className="hint">{r.feedback}</Text></View>}
         </View>
       )}
       {tab === "polish" && (
-        <View>
-          <Textarea value={text} onInput={(e) => setText(e.detail.value)} placeholder="输入要润色的英文..." style={{ width: "100%", height: "200rpx" }} />
-          <Button type="primary" loading={loading} onClick={run}>润色</Button>
+        <View className="card">
+          <Textarea value={text} onInput={(e) => setText(e.detail.value)} placeholder={t("miniprogram.writing.polishPlaceholder")} style={{ width: "100%", height: "200rpx" }} />
+          <Button type="primary" loading={loading} onClick={run}>{t("writing.polish")}</Button>
           {polish && <View><Text>{polish.polished}</Text>{polish.suggestions.length > 0 && <View>{polish.suggestions.map((s, i) => <Text key={i}>{s.original}→{s.polished}({s.reason}){"\n"}</Text>)}</View>}</View>}
         </View>
       )}
       {tab === "translate" && (
-        <View>
-          <Textarea value={text} onInput={(e) => setText(e.detail.value)} placeholder="输入要翻译的英文..." style={{ width: "100%", height: "200rpx" }} />
-          <Button type="primary" loading={loading} onClick={run}>翻译</Button>
+        <View className="card">
+          <Textarea value={text} onInput={(e) => setText(e.detail.value)} placeholder={t("miniprogram.writing.translatePlaceholder")} style={{ width: "100%", height: "200rpx" }} />
+          <Button type="primary" loading={loading} onClick={run}>{t("writing.translate")}</Button>
           {translate && <View><Text>{translate.translation}</Text>{translate.vocab.length > 0 && <View>{translate.vocab.map((v, i) => <Text key={i}>{v.word}({v.pos}) {v.meaning}{"\n"}</Text>)}</View>}</View>}
         </View>
       )}
       {tab === "agent" && (
-        <View>
-          <Textarea value={essay} onInput={(e) => setEssay(e.detail.value)} placeholder="输入英文作文..." style={{ width: "100%", height: "200rpx" }} />
-          <Button type="primary" loading={loading} onClick={agentRun} style={{ marginTop: "12rpx" }}>智能体批改(LangGraph)</Button>
-          {threadId && <View style={{ marginTop: "12rpx" }}><Text className="hint">thread: {threadId} · 状态: {agentStatus}</Text><Button onClick={agentState}>查询状态</Button></View>}
+        <View className="card">
+          <Textarea value={essay} onInput={(e) => setEssay(e.detail.value)} placeholder={t("writing.placeholder")} style={{ width: "100%", height: "200rpx" }} />
+          <Button type="primary" loading={loading} onClick={agentRun} style={{ marginTop: "12rpx" }}>{t("miniprogram.writing.agentRun")}</Button>
+          {threadId && <View style={{ marginTop: "12rpx" }}><Text className="hint">thread: {threadId} · {t("miniprogram.index.status")}: {agentStatus}</Text><Button onClick={agentState}>{t("miniprogram.writing.checkStatus")}</Button></View>}
         </View>
       )}
     </View>

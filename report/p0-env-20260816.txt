@@ -1,0 +1,23 @@
+P-0-1 node Ready: Ready
+P-0-2 k3s readyz: ok
+P-0-3 infra ns deploys:
+   NAME READY
+   ekb-control-plane 0/0
+   ekb-go-gateway 0/0
+   milvus 1/1
+   milvus-minio 1/1
+   neo4j 1/1
+   pd-aws 0/0
+   pulsar-broker 0/0
+   redis-cluster 1/1
+   tidb-cluster-tidb 0/0
+   tiflash 1/1
+   tikv-aws 0/0
+P-0-4 infra3: nacos 1 seata 1 sentinel 1
+P-0-5 node: v26.0.0
+P-0-6 wechat devtools: ls: /Users/joelgong/Applications/wechatwebdevtools.app: No such file or directory
+P-0-7 anthropic secret: 
+P-0-9 redis cluster: 
+P-0-10 pulsar: 
+P-0-12 workflows: ci.yml README.md security.yml 
+P-0-14 trivyignore:       33

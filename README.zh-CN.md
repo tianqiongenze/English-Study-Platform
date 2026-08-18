@@ -1,4 +1,4 @@
-# ESP — English Study Platform (Home-Tutor)
+# ESP — English Study Platform · 洁语 (Verity)
 
 [🇬🇧 English](README.md) | [🇨🇳 简体中文](README.zh-CN.md)
 
@@ -11,7 +11,7 @@
 ![CI](https://img.shields.io/badge/CI-9%20jobs-brightgreen)
 ![License](https://img.shields.io/badge/License-TBD-lightgrey)
 
-> **AI 英语教育平台(Home-Tutor / ESP)**——以教授级工业标准构建的多语言微服务平台:
+> **真实 AI 的英语教育平台(洁语 · Verity / ESP)**——以教授级工业标准构建的多语言微服务平台:
 > 19 个业务服务(Go / Java / Python / Rust)+ TiDB 读写分离 + Redis Cluster + Pulsar 事件总线 + LMAX Disruptor 双管线 + Netty 边缘接入,
 > 目标 **5000 CCU、三端(Web / H5 / 小程序)、30 亿行测试数据**,全测试阶段可人工测试,单节点验证拓扑、可整体移植多节点。
 
@@ -45,11 +45,25 @@
 | **事件驱动** | Pulsar 事件总线(3 broker + 3 bookie + 3 zk)+ Disruptor 批量落库(batchUpdate),学情事件异步化 202 |
 | **存储** | TiDB v8.5(PD/TiKV 跨 aws/azure/gcp 三区域)+ 读写分离(`esp-rw-java` RoutingHolder / `@DataSource` AOP)+ schema-per-service 演进 |
 | **多级缓存** | Caffeine L1 + Redis Cluster L2(6 节点真集群,hostname announce),TTL ±10% 随机抖动防雪崩 + singleflight 防击穿,纯 JSON 跨语言契约 |
-| **安全** | RS256 JWT(BFF 唯一签发,sign/verify secret 公私钥分离)、JWKS 发布、IDOR 修复、httpOnly cookie、register 锁 role、NetworkPolicy 收窄、NodePort 收敛 |
+| **安全** | RS256 JWT(BFF 唯一签发,sign/verify secret 公私钥分离)、JWKS 发布、IDOR 修复、httpOnly cookie、register 锁 role、NetworkPolicy 收窄、NodePort 收敛、**Sentinel 限流(SEC-6:Nacos `bff-java-flow-rules` 3 条 QPS FlowRules,429 实测验证)**、**管理员门户 RS256 + requireAdmin 中间件 403(esp-admin)** |
 | **可观测** | OTel Collector(0.128.0)三 pipeline(traces/metrics/logs)→ Tempo / Prometheus / Grafana / Loki + Alertmanager |
 | **弹性** | HPA(CPU 70%)+ PDB + 慢启动容忍(JVM 服务 ~90s);manifest 全套 Kustomize 风格编号 |
-| **工程化** | GitHub Actions 9 jobs(java-commons/java-services/go-gateway/python-services/go-services/build-images/contract/e2e/frontend)+ trivy 安全扫描 + jacoco 覆盖率门禁 |
+| **工程化** | GitHub Actions 9 jobs(java-commons/java-services/go-gateway/python-services/go-services/build-images/contract/e2e/frontend)+ trivy 安全扫描 + jacoco 覆盖率门禁;**G-8 修复:`platform/` 无聚合父 pom 改按模块逐个 `mvn` + pnpm 版本以 `packageManager` 单一事实源 + `security.yml` trivy 改块映射** |
 | **DDD** | 充血聚合模型(`UserMastery.applyEvent` / `Submission.grade`),domain 包拆 aggregate/valueobject/domainevent/repository |
+
+---
+
+## 新功能(Phase 1-3)
+
+> 各阶段功能的**需求/架构/详细设计/测试用例**见 `docs/design/`;实测见 `docs/test/`。
+
+| 阶段 | 功能 | 服务 | 前端 | 关键文档 |
+|---|---|---|---|---|
+| **Phase 1** | 内容库(课程/课时/练习题) | `content-go`(:8096) | Web/H5 内容页 | `docs/design/phase1-content-library-*.md` |
+| **Phase 2** | 圈子社区(发帖/评论/点赞) | `community-go` | Web/H5 社区页 | `docs/design/phase2-community-*.md` |
+| **Phase 3** | 排行榜(周/全网/地区 XP、前100快照、反作弊、退出) | `gamification-go`(:8092) | Web/H5 排行榜页 | `docs/design/phase3-rankings-design.md`、`docs/design/sdd/srs-gamification-go.md`;E2E `report/phase3-ranking-e2e-2026-08-17.log` |
+
+排行榜要点(架构债已记录):XP 事件经 CRDB `esp_learning.learning_events` 由 gamification 轮询消费,Redis ZSET fan-out 双榜(周/全网)+ 地区子榜;反作弊(事件上限/每日额度);每日 top-100 落 `esp_gamif.leaderboard_snapshots`;用户可 opt-out。
 
 ---
 
@@ -85,20 +99,22 @@ flowchart LR
         CONV["conversation-go"]
         GOSVC["course-path / listening /<br/>reading / gamification /<br/>vocab-srs / live-tutor (Go)"]
         RUSTSVC["pronunciation / assessment /<br/>llm-orchestrator / media-learn (Rust)"]
+        ADMIN["esp-admin (Go)<br/>管理员门户 RS256<br/>requireAdmin 403"]
     end
 
     subgraph MW["中间件 (ekb-m2-aws-us-east-1 复用)"]
         TIDB["TiDB primary/follower :4000<br/>PD + TiKV ×3 (aws/azure/gcp)"]
         REDIS["Redis Cluster ×6"]
         PULSAR["Pulsar"]
-        NACOS["Nacos"]
-        SEATA["Seata"]
+        NACOS["Nacos<br/>(注册+配置+<br/>Sentinel 限流规则源)"]
+        SENTINEL["Sentinel<br/>(SEC-6 限流)"]
+        SEATA["Seata(已退役:<br/>replicas:0, SEATA_ENABLED=false,<br/>manifest+PVC 保留)"]
     end
 
     DUBBO["Dubbo Triple (teacher kp-stats 等 RPC)"]
 
     WEB & H5 & MP --> PORTAL
-    PORTAL --> GW & BFFJ
+    PORTAL --> GW & BFFJ & ADMIN
     PORTAL -.->|"/ws/ WebSocket"| GW
     TRAEFIK -->|"/api/**"| BFFJ
     TRAEFIK -->|"/ws/ upgrade"| GW
@@ -110,7 +126,10 @@ flowchart LR
     Services --> TIDB & REDIS
     LEARN & WORKER --> PULSAR
     Services --> NACOS
-    BFFJ --> SEATA
+    BFFJ -.->|启动拉取限流规则| NACOS
+    BFFJ --> SENTINEL
+    ADMIN --> TIDB & REDIS
+    SEATA -.->|保留未运行| NACOS
 ```
 
 ### 架构数字化摘要(实测数字)
@@ -141,7 +160,7 @@ flowchart LR
 | 消息 | Pulsar(geo-replication 方案备) | 分层存储、多租户、Bookie 扩容路径;学情事件削峰 |
 | 高性能队列 | LMAX Disruptor(两级 pipeline) | 无锁 RingBuffer,背压语义明确(环满 DROPPED→503,保护网关延迟) |
 | RPC | Dubbo Triple + HTTP REST | Triple 支持 OTel trace 自动传播(已实证闭合);REST 对三端友好 |
-| 事务 | Seata(AT,已备 Saga 演进 ADR) | 跨服务最终一致;`adr-seata-at-to-saga.md` 预留长事务路径 |
+| 事务 | Seata(AT)——**2026-08-16 退役**(`replicas:0`,4 个 Java 服务 `SEATA_ENABLED=false`;manifest+ExternalName+PVC 保留,改 replicas 可一行重启);已备 Saga 演进 ADR | 跨服务最终一致为设计初衷;迁共享 `ekb-m2` ns 时退役以去除启动开销与 Dubbo 耦合;`adr-seata-at-to-saga.md` 预留长事务路径(重启时复用) |
 | 注册/配置 | Nacos | 服务发现 + 动态配置 |
 | 可观测 | OTel Collector → Tempo/Prometheus/Grafana/Loki | traces/metrics/logs 三 pipeline 统一采集;filelog receiver 收容器日志 |
 | 部署 | K8s(k3s/Rancher Desktop 单节点验证) | manifest 全套编号化,可直接移植多节点;HPA+PDB 弹性 |
@@ -200,7 +219,7 @@ English-Study-Platform/
 |---|---|
 | `00-namespace-secret.yaml` / `00b-rsa-jwt-secrets-split.yaml` | namespace + RS256 sign/verify 公私钥分离 secret |
 | `05-infra-reuse.yaml` / `05b-platform-infra-externalnames.yaml` | 跨 ns 基础设施 ExternalName 复用 |
-| `06-sca-middleware.yaml` | Nacos + Seata + Sentinel |
+| `06-sca-middleware.yaml` | Nacos + Sentinel + Seata(三者均在 `ekb-m2-aws-us-east-1`;nacos/seata 挂 PVC;**Seata `replicas:0` 退役**) |
 | `07-tidb-tikv.yaml` | TiDB/TiKV/PD(跨三区域) |
 | `10-gateway-go.yaml` / `15-bff-java.yaml` / `20-learning-java.yaml` / `21-learning-worker.yaml` | 核心四件 |
 | `30-other-services.yaml` / `31-new-services.yaml` / `32-batch2-services.yaml` / `33-orchestrator-vocab.yaml` | teacher/emotion/writing + Go/Rust 新服务矩阵 |
@@ -254,7 +273,7 @@ kubectl apply -f deploy/k8s/16-seed-session-turns.yaml        # 种子 Job(见 d
 kubectl apply -f deploy/k8s/esp-redis-warmup-job.yaml
 ```
 
-> Java 服务慢启动(Nacos+Dubbo+Seata ~90s),readiness 探针已按 10s/10fail 放宽,勿提前判定失败。
+> Java 服务慢启动(Nacos+Dubbo ~90s;Seata 退役,已不在启动链路),readiness 探针已按 10s/10fail 放宽,勿提前判定失败。
 
 ### 访问入口
 
@@ -283,6 +302,33 @@ cd backend/services/writing-py && pip install -e ".[test]" && python -m pytest
 # docker-compose 本地全栈
 cd deploy/docker && docker compose up -d
 ```
+
+### 宿主中间件运维(中间件已从 K8s 迁移到 macOS 宿主机)
+
+可观测性组件(Prometheus/Loki/Alertmanager/OTel Collector/Grafana)及 Nacos 已迁出 K8s,运行在 macOS 宿主机(`~/observability/` + `~/nacos/`),通过 K8s `esp-observability` 中的 ExternalName Service 桥接给 Pod 访问。
+
+```bash
+# 一键启动全部 6 个宿主中间件(Nacos→Prometheus→Loki→Alertmanager→OTel→Grafana)
+./scripts/start-host-middleware.sh
+
+# 检查状态(进程/端口/健康检查)
+./scripts/status-host-middleware.sh
+
+# 一键停止
+./scripts/stop-host-middleware.sh
+```
+
+| 组件 | 端口 | 配置路径 | 用途 |
+|------|------|----------|------|
+| Nacos | 8848 | `~/nacos/nacos/conf/` | 服务注册/配置中心(standalone+Derby) |
+| Prometheus | 9090 | `~/observability/prometheus.yml` | 指标采集+10条告警规则(7d保留) |
+| Loki | 3100 | `~/observability/loki-fixed.yaml` | 日志聚合 |
+| Alertmanager | 9093 | `~/observability/alertmanager.yml` | 告警路由 |
+| OTel Collector | 4317/4318 | `~/observability/otel-gateway-config.yaml` | 遥测收集网关 |
+| Grafana | 3000 | `~/observability/grafana.ini` | 可视化面板 |
+
+> 完整运维手册: [`docs/ops/host-middleware-startup.md`](docs/ops/host-middleware-startup.md)
+> 注意: Tempo(分布式追踪)二进制损坏,待修复;数据持久化在 `/tmp/`,macOS 重启会清理。
 
 ---
 
@@ -575,12 +621,12 @@ flowchart LR
 |---|---|---|---|---|
 | **服务**(数量) | bff-java / learning-java(+worker)/ teacher-java(3) | gateway / conversation / course-path / listening / reading / gamification / vocab-srs / live-tutor(8) | writing-py / emotion-svc / writing-coach(3) | pronunciation / assessment / llm-orchestrator / media-learn(4) |
 | **框架/运行时** | Spring Boot 4 + Netty + LMAX Disruptor | gin | Litestar + Granian | axum + tokio |
-| **典型场景** | 复杂业务事务 + Dubbo Triple RPC + Seata 分布式事务 + DDD 充血领域模型 | 高并发网关、WebSocket 长连接、轻量 CRUD/算法服务(SM2 间隔重复) | AI/LLM 集成(写作批改、情感多模态、教练编排) | 计算密集(发音评测)、LLM 编排、媒体处理 |
+| **典型场景** | 复杂业务事务 + Dubbo Triple RPC + DDD 充血领域模型(Seata AT 2026-08-16 退役;分布式事务路径保留一行可重启) | 高并发网关、WebSocket 长连接、轻量 CRUD/算法服务(SM2+ 间隔重复,**`MaxInterval=365` 封顶**防 `due_at` 溢出) | AI/LLM 集成(写作批改、情感多模态、教练编排) | 计算密集(发音评测)、LLM 编排、媒体处理 |
 | **并发模型** | JVM 线程池(HikariCP/MVC)+ Netty EventLoop + Disruptor 无锁 RingBuffer | goroutine(CSP channel) | asyncio 事件循环 | tokio 异步运行时(future) |
-| **启动速度** | **慢:~90s**(Nacos+Dubbo+Seata 慢启动;探针放宽 10s/10fail) | 秒级(精确值实测待补) | Granian 冷启动慢(观测;精确值实测待补) | 秒级(精确值实测待补) |
+| **启动速度** | **慢:~90s**(Nacos+Dubbo 慢启动;Seata 退役——已不在启动链路;探针放宽 10s/10fail) | 秒级(精确值实测待补) | Granian 冷启动慢(观测;精确值实测待补) | 秒级(精确值实测待补) |
 | **资源画像** | requests ~250m/512Mi 起,bff CPU limit **2 核**(探针误杀后从 1 核上调) | 轻量:vocab-srs-go **100m/128Mi ~ 500m/256Mi**(manifest 实测) | python:3.13-slim 基镜像,资源紧(精确值实测待补) | llm-orchestrator-rs **250m/256Mi ~ 1C/512Mi**(manifest 实测) |
-| **生态成熟度(中间件客户端)** | 最全:Dubbo Triple/Seata/Nacos/Spring Cloud Alibaba + 自研 esp-* 平台包(esp-cache/esp-rw/esp-disruptor/esp-api) | 齐:miniredis/pulsar/mysql/websocket/redis/otel(conversation-go 依赖清单) | pymysql 2.2.8 + 自研 esp-cache-py/esp-db-py;**无 psycopg2**(MySQL-wire only) | axum/tokio + 自研 esp-common-rs 共享 crate;LLM provider SDK 自研(StubProvider 兜底) |
-| **本项目单测** | learning **48** / teacher **16** / bff(Disruptor 管线 3 + RouteTable 5 等);覆盖率 learning 40.5% / teacher 23.6% / bff 30.6% | **25 tests / 4 模块**(vocab-srs 14 + course-path 6 + esp-common-go 4 + gamification 2);另 2 模块耦合全局 DB 待 DI 重构 | writing-py **18 passed**(pytest + ruff 门禁) | **未建**(实测待补) |
+| **生态成熟度(中间件客户端)** | 最全:Dubbo Triple/Nacos/Spring Cloud Alibaba + 自研 esp-* 平台包(esp-cache/esp-rw/esp-disruptor/esp-api);(Seata client 随 `SEATA_ENABLED=false` 退役) | 齐:miniredis/pulsar/mysql/websocket/redis/otel(conversation-go 依赖清单) | pymysql 2.2.8 + 自研 esp-cache-py/esp-db-py;**无 psycopg2**(MySQL-wire only) | axum/tokio + 自研 esp-common-rs 共享 crate;LLM provider SDK 自研(StubProvider 兜底) |
+| **本项目单测** | learning **48** / teacher **16** / bff(Disruptor 管线 3 + RouteTable 5 等);覆盖率 learning 40.5% / teacher 23.6% / bff 30.6% | **25 tests / 4 模块**(vocab-srs 14 含 `TestCompute_MaxIntervalCap`——MaxInterval=365 封顶防 `due_at` 溢出致写库 500;course-path 6 + esp-common-go 4 + gamification 2);另 2 模块耦合全局 DB 待 DI 重构 | writing-py **18 passed**(pytest + ruff 门禁) | **未建**(实测待补) |
 | **镜像** | eclipse-temurin:21-jre-alpine(prebuilt fat-jar) | golang:1.25-alpine builder → alpine:3.22 runtime | python:3.13-slim | rust:1.88-bookworm builder → debian:bookworm-slim runtime |
 | **构建时间** | 主机 mvn(单节点铁律:与集群操作串行;精确值实测待补) | 极快(精确值实测待补) | pip install -e ".[test]" 快 | llm-orchestrator-rs docker build 实测 **1m44s** |
 | **踩坑实录** | SB3.5→4.0.7 三破坏性变更;JaCoCo×JDK25 class file 69 兼容;esp-cache provided 坑 | gvm GOROOT 坑(`env -u GOROOT GOTOOLCHAIN=local`) | venv extras 命名坑(`[test]` 非 `[dev]`);.venv 符号链接致 docker context xattr 失败 | Cargo path 相对解析坑(Dockerfile COPY 路径);deb.debian.org 出口偶发不通换 mirrors.ustc.edu.cn |
@@ -601,7 +647,7 @@ flowchart LR
 ```mermaid
 flowchart TD
     Q{"服务负载特征?"}
-    Q -->|"复杂事务 / 分布式一致性<br/>(Seata / Dubbo Triple)"| J["Java SB4<br/>重业务域(learning/teacher/bff)"]
+    Q -->|"复杂事务 / 分布式一致性<br/>(Dubbo Triple;Seata AT 退役,可重启)"| J["Java SB4<br/>重业务域(learning/teacher/bff)"]
     Q -->|"高并发接入 / WS 长连接<br/>轻量算法服务"| G["Go<br/>gateway/conversation/vocab-srs 等 8 个"]
     Q -->|"AI/LLM 集成<br/>生态优先(agents/prompt/多模态)"| P["Python Litestar<br/>writing/emotion/writing-coach"]
     Q -->|"CPU 计算密集 / 低延迟确定<br/>(发音评测、流式编排)"| R["Rust axum<br/>pronunciation/llm-orchestrator 等"]
@@ -657,12 +703,12 @@ flowchart LR
 
 | 层级 | 内容 | 出处 |
 |---|---|---|
-| 单元测试 | Java(learning 48 / teacher 16 / esp-cache 15,覆盖率门禁:esp-cache 77%≥75%;业务服务基线 learning 40.5% / teacher 23.6% / bff 30.6%);Go 25 tests(4 模块,SM2 算法全路径);Python writing-py 18 passed;前端 Vitest | `docs/test/01-单元测试报告.md` |
+| 单元测试 | Java(learning 48 / teacher 16 / esp-cache 15,覆盖率门禁:esp-cache 77%≥75%;业务服务基线 learning 40.5% / teacher 23.6% / bff 30.6%);Go 25 tests(4 模块,SM2 算法全路径,含 `TestCompute_MaxIntervalCap`——MaxInterval=365 封顶防 `due_at` 溢出回归);Python writing-py 18 passed;前端 Vitest | `docs/test/01-单元测试报告.md` |
 | 集成/契约 | Dubbo Triple 契约测试、`integration-tests/`、writing Mock 批改链路 | `docs/test/02-集成测试报告.md` |
 | 性能压测 | Locust 分布式 + k6 基线 + WS CCU 脚本(`ccu5000_ws.py`/`spike.py`/`soak.py`),G-01/G-04/G-06 SLO | `docs/test/03-性能与压测报告.md`、`deploy/locust/README.md` |
 | 混沌测试 | chaos-plan 已设计 | `docs/test/04-混沌测试报告.md`、`chaos-plan.md` |
 | 监控告警 | Prometheus/Grafana/Alertmanager 部署验证 | `docs/test/05-监控告警部署说明.md` |
-| 安全测试 | SEC-1~8 矩阵(WS 越权 403/过期 JWT 401/X-User-Id 剥离/JWKS 闭环/trivy 零泄漏)全绿 | `docs/test/06-安全测试报告.md` |
+| 安全测试 | SEC-1~8 矩阵(WS 越权 403/过期 JWT 401/X-User-Id 剥离/JWKS 闭环/trivy 零泄漏)全绿;**SEC-6 Sentinel 限流:Nacos `bff-java-flow-rules` 3 条 QPS FlowRules(`api-learning-event`/`api-writing-grade`/`api-default`),`SentinelRuleBootstrap` 在 `ApplicationReadyEvent` 加载,429 实测验证 ×3**;**vocab-srs SM-2 `MaxInterval=365` 封顶:修复 `due_at` 溢出(interval 增至 92231549 天 → 254548 年 → 写库 500),Go 测试 14/14 通过,vocab-srs-go:1.2.0 已部署**;**管理员门户:esp-admin RS256 + requireAdmin 中间件(非管理员 → 403)** | `docs/test/06-安全测试报告.md` |
 | 人工测试 | **73 条人工用例**(TC-GR 27 条 8 服务全端点 + TC-W/H 前端 + TC-E2E 11 条跨服务链路 + SEC 补充),操作指南含 portal 隧道命令 | `docs/test/07-人工测试用例.md`、`09-人工测试操作指南.md` |
 | 前端核查 | 三端 build/白屏/token 链路 | `docs/test/08-前端核查报告.md` |
 | E2E | Playwright 冒烟(首页加载/无 token 401)scaffold 级 | `e2e/` |
@@ -781,6 +827,7 @@ xychart-beta
 - [x] P0 安全红线 6 项(私钥收敛/服务鉴权/IDOR/role 锁/NodePort 收敛/NetworkPolicy)
 - [x] P1 容量质量 6 项 + P2 架构深化 7 项(DDD 充血/gateway 瘦身/缓存防护/目录重组/前端 monorepo/工程化)——19/19 闭合
 - [x] A 类审计项全闭合(CRDB 实测/Disruptor 多级/esp-cache 纯 JSON/DB 吞吐/OTel 接入/CI 修绿)
+- [x] **P3c 管理员门户**(esp-admin Go 服务 + AdminDashboard.tsx + frontend-portal `admin_backend`;frontend-react:1.2.0 / frontend-portal:1.3.0 已 roll);**SEC-6 Sentinel 限流**(Nacos 限流规则 + 429 实测);**vocab-srs SM-2 MaxInterval 封顶**(溢出 500 修复,1.2.0 已部署);**G-8 CI 修复已 push**(commit `afd1241`,按模块 mvn + pnpm version + security.yml 块映射);**Seata 退役**(`replicas:0` + `SEATA_ENABLED=false`,manifest 保留)
 - [ ] B 类(多节点触发):Cilium CNI / Pulsar Geo-Replication / TiCDC 异地多活 / 真 Follower 读写分离 / 多节点容量验证(G-01/G-06 达标复测)
 - [ ] C 类(独立引入决策):Loki 落地 / ArgoCD GitOps / Milvus+Neo4j 业务接入
 - [ ] D 类(测试/工程化):73 条人工用例全量执行 / 5000 CCU 压测复测 / 探针三分离 / 数字人/TTS / 个性化推荐
@@ -795,7 +842,7 @@ xychart-beta
 3. **提交规范**:`type(会话xx-y): 描述`,如 `docs(会话22-8): ...` / `fix(会话22-8): ...`;
 4. **单节点铁律**:重 mvn/docker build 与集群操作串行;不碰 k3s 配置;共享基础设施(ekb-m2 ns)操作前先评估影响;
 5. **密钥安全**:RS256 私钥仅 `kubectl create secret --from-literal` 灌入,声明式空占位 manifest 不得 apply 到已有真实值的 secret;
-6. **CI 门槛**:`.github/workflows/ci.yml` 9 jobs 全绿 + trivy 零 HIGH;esp-cache 覆盖率 ≥75%;
+6. **CI 门槛**:`.github/workflows/ci.yml` 9 jobs 全绿 + trivy 零 HIGH;esp-cache 覆盖率 ≥75%;(G-8 修复已落 commit `afd1241`:`platform/` 无聚合父 pom 按模块逐个 build;pnpm 版本以 `packageManager` 为单一事实源;`security.yml` trivy 上传改块映射);
 7. **多语言 Dockerfile 注意**:Go 必须 `ENV GOPROXY=https://goproxy.cn,direct`;arm64 镜像注意 CRDB/Rust 基镜像架构。
 
 ---

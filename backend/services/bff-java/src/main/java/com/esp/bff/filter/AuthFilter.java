@@ -1,48 +1,63 @@
 package com.esp.bff.filter;
 
 import com.esp.bff.auth.JwtService;
+import com.esp.common.jwt.BaseJwtAuthFilter;
+import com.esp.common.jwt.BaseJwtValidator;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
-import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.Enumeration;
 import java.util.List;
 
 /**
- * JWT 边缘校验 + X-User-Id/X-Role 注入(ADR-12 安全,Web MVC 版,替代 SCG GlobalFilter)。
- * - 放行:/api/auth/**、/healthz、/actuator/**。
- * - 剥离外网伪造的 X-User-Id/X-Role 头,由 BFF 注入可信值。
- * - 校验失败 401。
+ * BFF JWT 边缘校验 Filter(ADR-12 安全,Web MVC 版,替代 SCG GlobalFilter)。
+ * <p>
+ * 继承 {@link BaseJwtAuthFilter}(esp-common-java 共享包),追加 BFF 特有逻辑:
+ * <ul>
+ *   <li>esp_token httpOnly cookie 回落(Bearer header 优先)</li>
+ *   <li>BFF 特有白名单:/.well-known/、/openapi-go-rust.yaml</li>
+ * </ul>
+ * <p>
+ * 注意:本 Filter 仅服务 Spring MVC 路径(如 /api/auth/**);
+ * Netty 边缘路径(转发请求)由 {@link com.esp.bff.edge.EdgeAuthHandler} 处理。
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
-public class AuthFilter extends OncePerRequestFilter {
+public class AuthFilter extends BaseJwtAuthFilter {
 
-    // 放行:认证、健康、actuator、API 门户(springdoc /v3/api-docs + /docs 聚合 Swagger UI +
-    // /swagger-ui 静态资源 + /openapi-go-rust.yaml Go/Rust 手写清单)。门户为只读 API 文档,无敏感数据;
-    // 实际业务接口仍受本 Filter 保护。
-    private static final List<String> WHITELIST = List.of(
-            "/api/auth/", "/healthz", "/actuator/", "/.well-known/",
-            "/v3/api-docs", "/docs", "/swagger-ui", "/openapi-go-rust.yaml");
+    /** BFF 特有白名单:在通用白名单(HealthConfig.COMMON_WHITELIST)基础上追加。 */
+    private static final List<String> BFF_WHITELIST = List.of(
+            "/api/auth/",
+            "/.well-known/",
+            "/openapi-go-rust.yaml"
+    );
+
     private final JwtService jwt;
 
-    public AuthFilter(JwtService jwt) { this.jwt = jwt; }
+    public AuthFilter(JwtService jwt, BaseJwtValidator jwtValidator) {
+        super(jwtValidator, BFF_WHITELIST);
+        this.jwt = jwt;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
+        if (!jwt.enabled()) {
+            chain.doFilter(req, res);
+            return;
+        }
         String path = req.getRequestURI();
-        for (String w : WHITELIST) if (path.startsWith(w)) { chain.doFilter(req, res); return; }
+        // 白名单放行(继承自 BaseJwtAuthFilter 逻辑,提取到方法以便 cookie 回落)
+        for (String w : whitelist) {
+            if (path.startsWith(w)) {
+                chain.doFilter(req, res);
+                return;
+            }
+        }
 
         // P1-13:Bearer 优先,无 header 时回落 esp_token httpOnly cookie(浏览器同源自动携带)。
         // XSS 防的是前端 JS 读 token;服务端两种凭证等价校验。
@@ -51,7 +66,7 @@ public class AuthFilter extends OncePerRequestFilter {
         if (auth != null && auth.startsWith("Bearer ")) {
             token = auth.substring(7);
         } else if (req.getCookies() != null) {
-            for (jakarta.servlet.http.Cookie c : req.getCookies()) {
+            for (Cookie c : req.getCookies()) {
                 if ("esp_token".equals(c.getName()) && !c.getValue().isBlank()) {
                     token = c.getValue();
                     break;
@@ -59,37 +74,17 @@ public class AuthFilter extends OncePerRequestFilter {
             }
         }
         if (token == null) {
-            res.setStatus(HttpStatus.UNAUTHORIZED.value());
+            res.setStatus(401);
             return;
         }
         try {
             Claims c = jwt.parse(token);
             String uid = c.getSubject();
             String role = c.get("role", String.class);
-            HttpServletRequest wrapped = new AuthHeaderWrapper(req, uid, role);
+            jakarta.servlet.http.HttpServletRequest wrapped = new AuthHeaderWrapper(req, uid, role);
             chain.doFilter(wrapped, res);
         } catch (Exception e) {
-            res.setStatus(HttpStatus.UNAUTHORIZED.value());
-        }
-    }
-
-    /** 注入可信 X-User-Id/X-Role,覆盖外网伪造值。 */
-    private static class AuthHeaderWrapper extends HttpServletRequestWrapper {
-        private final String uid;
-        private final String role;
-        AuthHeaderWrapper(HttpServletRequest req, String uid, String role) { super(req); this.uid = uid; this.role = role; }
-
-        @Override
-        public String getHeader(String name) {
-            if ("X-User-Id".equalsIgnoreCase(name)) return uid;
-            if ("X-Role".equalsIgnoreCase(name)) return role;
-            return super.getHeader(name);
-        }
-        @Override
-        public Enumeration<String> getHeaders(String name) {
-            if ("X-User-Id".equalsIgnoreCase(name)) return Collections.enumeration(List.of(uid));
-            if ("X-Role".equalsIgnoreCase(name)) return Collections.enumeration(List.of(role));
-            return super.getHeaders(name);
+            res.setStatus(401);
         }
     }
 }

@@ -10,6 +10,6 @@ const WS_TARGET = process.env.VITE_WS_TARGET || "ws://localhost:8080";
 
 export default defineConfig({
   base: "/h5/",
-  plugins: [react(), VitePWA({ registerType: "autoUpdate", includeAssets: ["favicon.ico"], manifest: { name: "ESP H5", short_name: "ESP", display: "standalone", background_color: "#0f172a", theme_color: "#3b82f6", start_url: "/h5/" } })],
+  plugins: [react(), VitePWA({ registerType: "autoUpdate", includeAssets: ["favicon.ico"], manifest: { name: "Verity H5", short_name: "Verity", display: "standalone", background_color: "#0f172a", theme_color: "#3b82f6", start_url: "/h5/" } })],
   server: { port: 3001, host: true, proxy: { "/api": API_TARGET, "/ws": { target: WS_TARGET, ws: true } } },
 });

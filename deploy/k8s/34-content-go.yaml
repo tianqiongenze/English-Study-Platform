@@ -1,0 +1,55 @@
+# content-go —— 统一内容库(功能拓展:四六级/托福/雅思/教材共享内容)
+# 学习端浏览/作答 + 管理端 CRUD/导入;esp_content 库(见 scripts/crdb-schema.sql)。
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: content-go, namespace: esp-prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: content-go}}
+  template:
+    metadata: {labels: {app: content-go}}
+    spec:
+      containers:
+      - name: content-go
+        image: esp/content-go:1.0.5   # 1.0.5 坑㉙:CRDB outbox 自投 relay(补 gamification 排行榜喂数断链)
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8096}]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        env:
+        - {name: PORT, value: "8096"}
+        - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_content?sslmode=disable"}
+        - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_content?sslmode=disable"}
+        - {name: OTEL_SERVICE_NAME, value: "content-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}
+        startupProbe:   {httpGet: {path: /livez, port: 8096}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
+        readinessProbe: {httpGet: {path: /readyz, port: 8096}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
+        livenessProbe:  {httpGet: {path: /livez, port: 8096}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}
+        lifecycle:
+          preStop:
+            exec: {command: ["sh","-c","sleep 5"]}
+        # 单节点 DEFERRED(2026-08-16):CPU request 100m→50m。
+        # 原因:单节点请求总量 9130m/9000m 超配(metrics-server 缺失致 HPA 盲),100m 无法调度。
+        # 多节点步骤:扩容后恢复 100m;依赖 metrics-server 到位后 HPA 生效。
+        resources: {requests: {cpu: "50m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata: {name: content-go, namespace: esp-prod}
+spec: {selector: {app: content-go}, ports: [{port: 80, targetPort: 8096}]}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: content-go, namespace: esp-prod}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: content-go}
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+  - type: Resource
+    resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}

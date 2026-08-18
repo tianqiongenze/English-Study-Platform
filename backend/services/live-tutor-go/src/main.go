@@ -4,15 +4,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
 
 	"esp/common-go/config"
 	"esp/common-go/health"
+	"esp/common-go/registry"
 	"esp/common-go/tracing"
 )
 
@@ -27,22 +32,35 @@ func main() {
 	log.Printf("[%s] starting on :%s", serviceName, port)
 	tracing.InitPropagator()
 
+	// Nacos 服务注册(优雅退出时注销)
+	nacosCli := registry.RegisterNacos(serviceName, 8094)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/actuator/health", health.StdHealthz(serviceName))
 	mux.HandleFunc("/actuator/health/readiness", readiness)
 	mux.HandleFunc("/actuator/health/liveness", liveness)
 	mux.HandleFunc("/api/tutor/book", book)        // 预约(seata 事务桩)
 	mux.HandleFunc("/api/tutor/availability", availability) // 查可用时段(桩)
-	mux.HandleFunc("/ws/signaling/", signaling)    // WebRTC 信令回声占位
+	mux.HandleFunc("/ws/signaling/", signaling)    // DEFERRED-单节点限制(多节点接 SFU/MCU):信令回声占位验证握手
 
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("[%s] server error: %v", serviceName, err)
-	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[%s] server error: %v", serviceName, err)
+		}
+	}()
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Printf("[%s] shutting down", serviceName)
+	registry.DeRegister(serviceName, 8094, nacosCli)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
 }
 
 func readiness(w http.ResponseWriter, _ *http.Request) { writeJSON(w, map[string]any{"status": "UP"}) }

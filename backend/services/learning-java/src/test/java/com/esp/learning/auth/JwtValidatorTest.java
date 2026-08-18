@@ -1,5 +1,6 @@
 package com.esp.learning.auth;
 
+import com.esp.common.jwt.BaseJwtValidator;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -19,20 +20,24 @@ import static org.junit.jupiter.api.Assertions.*;
  * JwtValidator 单测(ADR-12 RS256):验证 learning-java 用公钥校验 BFF 签发的 JWT。
  * 测试策略:用与 bff-java 相同的 RSA keypair 签发 token,learning-java 公钥校验应通过;
  * 用不同密钥对签发的 token 应校验失败。
+ *
+ * <p>注意:learning-java 的 JwtValidator 现为 thin wrapper(extends BaseJwtValidator)。
+ * 本测试验证 wrapper + base 类的完整行为;BaseJwtValidator 自身的单元测试见
+ * esp-common-java BaseJwtValidatorTest。
  */
 class JwtValidatorTest {
 
     private static final String RSA_DIR = "src/test/resources/rsa";
     private String publicKeyPem;
     private PrivateKey privateKey;
-    private JwtValidator validator;
+    private BaseJwtValidator validator;
 
     @BeforeEach
     void setUp() throws Exception {
         publicKeyPem = Files.readString(Path.of(RSA_DIR, "public.pem"));
         String privateKeyPem = Files.readString(Path.of(RSA_DIR, "private.pem"));
         privateKey = parsePrivateKey(privateKeyPem);
-        validator = new JwtValidator(publicKeyPem);
+        validator = new BaseJwtValidator(publicKeyPem);
     }
 
     @Test

@@ -40,7 +40,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: nacos-np
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1   # 迁移(2026-08-16):SCA 三件套迁共享 ns,NodePort 跟随
   labels:
     app: nacos
 spec:
@@ -57,7 +57,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: sentinel-np
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1   # 迁移(2026-08-16)
   labels:
     app: sentinel
 spec:
@@ -74,7 +74,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: seata-np
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1   # 迁移(2026-08-16)
   labels:
     app: seata
 spec:

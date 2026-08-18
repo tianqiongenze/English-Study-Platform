@@ -1,0 +1,33 @@
+# 内容库种子灌装 Job:运行 scripts/seed/seed_content_library.py,幂等可重跑。
+# 前置:esp-content-seed-scripts / esp-content-seed-data ConfigMaps 已存在。
+#   kubectl create configmap esp-content-seed-scripts --from-file=scripts/seed/seed_content_library.py -n esp-prod
+#   kubectl create configmap esp-content-seed-data --from-file=scripts/seed/data/ -n esp-prod
+# 用法:kubectl apply -f seed-content-job.yaml;kubectl wait --for=condition=complete job/content-seed --timeout=600s
+apiVersion: batch/v1
+kind: Job
+metadata: {name: content-seed, namespace: esp-prod}
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: seed
+        image: python:3.12-slim
+        command: ["bash", "-lc"]
+        args:
+        - |
+          pip install -q -i https://pypi.tuna.tsinghua.edu.cn/simple psycopg2-binary
+          python3 /scripts/seed_content_library.py
+        env:
+        - {name: CRDB_HOST, value: "crdb-public"}
+        - {name: CRDB_PORT, value: "26257"}
+        volumeMounts:
+        - {name: scripts, mountPath: /scripts}
+        - {name: data, mountPath: /scripts/data}
+      volumes:
+      - name: scripts
+        configMap: {name: esp-content-seed-scripts}
+      - name: data
+        configMap: {name: esp-content-seed-data}

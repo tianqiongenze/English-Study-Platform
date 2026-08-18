@@ -76,3 +76,15 @@ spec:
           port: 7091
         - protocol: TCP
           port: 8091
+    # d) 可观测性命名空间(esp-observability)Prometheus 抓取业务 actuator 指标端口
+    #    双轨(P3-19):8081=learning-java / 8083=teacher-java 的 /actuator/prometheus;
+    #    gateway 8080/bff 8090 已在上方放行。2026-08-16 P3 加(坑㉕ 同类端口白名单缺口)。
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: esp-observability
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8083

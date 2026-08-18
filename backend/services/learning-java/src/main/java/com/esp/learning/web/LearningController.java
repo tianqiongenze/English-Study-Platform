@@ -50,8 +50,8 @@ public class LearningController {
         List<Object> kpIdsRaw = (List<Object>) body.getOrDefault("kp_ids", List.of());
         List<Long> kpIds = kpIdsRaw.stream().map(o -> toLong(o, 0L)).toList();
         double score = toDouble(body.getOrDefault("score", 0.0), 0.0);
-        learningService.initMastery(userId, kpIds, score);
-        return ResponseEntity.ok(Map.of("initialized", kpIds.size()));
+        int initialized = learningService.initMastery(userId, kpIds, score);
+        return ResponseEntity.ok(Map.of("initialized", initialized));
     }
 
     /** FR-2.3 今日复习清单。P0-2:userId 取自 JWT,移除 query user_id 回落(防查他人)。 */

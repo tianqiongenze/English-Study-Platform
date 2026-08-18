@@ -55,4 +55,21 @@ class RateLimitFilterTest {
         assertEquals(429, res.getStatus(), "阈值 0 时请求应被限流返 429");
         assertTrue(res.getContentAsString().contains("rate_limited"));
     }
+
+    @Test
+    void learningEventPathMappedToLearningEventResource() throws Exception {
+        RateLimitFilter filter = new RateLimitFilter();
+        filter.init();
+        // 设 learning-event 资源阈值为 0 触发限流,验证路径映射正确
+        com.alibaba.csp.sentinel.slots.block.flow.FlowRule r =
+                new com.alibaba.csp.sentinel.slots.block.flow.FlowRule("api-learning-event");
+        r.setGrade(com.alibaba.csp.sentinel.slots.block.RuleConstant.FLOW_GRADE_QPS);
+        r.setCount(0);
+        com.alibaba.csp.sentinel.slots.block.flow.FlowRuleManager.loadRules(java.util.List.of(r));
+
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("POST", "/api/learning/event/report"), res, mock(FilterChain.class));
+        assertEquals(429, res.getStatus(), "/api/learning/event 路径应映射到 api-learning-event 资源");
+        assertTrue(res.getContentAsString().contains("rate_limited"));
+    }
 }

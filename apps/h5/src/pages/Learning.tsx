@@ -23,7 +23,7 @@ export default function Learning() {
   async function difficulty() { try { const d: DifficultyResp = await api.difficulty(3, true); setOut(`下一难度:${d.next_difficulty} 倍速:${d.speed_multiplier} 脚手架:${d.scaffolding}`); } catch (e) { setOut(`错误:${e}`); } }
 
   return (
-    <div className="panel">
+    <div className="panel immersive">
       <h3>自适应学习</h3>
       <input value={uid} onChange={(e) => { setUid(e.target.value); setPlaced(false); }} placeholder="用户 ID" style={{ width: "40%" }} />
       {placeInfo && <p className="hint">💡 {placeInfo}</p>}

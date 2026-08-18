@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  ESP 统一 logback 配置(P1-5 断点4 修复)。
+  ESP 统一 logback 配置(Phase2 升级:logstash-logback-encoder 结构化 JSON)。
   OTel javaagent 自动写 MDC: trace_id / span_id / trace_flags。
-  pattern 含 %X{trace_id} %X{span_id},确保 stdout 日志可关联分布式 trace。
+  LogstashEncoder 输出标准 ELK JSON,含 exception stack trace + MDC 全字段。
+  适用服务:bff-java / learning-java / teacher-java(三服务共用此模板)。
 
-  适用服务:bff-java / learning-java / teacher-java(三个服务共用此模板)。
+  依赖:com.github.logstash.logback:logstash-logback-encoder:7.4
+  (需在各服务 pom.xml 中添加,见 Phase2 任务清单)
 -->
 <configuration>
     <springProfile name="default | dev | test">
@@ -20,15 +22,22 @@
 
     <springProfile name="prod | staging">
         <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-            <encoder>
-                <!-- 生产环境:JSON 结构化输出,便于 Filebeat/Fluentd 采集 -->
-                <pattern>{"ts":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}","level":"%-5level","logger":"%logger{36}","thread":"%thread","traceId":"%X{trace_id}","spanId":"%X{span_id}","msg":"%msg"}%n</pattern>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <!-- 输出字段定制:含 trace/span 关联 + 精简 timestamp -->
+                <includeMdcKeyName>trace_id</includeMdcKeyName>
+                <includeMdcKeyName>span_id</includeMdcKeyName>
+                <fieldNames>
+                    <timestamp>[ignore]</timestamp>
+                    <version>[ignore]</version>
+                </fieldNames>
+                <customFields>{"service":"${spring.application.name:-esp-java}"}</customFields>
+                <!-- 日期格式:ISO-8601 带时区 -->
+                <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSSZ</timestampPattern>
             </encoder>
         </appender>
         <root level="WARN">
             <appender-ref ref="CONSOLE"/>
         </root>
-        <!-- 业务日志 DEBUG 级别,方便排查 -->
         <logger name="com.esp" level="INFO"/>
     </springProfile>
 </configuration>

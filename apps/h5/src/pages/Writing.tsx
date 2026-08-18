@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { api } from "../api";
 import type { GradeResult, PolishResult, TranslateResult } from "../types";
+import { useI18n } from "@esp/ui-tokens";
 
 type Tab = "grade" | "polish" | "translate" | "agent";
 
 export default function Writing() {
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("grade");
   const [essay, setEssay] = useState("");
   const [text, setText] = useState("");
@@ -30,19 +32,19 @@ export default function Writing() {
   async function agentState() { if (!threadId) return; setLoading(true); try { const s = await api.writingState(threadId); setAgentStatus(s.status); } finally { setLoading(false); } }
 
   return (
-    <div className="panel">
-      <h3>写作</h3>
-      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        <button className={tab === "grade" ? "primary" : ""} onClick={() => setTab("grade")}>批改</button>
-        <button className={tab === "polish" ? "primary" : ""} onClick={() => setTab("polish")}>润色</button>
-        <button className={tab === "translate" ? "primary" : ""} onClick={() => setTab("translate")}>翻译</button>
+    <div className="panel immersive">
+      <h3>{t("writing.title")}</h3>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+        <button className={tab === "grade" ? "primary" : ""} onClick={() => setTab("grade")}>{t("writing.grade")}</button>
+        <button className={tab === "polish" ? "primary" : ""} onClick={() => setTab("polish")}>{t("writing.polish")}</button>
+        <button className={tab === "translate" ? "primary" : ""} onClick={() => setTab("translate")}>{t("writing.translate")}</button>
         <button className={tab === "agent" ? "primary" : ""} onClick={() => setTab("agent")}>智能体</button>
       </div>
       {tab === "grade" && (
         <>
           <textarea rows={5} value={essay} onChange={(e) => setEssay(e.target.value)} placeholder="输入英文作文..." />
           <button className="primary" onClick={run} disabled={loading} style={{ width: "100%" }}>{loading ? "批改中..." : "AI 批改"}</button>
-          {r && <div style={{ marginTop: 8 }}><p>分数: {r.score}/30</p><p className="hint">{r.feedback}</p></div>}
+          {r && <div style={{ marginTop: 8 }}><p>{t("result.score")}: {r.score}/30</p><p className="hint">{r.feedback}</p></div>}
         </>
       )}
       {tab === "polish" && (

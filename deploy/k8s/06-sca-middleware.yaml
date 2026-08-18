@@ -11,7 +11,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: nacos
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1
   labels:
     app: nacos
 spec:
@@ -33,7 +33,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: nacos
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1
   labels:
     app: nacos
 spec:
@@ -60,6 +60,9 @@ spec:
               name: grpc
             - containerPort: 9849
               name: raft
+          volumeMounts:
+            - name: nacos-data
+              mountPath: /home/nacos/data   # 迁移(2026-08-16):embedded derby 落 PVC,重启不丢
           env:
             - name: MODE
               value: standalone
@@ -97,13 +100,33 @@ spec:
             limits:
               cpu: "1"
               memory: 1536Mi          # 原 1Gi 偏紧(derby+raft+gRPC),node 高负载下 GC 抖动超时,升内存
+      volumes:
+        - name: nacos-data
+          persistentVolumeClaim:
+            claimName: nacos-data-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nacos-data-pvc
+  namespace: ekb-m2-aws-us-east-1
+  labels:
+    app: nacos
+    platform/component: nacos
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
 ---
 # ============ Sentinel Dashboard 1.8.8 ============
 apiVersion: v1
 kind: Service
 metadata:
   name: sentinel
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1
   labels:
     app: sentinel
 spec:
@@ -119,7 +142,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sentinel
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1
   labels:
     app: sentinel
 spec:
@@ -166,11 +189,14 @@ spec:
 # 注册到 Nacos,Seata Client 通过 nacos 发现 TC。
 # ConfigMap seata-config 显式定义 application.yml(之前靠 kubectl create cm 手建,重装集群会丢,
 # 导致 seata 回退 localhost:8848 CrashLoop;此处在 manifest 内固化,消除重装隐患)。
+#
+# ⚠️ 已退役(2026-08-16):全量 Java 服务 SEATA_ENABLED=false,分布式事务依赖已去除。
+# replicas: 0 —— 不再启动。manifest + ExternalName 保留以备未来重启用(改 replicas 即可)。
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: seata-config
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1
   labels:
     app: seata
 data:
@@ -187,7 +213,8 @@ data:
     console:
       user:
         username: seata
-        password: seata
+        # 生产环境密码必须通过 Secret 或 external-secrets-operator 注入
+        password: "${SEATA_CONSOLE_PASSWORD}"
     seata:
       config:
         type: file
@@ -201,8 +228,11 @@ data:
           cluster: default
       store:
         mode: file
+        file:
+          dir: /seata/store   # 迁移(2026-08-16):file store 落 PVC,重启不丢 session
       security:
-        secretKey: SeataSecretKey0c382ef121d778043159209298fd40bf3850a017
+        # Seata 已禁用(SEATA_ENABLED=false),以下为安全占位符;生产环境用 External Secrets Operator 注入
+        secretKey: ""
         tokenValidityInMilliseconds: 1800000
         ignore:
           urls: /,/**/*.css,/**/*.js,/**/*.html,/**/*.map,/**/*.svg,/**/*.png,/**/*.jpeg,/**/*.ico,/api/v1/auth/login,/metadata/v1/**
@@ -211,7 +241,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: seata
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1
   labels:
     app: seata
 spec:
@@ -230,11 +260,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: seata
-  namespace: esp-prod
+  namespace: ekb-m2-aws-us-east-1
   labels:
     app: seata
 spec:
-  replicas: 1
+  replicas: 0   # 退役(2026-08-16):SEATA_ENABLED=false 全量去除依赖;改>0 可重启
   selector:
     matchLabels:
       app: seata
@@ -266,6 +296,8 @@ spec:
             - name: seata-config
               mountPath: /seata-server/resources/application.yml
               subPath: application.yml
+            - name: seata-store
+              mountPath: /seata/store
           readinessProbe:
             tcpSocket:
               port: 8091
@@ -291,3 +323,22 @@ spec:
         - name: seata-config
           configMap:
             name: seata-config
+        - name: seata-store
+          persistentVolumeClaim:
+            claimName: seata-store-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seata-store-pvc
+  namespace: ekb-m2-aws-us-east-1
+  labels:
+    app: seata
+    platform/component: seata
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi

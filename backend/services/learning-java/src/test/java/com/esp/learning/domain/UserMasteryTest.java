@@ -79,4 +79,40 @@ class UserMasteryTest {
         assertEquals(0, m.getReviewCount());
         assertEquals(now, m.getLastReviewAt());
     }
+
+    /**
+     * P2-13: applyTeacherFinalized 在 reviewCount 为 null(旧数据)时应初始化为0。
+     */
+    @Test
+    void applyTeacherFinalized_withNullCount_initializesToZero() {
+        UserMastery m = new UserMastery();
+        m.setUserId(1L);
+        m.setKpId(10L);
+        // reviewCount 留 null(旧数据场景)
+        m.setMasteryScore(BigDecimal.valueOf(30));
+        Instant now = Instant.parse("2026-08-14T10:00:00Z");
+
+        m.applyTeacherFinalized(BigDecimal.valueOf(88), now);
+
+        assertEquals(BigDecimal.valueOf(88), m.getMasteryScore());
+        assertEquals(0, m.getReviewCount(), "null reviewCount 应被初始化为0");
+        assertEquals(now, m.getLastReviewAt());
+    }
+
+    /**
+     * applyReviewEvent 连续正确多次应线性递增 masteryScore。
+     */
+    @Test
+    void applyReviewEvent_correctMultipleTimes_incrementsLinearly() {
+        UserMastery m = new UserMastery(1L, 10L);
+        Instant now = Instant.parse("2026-08-14T10:00:00Z");
+        Instant next = Instant.parse("2026-08-15T10:00:00Z");
+
+        for (int i = 0; i < 5; i++) {
+            m.applyReviewEvent(true, next, now);
+        }
+
+        assertEquals(BigDecimal.valueOf(5), m.getMasteryScore(), "连续5次正确,masteryScore 应为5");
+        assertEquals(5, m.getReviewCount());
+    }
 }

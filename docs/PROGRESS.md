@@ -65,15 +65,17 @@
 | writing-coach | ANTHROPIC_BASE_URL→Claude | 同→Ollama | 现就绪(纯 env) |
 | emotion-svc | 无 LLM(纯关键词) | EMOTION_LLM_BASE 预留 | DEFERRED |
 
-**⚠ 部分解除(registry mirror 403 绕过成功)**:
+**⚠ 部分解除(registry mirror 403 绕过成功)——方案3根治 Go 类完成**:
 - ✅ golang:1.25-alpine(arm64) + alpine:3.22(arm64) **从 buildkit 缓存恢复**(本地文件系统读,零网络拉取)
 - ✅ asr-adapter-go:1.0.0 + tts-adapter-go:1.0.0 **镜像构建成功**(38.9MB/38.8MB,基础层本地复用)
 - ✅ 34/35 stack yaml 已 apply,asr-adapter + tts-adapter pod Running
 - ✅ TTS 链路打通(port-forward 测 HTTP 200),但 edge-tts 库 "websocket bad handshake"(微软协议兼容问题,独立 bug)
+- ✅ **方案3根治(Go类)**:12 个 Go 服务 Dockerfile 改 `esp/golang-builder:1.25` + `esp/alpine-runtime:3.22`,验证零网络拉取(buildkit 本地解析 0.8s 无 403)
+- ✅ esp/ 前缀 tag 已就绪 5 个:golang-builder/alpine-runtime/jdk26-jre/python-runtime
 - ❌ whisper 镜像 `onerahmet/openai-whisper-api` 在 docker.1ms.run 上 404(不存在),需另找可用 whisper 镜像或自建(标 DEFERRED)
-- ⏳ 其余基础镜像恢复中:rust:1.88-bookworm + debian:bookworm-slim + eclipse-temurin:21-jre-noble + 前端 node:20-alpine/nginx:1.27-alpine(华为云源)
-- **根治**:基础镜像拉下后 `docker tag` 成 `esp/` 前缀,Dockerfile 改用本地 tag,一劳永逸
+- ⏳ **DEFERRED**:rust/debian/node/nginx/eclipse-temurin 基础镜像恢复(现有服务镜像已构建,短期不重建;恢复路径:mirror-pull.sh 加每层大小校验后重试)
 - **mirror-pull.sh 已修复**:参数化 arch(默认 arm64,原脚本硬编码 amd64 是 bug)
+- **build cache 清理建议**:等所有 esp/ tag 建好后用 `docker buildx prune --filter "until=720h" --keep-storage 20GB`(保命层:golang/rust/python/jdk builder 层),不要 `--all`
 
 #### 4. 会话23-13续3 完成项(本轮前已全部完成,见归档)
 - 归档: `docs/progress/archive/2026-08-19-session-23-13-sink-tempo-llmcache.md`

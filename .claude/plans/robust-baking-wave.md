@@ -17,7 +17,7 @@
 
 | Phase | 主题 | 目标贡献 | 依赖 | 状态 |
 |---|---|---|---|---|
-| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | 🔄 子项已核实(3 完成/4 部分),待启动 |
+| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | 🔄 执行中(4 完成/3 部分/1 待澄清) |
 | Phase2 | 基础设施升级 | 镜像/CI/CD | 无(与 P1/P4 并行) | ⏳ 待启动 |
 | Phase3 | 架构重构(达 8.5+) | 工程深度 | Phase1 完成 | ⏳ 待启动 |
 | Phase4 | 前端重构(达 8.5+) | 前端达标 | 无(与 P1/P2 并行) | ⏳ 待启动 |
@@ -41,11 +41,10 @@
 
 ### 子项 1.2 /metrics 全覆盖
 - **目标**:所有服务(Go/Java/Rust/Python)暴露 Prometheus /metrics
-- **状态(2026-08-20 核实)**:**部分**(Go/Java/Python 全覆盖,Rust 全缺)
-- **证据**:✅ 11 个 Go 服务注册 `/metrics`(promhttp.Handler)✅ bff-java/learning-java 走 actuator+micrometer(OTEL 已配)✅ writing-py/emotion-svc 见 OTEL_SERVICE_NAME
-- **缺口**:❌ **4 个 Rust 服务(assessment-rs/llm-orchestrator-rs/media-learn-rs/pronunciation-rs)Cargo.toml 无 metrics/prometheus 依赖,src 无 /metrics 路由——全缺** ❌ live-tutor-go 也缺
-- **方案**:Rust 服务加 prometheus crate + /metrics 路由(axum middleware);live-tutor-go 补 promhttp
-- **验收**:Prometheus scrape config 覆盖全服务,target 全 UP
+- **状态(2026-08-20 核实+实装)**:**代码完成**(Go/Java/Python/Rust 全接,镜像层验证 DEFERRED)
+- **证据**:✅ 11 Go 服务 + bff/learning(Java actuator+micrometer)+ writing-py/emotion-svc(OTEL_SERVICE_NAME)✅ **本会话 4 Rust 服务接入**(commit `4f944f7`):esp-common-rs/src/metrics.rs 下沉共享包 + 4 服务 `.merge(metrics_router())` + rate_limit 跳过 /metrics
+- **缺口**:⚠ live-tutor-go 仍缺(桩服务,与 1.1 合并补);⚠ **镜像层验证 DEFERRED**(cargo check 过,docker build 未执行遵雪崩铁律,镜像内 /metrics 可达性待部署阶段验证)
+- **验收**:Prometheus scrape config 覆盖全服务 target 全 UP(待镜像 build+apply 后验证)
 
 ### 子项 1.3 Nacos 注册补齐
 - **目标**:所有服务注册到 Nacos(服务发现契约)

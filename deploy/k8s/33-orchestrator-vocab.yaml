@@ -34,6 +34,10 @@ spec:
     metadata:
       labels: {app: llm-orchestrator-rs, tier: new-service, lang: rust}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: llm-orchestrator-rs
         image: esp/llm-orchestrator-rs:1.3.0   # Phase2 L2 Milvus 向量(LCO合规)+ L3 Neo4j 知识图谱
@@ -131,6 +135,10 @@ spec:
     metadata:
       labels: {app: vocab-srs-go, tier: new-service, lang: go}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: vocab-srs-go
         image: esp/vocab-srs-go:1.1.0   # #140 CRDB 切库:esp-common-go pgx + DAO 方言迁移(ON CONFLICT/RETURNING)

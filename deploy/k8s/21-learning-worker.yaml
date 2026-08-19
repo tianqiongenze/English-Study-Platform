@@ -25,6 +25,10 @@ spec:
   template:
     metadata: {labels: {app: learning-worker}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: learning-worker
         image: esp/learning-java:1.11.3   # #131:加 Pulsar 订阅 Shared(修 Exclusive 只能 1 消费者);#139 Timestamp 修复;#147 P1-8 幂等(messageId 透传 + ON CONFLICT DO NOTHING)

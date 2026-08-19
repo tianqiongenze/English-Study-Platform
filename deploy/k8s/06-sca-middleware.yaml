@@ -46,6 +46,11 @@ spec:
       labels:
         app: nacos
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile(无副作用)
+        seccompProfile:
+          type: RuntimeDefault
+        # fsGroup/runAsNonRoot DEFERRED: nacos/nacos-server:v2.4.3 镜像 USER=""(root),
+        # 强制 runAsNonRoot 会 CrashLoop;需等 nacos v3 非 root 镜像或重打镜像+chown 数据卷。
       containers:
         - name: nacos
           # 单节点 dev 环境实际运行 v2.4.3(SCA 2025.1.0.0 client 2.x 原生兼容)。
@@ -53,6 +58,10 @@ spec:
           # 配置已备份 report/nacos-backup-2026-08-02/。生产环境(直连 docker.io + PVC)可升 v3.x。详见 docs/PROGRESS.md task#10。
           image: nacos/nacos-server:v2.4.3
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false(root 镜像可加,runAsNonRoot DEFERRED)
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - containerPort: 8848
               name: http
@@ -155,10 +164,18 @@ spec:
       labels:
         app: sentinel
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile
+        seccompProfile:
+          type: RuntimeDefault
+        # fsGroup/runAsNonRoot DEFERRED: bladex/sentinel-dashboard:1.8.9 镜像 USER=""(root)。
       containers:
         - name: sentinel
           image: bladex/sentinel-dashboard:1.8.9
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - containerPort: 8858
               name: http
@@ -273,6 +290,10 @@ spec:
       labels:
         app: seata
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile(seata 已退役 replicas:0)
+        seccompProfile:
+          type: RuntimeDefault
+        # fsGroup/runAsNonRoot DEFERRED: seataio/seata-server:2.2.0 镜像 USER=""(root);重启用前需重打非 root 镜像。
       containers:
         - name: seata
           # 单节点 dev 环境实际运行 2.2.0(client 2.5.0 向下兼容握手 OK)。
@@ -281,6 +302,10 @@ spec:
           # 详见 docs/PROGRESS.md task#10。
           image: seataio/seata-server:2.2.0
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false(已退役,重启用前需补非 root 镜像)
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           ports:
             - containerPort: 7091
               name: http

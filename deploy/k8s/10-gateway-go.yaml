@@ -11,6 +11,10 @@ spec:
   template:
     metadata: {labels: {app: gateway-go}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080", prometheus.io/path: "/metrics"}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile(业务 pod 无 PVC,fsGroup 安全)
+        fsGroup: 1000               # 与 container runAsUser:1000 一致,emptyDir 卷属主 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: gateway-go
         image: esp/gateway-go:1.13.0   # Phase2/3 L2 Milvus 语义缓存 + L3 Neo4j 知识图谱:cached.go L1miss→L2Search→inner→Store(L1+L2+L3)

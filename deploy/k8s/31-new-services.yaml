@@ -15,6 +15,10 @@ spec:
   template:
     metadata: {labels: {app: course-path-go}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: course-path-go
         image: esp/course-path-go:0.2.0
@@ -65,6 +69,10 @@ spec:
   template:
     metadata: {labels: {app: live-tutor-go}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: live-tutor-go
         image: esp/live-tutor-go:0.2.0
@@ -114,6 +122,10 @@ spec:
   template:
     metadata: {labels: {app: media-learn-rs}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: media-learn-rs
         image: esp/media-learn-rs:0.2.0

@@ -9,6 +9,10 @@ spec:
   template:
     metadata: {labels: {app: community-go}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: community-go
         image: esp/community-go:1.0.0

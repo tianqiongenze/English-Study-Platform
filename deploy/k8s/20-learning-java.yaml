@@ -10,6 +10,10 @@ spec:
   template:
     metadata: {labels: {app: learning-java}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8081", prometheus.io/path: "/actuator/prometheus"}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: learning-java
         image: esp/learning-java:1.13.2   # 1.13.2 = 409兜底:LearningConflictAdvice(独立bean名+@Order最高优先级,防web-common同名覆盖)+ UserMastery构造器version=null(新实体走INSERT)修定级500;1.13.1 同义保留

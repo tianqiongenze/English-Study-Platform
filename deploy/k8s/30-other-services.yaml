@@ -10,6 +10,10 @@ spec:
   template:
     metadata: {labels: {app: writing-py}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: writing-py
         image: esp/writing-py:1.7.0   # Phase1 L1 LLM 缓存:统一 key esp:cache:llm:exact:{model}:{sha256前16} + 旧 key llm:cache 双写迁移
@@ -67,6 +71,10 @@ spec:
   template:
     metadata: {labels: {app: teacher-java}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8083", prometheus.io/path: "/actuator/prometheus"}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: teacher-java
         image: esp/teacher-java:1.10.0   # #145 CRDB 切库(集群已 PgConnection 实连 esp_teacher);#135 esp-web-common + #137 CRDB适配
@@ -117,6 +125,10 @@ spec:
   template:
     metadata: {labels: {app: emotion-svc}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: emotion-svc
         image: esp/emotion-svc:1.7.0   # #140 CRDB 切库:esp-db-py asyncpg + logging_client psycopg3
@@ -168,6 +180,10 @@ spec:
   template:
     metadata: {labels: {app: writing-coach}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: writing-coach
         image: esp/writing-coach:1.2.0   # #140 CRDB 切库:esp-db-py asyncpg + logging_client psycopg3

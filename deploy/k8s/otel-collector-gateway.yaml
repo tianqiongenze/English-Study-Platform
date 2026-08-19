@@ -73,22 +73,37 @@ spec:
           - labelSelector:
               matchLabels: {app: otel-collector-gateway}
             topologyKey: kubernetes.io/hostname
+      securityContext:                    # Phase1 1.6: pod 级 seccompProfile + fsGroup
+        fsGroup: 10001                     # 镜像 USER=10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: collector
         image: otel/opentelemetry-collector-contrib:0.110.0
         args: ["--config", "/etc/otelcol/config.yaml"]
+        securityContext:                  # 镜像 USER=10001 非 root
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
         ports:
         - {containerPort: 4317, name: otlp-grpc}
         - {containerPort: 4318, name: otlp-http}
         - {containerPort: 8889, name: prom}
         volumeMounts:
-        - {name: config, mountPath: /etc/otelcol}
+        - {name: config, mountPath: /etc/otelcol, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
         resources:
           requests: {cpu: "200m", memory: 512Mi}
           limits: {cpu: "1", memory: 1Gi}
       volumes:
       - name: config
         configMap: {name: otel-collector-gateway-config}
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

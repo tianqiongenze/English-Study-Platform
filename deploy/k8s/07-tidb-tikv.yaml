@@ -121,10 +121,19 @@ spec:
   template:
     metadata: {labels: {app: pd-aws, region: aws}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile(pingcap 镜像 USER="" root)
+        seccompProfile:
+          type: RuntimeDefault
+        # fsGroup/runAsNonRoot DEFERRED: pd/tikv/tidb/tiflash 镜像均以 root 运行(/data PVC root 写);
+        # 强制 runAsNonRoot 会 CrashLoop;需重打非 root 镜像 + chown 数据卷(多节点生产化时补)。
       containers:
         - name: pd
           image: pingcap/pd:v8.5.7
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false(root 镜像可加)
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           env:
             - {name: PD_NAME, value: pd-aws}
             - {name: PD_HOST, value: pd-aws}
@@ -159,10 +168,19 @@ spec:
   template:
     metadata: {labels: {app: pd-azure, region: azure}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile(pingcap 镜像 USER="" root)
+        seccompProfile:
+          type: RuntimeDefault
+        # fsGroup/runAsNonRoot DEFERRED: pd/tikv/tidb/tiflash 镜像均以 root 运行(/data PVC root 写);
+        # 强制 runAsNonRoot 会 CrashLoop;需重打非 root 镜像 + chown 数据卷(多节点生产化时补)。
       containers:
         - name: pd
           image: pingcap/pd:v8.5.7
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false(root 镜像可加)
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           env:
             - {name: PD_NAME, value: pd-azure}
             - {name: PD_HOST, value: pd-azure}
@@ -197,10 +215,19 @@ spec:
   template:
     metadata: {labels: {app: pd-gcp, region: gcp}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile(pingcap 镜像 USER="" root)
+        seccompProfile:
+          type: RuntimeDefault
+        # fsGroup/runAsNonRoot DEFERRED: pd/tikv/tidb/tiflash 镜像均以 root 运行(/data PVC root 写);
+        # 强制 runAsNonRoot 会 CrashLoop;需重打非 root 镜像 + chown 数据卷(多节点生产化时补)。
       containers:
         - name: pd
           image: pingcap/pd:v8.5.7
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false(root 镜像可加)
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           env:
             - {name: PD_NAME, value: pd-gcp}
             - {name: PD_HOST, value: pd-gcp}
@@ -318,10 +345,17 @@ spec:
   template:
     metadata: {labels: {app: tikv-aws, region: aws}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tikv
           image: pingcap/tikv:v8.5.7
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           command: ["/tikv-server"]
           args:
             - --addr=0.0.0.0:20160
@@ -360,10 +394,17 @@ spec:
   template:
     metadata: {labels: {app: tikv-azure, region: azure}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tikv
           image: pingcap/tikv:v8.5.7
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           command: ["/tikv-server"]
           args:
             - --addr=0.0.0.0:20160
@@ -402,10 +443,17 @@ spec:
   template:
     metadata: {labels: {app: tikv-gcp, region: gcp}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tikv
           image: pingcap/tikv:v8.5.7
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           command: ["/tikv-server"]
           args:
             - --addr=0.0.0.0:20160
@@ -472,10 +520,17 @@ spec:
   template:
     metadata: {labels: {app: tidb-cluster-tidb, region: aws, role: primary}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tidb
           image: pingcap/tidb:v8.5.7
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           command: ["/tidb-server"]
           args:
             - --store=tikv
@@ -509,10 +564,17 @@ spec:
   template:
     metadata: {labels: {app: tidb-cluster-tidb, region: azure, role: follower}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tidb
           image: pingcap/tidb:v8.5.7
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           command: ["/tidb-server"]
           args:
             - --store=tikv
@@ -546,10 +608,17 @@ spec:
   template:
     metadata: {labels: {app: tidb-cluster-tidb, region: gcp, role: follower}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tidb
           image: pingcap/tidb:v8.5.7
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           command: ["/tidb-server"]
           args:
             - --store=tikv
@@ -616,10 +685,17 @@ spec:
   template:
     metadata: {labels: {app: tiflash, region: aws}}
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tiflash
           image: pingcap/tiflash:v8.5.5
           imagePullPolicy: IfNotPresent
+          securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           command: ["/tiflash/tiflash"]
           args:
             - server

@@ -64,6 +64,10 @@ spec:
       labels:
         app: otel-collector
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile(无副作用)
+        fsGroup: 10001                 # 镜像 USER=10001:10001,卷属主一致
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: otel-collector
           # 固定 0.128.0:VM docker 本地已有此镜像(dockerhub/ghcr 出口被 403 拦,
@@ -71,6 +75,14 @@ spec:
           image: otel/opentelemetry-collector-contrib:0.128.0
           imagePullPolicy: IfNotPresent
           args: ["--config=/etc/otelcol/config.yaml"]
+          securityContext:              # Phase1 1.6: 镜像 USER=10001:10001 非 root
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true  # otel 仅写 /etc/otelcol(configMap ro)+ /tmp(可选 emptyDir)
+            capabilities:
+              drop: [ALL]
           ports:
             - name: otlp-grpc
               containerPort: 4317
@@ -87,10 +99,14 @@ spec:
             - name: config
               mountPath: /etc/otelcol
               readOnly: true
+            - name: tmp                     # readOnlyRootFilesystem 下 otel 写临时文件
+              mountPath: /tmp
       volumes:
         - name: config
           configMap:
             name: otel-collector-config
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

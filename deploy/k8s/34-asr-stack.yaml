@@ -15,6 +15,10 @@ spec:
   template:
     metadata: {labels: {app: whisper}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: whisper
         image: onerahmet/openai-whisper-api:latest   # CPU base 模型,~1-3s/句
@@ -58,6 +62,10 @@ spec:
       labels: {app: asr-adapter-go}
       annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8097", prometheus.io/path: "/metrics"}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: asr-adapter-go
         image: esp/asr-adapter-go:1.0.0

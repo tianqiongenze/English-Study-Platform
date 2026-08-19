@@ -26,10 +26,19 @@ spec:
       labels:
         app: redis-cluster
     spec:
+      securityContext:                # Phase1 1.6: pod 级 seccompProfile
+        seccompProfile:
+          type: RuntimeDefault
+        # fsGroup/runAsNonRoot DEFERRED: redis:8.0-alpine 镜像 USER=""(root,实测 uid=0);
+        # /data PVC 由 root 写,强制 runAsNonRoot 需 chown PVC + 改启动命令(复杂,多节点生产化时再补)。
       containers:
       - name: redis
         image: redis:8.0-alpine
         imagePullPolicy: IfNotPresent
+        securityContext:            # Phase1 1.6: 仅 allowPrivilegeEscalation:false(root 镜像可加)
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
         ports:
         - containerPort: 6379
           protocol: TCP

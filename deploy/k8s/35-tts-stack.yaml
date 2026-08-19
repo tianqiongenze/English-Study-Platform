@@ -18,6 +18,10 @@ spec:
       labels: {app: tts-adapter-go}
       annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8098", prometheus.io/path: "/metrics"}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: tts-adapter-go
         image: esp/tts-adapter-go:1.0.0

@@ -16,6 +16,10 @@ spec:
   template:
     metadata: {labels: {app: pronunciation-rs}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: pronunciation-rs
         image: esp/pronunciation-rs:0.3.0
@@ -72,6 +76,10 @@ spec:
   template:
     metadata: {labels: {app: listening-go}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: listening-go
         image: esp/listening-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
@@ -123,6 +131,10 @@ spec:
   template:
     metadata: {labels: {app: assessment-rs}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: assessment-rs
         image: esp/assessment-rs:0.3.1   # 0.3.1 = TC-GR-25 修复:correct 由 i8 改 i16(pgx v5 i8 编码缺陷),skill_tag 改 Option<String> bind
@@ -179,6 +191,10 @@ spec:
   template:
     metadata: {labels: {app: reading-go}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: reading-go
         image: esp/reading-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
@@ -230,6 +246,10 @@ spec:
   template:
     metadata: {labels: {app: gamification-go}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: gamification-go
         image: esp/gamification-go:0.4.2   # #220 #226 数字人 persona:GET/PUT /me/digital-human 写 esp_auth.users.digital_human(跨 schema)

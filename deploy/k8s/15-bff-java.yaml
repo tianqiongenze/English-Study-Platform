@@ -11,6 +11,10 @@ spec:
   template:
     metadata: {labels: {app: bff-java}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8090", prometheus.io/path: "/actuator/prometheus"}}
     spec:
+      securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: bff-java
         image: esp/bff-java:1.10.0   # #145 CRDB 切库:ESP_RW_STORAGE_TYPE=cockroachdb 激活 esp-rw CockroachDbDataSourceConfig(PG 池);#135 esp-web-common + #137 CRDB 适配

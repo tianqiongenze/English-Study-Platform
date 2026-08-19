@@ -209,6 +209,39 @@
 - bff-java 30009 `/actuator/health` **200 UP**:CRDB 读写双数据源 routingDataSource READ/WRITE 全 UP(PostgreSQL isValid())
 - 28/28 ESP pod Ready
 
+## 2026-08-20 会话23-15:push 解阻 + LCO 运行层诊断 + orchestrator 1.3.0 派生构建(进行中🔄)
+
+> 日期:2026-08-20(跨午夜续)
+> Redis 锚点:`esp:ctx:hot:session-23-14`(续,本轮进展写入)
+
+### 本轮完成/进行中
+
+#### 1. git push 解阻(✅ 完成)
+- **阻塞**:commit 历史含 214.87MB `deploy/docker/jdk26-jre/jdk26-aarch64-glibc.tar.gz` 超 GitHub 100MB 硬限,remote rejected。
+- **修法**(用户授权 filter-repo 改写历史):stash 保护未提交改动 → `git filter-repo --invert-paths --path <tarball> --path deploy/k6/linux-arm64/k6` → 重加 origin(fetch-repo 默认删 origin)→ fetch → pop stash → 写 .gitignore(jdk26 tarball + k6 二进制)→ commit → `git push --force-with-lease origin master`。
+- **结果**:`afd1241..720a90b master -> master`,16 commit 全推送(filter-repo 改写 15 个 + 新增 .gitignore commit)。backup ref `refs/backup/pre-filter-rewrite`(原 a75aef4)保留可回退。
+- **push 前密钥扫描**:无真实生产密钥(neo4j-password-1 是 dev env 覆盖,test123 是 e2e 测试用户,${SEATA_CONSOLE_PASSWORD} 是 shell 变量)。
+- **诚实更正**:此前 PROGRESS.md 说"push 443 超时",实际根因是 214MB 大文件非超时。
+
+#### 2. LCO 代理运行层诊断(✅ 完成诊断,修复 fork 进行中)
+- **链路接入成立**:env `ANTHROPIC_BASE_URL=http://127.0.0.1:15720`,代理 PID 69853 监听,token 代理托管,/healthz 三层 ok。
+- **运行层三故障(实时 metrics)**:
+  - L1 精确缓存:1 命中/149 miss(0.67%)——Redis port-forward :6384/:6385 DOWN,MOVED 落到断口失败。
+  - L2 语义缓存:0/149——embedding MPS 推理超 LCO_L2_TIMEOUT(8s 不足 8-34s 推理)。
+  - L3 Neo4j:port-forward :7475 超时,写记录失败。
+- **新增严重现象**:`upstream 请求失败 :15721 context canceled`——某请求整链路断(L1/L2 miss 后上游也被 cancel),本会话 LLM 调用可能卡顿。
+- **修复 fork 进行中**:重连 Redis port-forward + 抬 LCO_L2_TIMEOUT=45 + Neo4j 重连,目标恢复命中率>30%。
+
+#### 3. llm-orchestrator-rs:1.3.0 派生构建(🔄 进行中,本会话核心推进)
+- **阻塞根因**:registry mirror 全 TLS 超时拉不到 `rust:1.88-bookworm`;buildkit 缓存无 rust 层;本地无任何含 rustc 镜像。
+- **docker context 诊断修正**:此前"daemon 0 镜像"是误判,实际 docker context 残留指向已停的 colima socket;切回 `rancher-desktop` context 后 130 镜像都在。
+- **可行路径确定**(esp-builder 探测 + 主线程核实一致):
+  - apt 装 rustc 路径不可行:debian bookworm 仓库 rustc=1.63.0,编不动 axum0.7/sqlx0.7/reqwest0.12(需 1.72+/1.78+/1.76+)。
+  - 宿主交叉编译不可行:仅装 aarch64-apple-darwin target,无 linux-gnu target/linker/zig。
+  - **破局点**:`sh.rustup.rs` + `static.rust-lang.org` + USTC crates mirror 三源均可达(HTTP 200),只有 docker.io/mirror 镜像拉取挂。
+- **派生 Dockerfile**:`backend/services/llm-orchestrator-rs/Dockerfile.derive-1.3.0`。多阶段 FROM esp/llm-orchestrator-rs:1.2.0(debian+USTC+nonroot),builder 装 rustup stable(1.95)+ cargo build, runtime 复用 1.2.0 只 COPY 新二进制。依赖全纯 Rust 无 Native(reqwest rustls/sqlx rustls/redis 纯Rust/Neo4j reqwest HTTP),runtime 无需补库。
+- **进行中**:`docker build -t esp/llm-orchestrator-rs:1.3.0` 后台跑(rustup 装 + 全量 cargo 编译,~5-10min),Monitor 盯 load(当前 7-9 安全)。
+
 ### 仍待完成(下一步,离峰/用户确认后启动)
 1. **llm-orchestrator-rs 1.3.0 镜像构建**(受阻:registry mirror 全 403 拉 `rust:1.88-bookworm` 失败,见上节"仍 DEFERRED";mirror 恢复或派生构建后做)→ apply → 验证 L2 Milvus/L3 Neo4j 代码运行期日志
 2. **OTel 链路端到端验证**:重启 ESP 服务后看 Tempo 是否收 spans(本次只修了 DNS,服务未重启)
@@ -318,3 +351,35 @@
 ## 本地 commit
 - `99d97e0 feat(会话23-13续2):H-01混沌+CRDB probe+LLM缓存LCO+Nacos CRDB迁移+bff修复+压测E2E`(482 files 43516 insertions)
 - ⚠ push GitHub 失败(443 超时),本地完整,网络恢复后推
+
+## 2026-08-19~20 会话23-14续3:LCO 运行层三故障修复(fork 子任务,部分完成)
+
+> fork 代理修复 LCO 链路运行层故障。诚实记录:1 项修成,1 项恶化(操作失误),1 项实测已通。
+
+### 故障1: Redis Cluster AOF 损坏(❌ 恶化,DEFERRED 交主线程)
+- **原状**:redis-cluster-new-4 CrashLoop,日志 `Can't handle RDB format version 12` + `Error reading appendonly.aof.6.base.rdb, AOF loading aborted`。
+- **根因**:pod-4 AOF base 文件损坏,启动加载即 abort → CrashLoop。cluster nodes 显示 pod-4 是 fail 孤儿 master 无 slot(数据已由 pod-1 接管 5461-10922 + pod-5 slave)。
+- **修复尝试**:scale STS 4→释放 PVC→挂 fix pod(alpine)→ mv appendonlydir/dump.rdb 到 .bak→scale 回 6 重建 pod-4。
+- **操作失误(诚实记录)**:scale 来回重建 pod 时,**pod-2 也被触发 CrashLoop**(同样 `Can't handle RDB format version 12`,appendonly.aof.3.base.rdb 损坏)。多个 pod 的 AOF 在 scale 来回中损坏/重新加载失败。
+- **当前 cluster 状态(恶化)**:`cluster_state:fail`,`cluster_slots_ok:10923`(应 16384,少 5461,pod-2 的 10923-16383 不可用)。可用 master 仅 pod-0(0-5460)+ pod-1(5461-10922)。port-forward :6380/:6381 UP,其余 DOWN。
+- **止血**:scale STS=4(不含 ordinal 2/4),停止 scale 操作避免继续蔓延。**不继续清 PVC**(会让更多 pod 崩)。
+- **DEFERRED 方向(交主线程决策)**:① 系统性方案 = 全 cluster 禁 AOF 只用 RDB 重启,或全 cluster 重建(数据可重建,LCO 缓存非持久业务数据);② 或改 LCO L1 配置只连可用 2 个 pod(放弃 :6382/:6384/:6385),命中率降但链路通;③ **memory 更新**:Redis AOF 损坏会蔓延,scale 来回是危险操作,应记 `esp-redis-aof-corruption-cascade`。
+
+### 故障2: L2 embedding 超时(✅ 已修,可逆)
+- **根因**:`scripts/start-lco-embedding.sh` 第18行 `exec python3 "$APP"` **未设 EMBED_MODEL env** → app.py 走 auto 路由 → 中文 prompt 路由到 Qwen3-Embedding-4B → MPS 推理卡死(>90s/次)→ LCO L2_TIMEOUT=8s 必超时 → L2 0 命中。
+- **修复**:start-lco-embedding.sh 第18行前加 `export EMBED_MODEL=minilm` 强制用 all-MiniLM-L6-v2(本地目录 ~/lco-models/all-minilm-l6-v2 已存在,CPU ~0.1s/次)。launchd 自动拉起新进程(PID 18369)env 确认 `EMBED_MODEL=minilm`。
+- **验证**:embed 探针首次 18.9s(模型加载)+ 返回真实 384 维向量 + HTTP 200;常驻后推理 <0.1s。不再 `context deadline exceeded`。
+- **取舍**:minilm 跨语言语义弱于 Qwen3,但单节点 CPU 稳定可靠;多节点有 GPU 后切回 qwen。遵 [[esp-lco-embedding-vm-snowball]]。
+
+### 故障3: L3 Neo4j(✅ 实测已通,无需修)
+- :7475 port-forward 在(指向 ekb-m2-aws-us-east-1/neo4j svc),REST `RETURN 1` 返回正确 JSON `{"row":[1]}`。L3 健康。之前 LCO 日志报超时是 L1 全链路阻塞的连带(非 L3 自身故障)。
+
+### 修复后 LCO 命中率(诚实)
+- L1: 1/313 (0.3%) — 因故障1 Redis 多 pod 崩,未改善反而恶化。
+- L2: 0/313 — embedding 修了但被 L1 阻塞挡在前面,L2 没机会执行(每请求卡在 L1 :6385 读失败)。
+- L3: 健康但同样被 L1 阻塞。
+- **结论**:故障1(Redis cluster)是 LCO 全链路阻塞总根因,修了 L2/L3 也无效,必须先解决故障1。交主线程决策系统性修复方案。
+
+### 改动文件
+- `scripts/start-lco-embedding.sh`:加 `export EMBED_MODEL=minilm`(故障2 修复)
+- `docs/PROGRESS.md`:本段落(诚实记录)

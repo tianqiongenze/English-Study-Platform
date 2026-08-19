@@ -164,13 +164,13 @@ func submitAttempt(c *gin.Context) {
 	c.JSON(202, gin.H{"accepted": true, "score": body.Score})
 }
 
-// 音频转写:接 asr-adapter-go(真实 Whisper)。env ASR_ENDPOINT 未配则返回 501 拒绝假数据(铁律 MPB)。
+// DEFERRED(会话23-14 Step5): 真实 ASR 接入待 wiring to asr-adapter (http://asr-adapter:80/transcribe)。当前返回 501 拒绝假数据,符合 MPB 铁律。
 // 未来本机 GPU 预留:ASR_ENDPOINT 改指本机 Whisper-MPS 即可,零代码改动。
 func transcribe(c *gin.Context) {
 	endpoint := os.Getenv("ASR_ENDPOINT")
 	if endpoint == "" {
-		slog.Error("listening-go: ASR_ENDPOINT 未配置,拒绝返回占位假数据(铁律 MPB)", "path", c.Request.URL.Path)
-		c.JSON(501, gin.H{"error": "ASR engine not configured (ASR_ENDPOINT empty); placeholder transcript disabled by ironrule MPB"})
+		slog.Warn("listening-go ASR hardcoded chunks removed (MPB), real wiring DEFERRED", "handler", "transcribe", "path", c.Request.URL.Path)
+		c.JSON(501, gin.H{"error": "ASR not wired in listening-go (DEFERRED: real-engine plan Step 5)", "code": "ASR_NOT_IMPLEMENTED"})
 		return
 	}
 	// 读原始音频字节(base64 或 raw 由调用方约定,这里透传 raw body)

@@ -17,7 +17,7 @@
 
 | Phase | 主题 | 目标贡献 | 依赖 | 状态 |
 |---|---|---|---|---|
-| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | 🔄 子项已核实(2 完成/5 部分),待启动 |
+| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | 🔄 子项已核实(3 完成/4 部分),待启动 |
 | Phase2 | 基础设施升级 | 镜像/CI/CD | 无(与 P1/P4 并行) | ⏳ 待启动 |
 | Phase3 | 架构重构(达 8.5+) | 工程深度 | Phase1 完成 | ⏳ 待启动 |
 | Phase4 | 前端重构(达 8.5+) | 前端达标 | 无(与 P1/P2 并行) | ⏳ 待启动 |
@@ -78,12 +78,11 @@
 
 ### 子项 1.7 Mock 残留切断
 - **目标**:生产域 mock 零残留(MPB 铁律)
-- **状态(2026-08-20 核实)**:**部分(有真实缺口,推翻之前"零残留"结论)**
-- **证据**:✅ conversation-go ASR_MODE/TTS_MODE 生产设 "http"(10-gateway-go.yaml:50/52,非 mock)✅ writing-py/emotion-svc 走真实 Anthropic(secret esp-secrets,30-other:29-31/183-185)✅ 无 LLM_MODE=mock 残留
-- **缺口**:**❌ llm-orchestrator-rs StubProvider 生产激活**——`00-namespace-secret.yaml:39-44` secret `llm-providers` 全空值占位(`claude-base:""`/`openai-key:""` 等),代码 `provider/mod.rs:85` `if chain.is_empty() { chain.push(StubProvider) }` 会命中 → **生产实际跑 StubProvider(echo 兜底),违反"生产域 Mock 零残留"**
-- **⚠ 诚实复盘**:PROGRESS 第14-29行称"StubProvider manifest 有 env 不触发",核实发现 manifest 的 secret 全空值占位导致 chain 为空 → StubProvider 命中。之前判断"不触发"是错的(只看 env 标签没看 secret 实际值)
-- **方案**:`llm-providers` secret 注入真实凭据(当前默认 Zhipu GLM via CC Switch / Claude via esp-secrets);或 orchestrator env `LLM_PROVIDER_*` 明确指向真实 provider 避免 chain 空命中 Stub
-- **验收**:llm-orchestrator-rs pod 日志无 "StubProvider" 激活;实测一次 LLM 调用走真实 provider
+- **状态(2026-08-20 核实+复查)**:**已完成**(初始 esp-explorer 误判,复查纠正)
+- **证据**:✅ conversation-go ASR_MODE/TTS_MODE 生产设 "http"(10-gateway-go.yaml:50/52,非 mock)✅ writing-py/emotion-svc 走真实 Anthropic(secret esp-secrets)✅ 无 LLM_MODE=mock 残留
+- **⚠ 诚实复盘(纠正)**:esp-explorer 初核称"llm-providers secret 全空值占位 → StubProvider 生产激活"——**这是误判**。核实只看 manifest `stringData`(空占位作文档契约,manifest 第182行注释"已由 kubectl create secret 注入真实 key")。复查集群实际 secret:`llm-providers` 的 claude-base(len=44)/claude-key(len=64)**有真实值**;pod 内 env `LLM_PROVIDER_CLAUDE_BASE_len=31`/`LLM_PROVIDER_CLAUDE_KEY_len=48` 非空 → 按 `provider/mod.rs:67` 逻辑 ClaudeProvider 被 push → **chain 不为空,StubProvider 不命中**。生产实际跑 ClaudeProvider(经 CC Switch 桥接),非 Stub。
+- **结论**:生产域 mock 零残留成立(StubProvider 仅 cargo check/无 env 兜底,生产 env 有值不触发)
+- **验收**:pod env `LLM_PROVIDER_CLAUDE_*` 非空(已实测);CI 扫生产路径 mock/占位/mock-key 命中红
 
 ---
 

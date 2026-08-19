@@ -33,7 +33,7 @@ const L2_DISTANCE_THRESHOLD: f64 = 0.92;
 const L2_COLLECTION: &str = "esp_llm_semantic";
 /// L2/L3 外部调用超时(降级友好,不阻塞主链路)。
 const EXT_CALL_TIMEOUT_SECS: u64 = 3;
-/// L3 Milvus search radius 参数(REST /v2/vector/search 用 radius 做召回下界)。
+/// L3 Milvus search radius 参数(REST /v1/vector/search 用 radius 做召回下界)。
 const L2_RADIUS: f64 = 0.92;
 
 // ============================================================
@@ -165,20 +165,23 @@ async fn embed_prompt(prompt: &str) -> Option<Vec<f32>> {
 }
 
 /// L2 Milvus 向量检索:命中返回 response 字符串,未命中/降级返回 None。
-/// REST: POST http://milvus:19530/v2/vector/search
-/// body {"collectionName":"esp_llm_semantic","data":[<vec>],"limit":1,
-///        "outputFields":["response","model","scene"],"params":{"radius":0.92}}
+/// REST: POST http://milvus:19530/v1/vector/search
+/// body {"collectionName":"esp_llm_semantic","vector":[<vec>],"limit":1,
+///        "outputFields":["response","model","scene","prompt_sha16"],"params":{"radius":0.92}}
+/// ASV(2026-08-20):对齐 conversation-go 正本(semantic.go:240-247)
+///   ——此前误用 /v2/vector/search(Milvus 2.5 返回 404)+ data 嵌套 [[vec]],
+///   改为 /v1/vector/search + vector 扁平(semantic.go:243 ASV 实测)。
 pub async fn l2_search_milvus(prompt: &str, _model: Option<&str>, _scene: &str) -> Option<String> {
     if !l2_enabled() {
         return None;
     }
     let vec = embed_prompt(prompt).await?;
-    let url = format!("http://{}/v2/vector/search", milvus_addr());
+    let url = format!("http://{}/v1/vector/search", milvus_addr());
     let body = json!({
         "collectionName": L2_COLLECTION,
-        "data": [vec],
+        "vector": vec,
         "limit": 1,
-        "outputFields": ["response", "model", "scene"],
+        "outputFields": ["response", "model", "scene", "prompt_sha16"],
         "params": { "radius": L2_RADIUS }
     });
     let resp = http_client().post(&url).json(&body).send().await.ok()?;
@@ -210,9 +213,13 @@ pub fn parse_milvus_search_response(j: &Value) -> Option<String> {
 }
 
 /// L2 Milvus 写入:embedding + insert。失败仅 log(降级,不阻塞 set)。
-/// REST: POST http://milvus:19530/v2/vector/insert
+/// REST: POST http://milvus:19530/v1/vector/insert
 /// body {"collectionName":"esp_llm_semantic","data":[{"prompt_sha16":<sha16>,
-///        "response":<resp>,"model":<model>,"scene":<scene>,"ts":<unix>,"embedding":[<vec>]}]}
+///        "response":<resp>,"model":<model>,"scene":<scene>,"ts":<unix>,"vector":[<vec>]}]}
+/// ASV(2026-08-20):对齐 conversation-go 正本(semantic.go:264-279)
+///   ——此前误用 /v2/vector/insert + 向量字段名 embedding(collection schema 声明 vector,
+///   semantic.go:216),致 insert 因"未知字段 embedding / 缺必填 vector"失败 → L2 全 miss。
+///   改为 /v1/vector/insert + vector 字段名。
 pub async fn l2_store_milvus(prompt: &str, response: &str, model: Option<&str>, scene: &str) {
     if !l2_enabled() {
         return;
@@ -224,7 +231,7 @@ pub async fn l2_store_milvus(prompt: &str, response: &str, model: Option<&str>, 
             return;
         }
     };
-    let url = format!("http://{}/v2/vector/insert", milvus_addr());
+    let url = format!("http://{}/v1/vector/insert", milvus_addr());
     let body = json!({
         "collectionName": L2_COLLECTION,
         "data": [{
@@ -233,7 +240,7 @@ pub async fn l2_store_milvus(prompt: &str, response: &str, model: Option<&str>, 
             "model": model.unwrap_or(""),
             "scene": scene,
             "ts": chrono::Utc::now().timestamp(),
-            "embedding": vec
+            "vector": vec
         }]
     });
     match http_client().post(&url).json(&body).send().await {

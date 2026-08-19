@@ -40,7 +40,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: llm-orchestrator-rs
-        image: esp/llm-orchestrator-rs:1.3.0   # Phase2 L2 Milvus 向量(LCO合规)+ L3 Neo4j 知识图谱
+        image: esp/llm-orchestrator-rs:1.3.1   # 1.3.1: L2 schema 修复(对齐 conversation-go /v1/vector/* + vector 字段,2026-08-20);Phase2 L2 Milvus 向量(LCO合规)+ L3 Neo4j 知识图谱
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8086, name: http}]
         securityContext:
@@ -90,8 +90,10 @@ spec:
         readinessProbe: {httpGet: {path: /readyz,  port: 8086}, periodSeconds: 15, failureThreshold: 5,  timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /livez,   port: 8086}, periodSeconds: 20, failureThreshold: 6,  timeoutSeconds: 5}
         resources:
-          requests: {cpu: "250m", memory: 256Mi}
-          limits:   {cpu: "1000m", memory: 512Mi}
+          # 1.3.1(2026-08-20):单节点 CPU 99% 枯竭,降 request/limit 让 pod 可调度(原 250m/1000m 调度不上 Pending);
+          # 多节点 CPU 充裕后可调回 250m/1000m。DGO:live patch 已对齐。
+          requests: {cpu: "200m", memory: 256Mi}
+          limits:   {cpu: "500m", memory: 512Mi}
 ---
 apiVersion: v1
 kind: Service

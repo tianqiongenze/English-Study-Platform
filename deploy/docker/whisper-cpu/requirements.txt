@@ -1,0 +1,7 @@
+# faster-whisper(CTranslate2 int8 CPU);pin 版本(SCS 锁文件优先)
+# 注:faster-whisper 1.1.x 要 CTranslate2>=4.x;pin 全栈避免漂移
+faster-whisper==1.1.1
+# ASV 待核实:faster-whisper 1.1.1 的 WhisperModel.transcribe(segment)签名,build 后实测
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20

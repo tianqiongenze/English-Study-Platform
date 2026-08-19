@@ -423,3 +423,65 @@
 ### 改动文件
 - `scripts/start-lco-embedding.sh`:加 `export EMBED_MODEL=minilm`(故障2 修复)
 - `docs/PROGRESS.md`:本段落(诚实记录)
+
+## 2026-08-20 会话23-16:4 项遗留完整推进(L2源码修复+SCA扫描+whisper Dockerfile+push)(完成✅源码层/DEFERRED build层)
+
+> 用户诉求"完整执行:LCO L2 schema重构 + whisper镜像+edge-tts + k6压测 + dependabot 345漏洞"。可并行就并行。
+
+### 1. LCO L2 schema 代码重构(✅ 源码改完+验证,**1.3.1 镜像 build 成功+BVV 校验过,部署卡单节点 CPU**)
+- **根因(比上轮诊断更深)**:业务 LCO = `llm-orchestrator-rs/src/cache/mod.rs`(Rust,非 tools/lco-proxy 的 l2.go)。与 conversation-go 共用 `esp_llm_semantic` collection,三处不兼容致 L2 全 miss:
+  1. search API `/v2/vector/search`(Milvus 2.5 下 404)→ 应 `/v1/vector/search`
+  2. search body `"data":[vec]` 嵌套 → 应 `"vector":vec` 扁平(ASV 实测 conversation-go semantic.go:243)
+  3. insert 字段名 `"embedding":vec`(schema 声明 `vector`,semantic.go:216)→ insert 必失败
+- **修复(方案 B,Rust 对齐 conversation-go 正本,爆炸半径最小)**:mod.rs search URL v2→v1 + data→vector + outputFields 补 prompt_sha16;store URL v2→v1 + embedding→vector。文件头注释同步。
+- **验证(CLC 铁律)**:cargo check RC=0;cargo test 21/21 单测全绿(parse_milvus_* 5 个全过证搜索响应解析正确);clippy 5 error 在 dialogue/main 是历史债务(非本次引入),build 走 cargo build --release 不卡。
+- **落地待办**:build `esp/llm-orchestrator-rs:1.3.1`(BVV 校验镜像内二进制含 L2 修复符号)+ redeploy。需 VM CPU 空闲(串行铁律)。
+- **✅ 镜像 build 成功 + BVV 校验过**(2026-08-20 03:06):`docker build -t esp/llm-orchestrator-rs:1.3.1 -f Dockerfile.derive-1.3.0`,RC=0,1m40s。BVV 校验(镜像内二进制 grep):`/v1/vector/search`=1(新)、`/v2/vector/search`=0(旧已移除)、`/v1/vector/insert`=1、`/v2/vector/insert`=0 —— **L2 修复内容确在镜像内**。
+- **⚠ 部署卡单节点 CPU 枯竭**:`kubectl set image` 切 1.3.1 后新 pod Pending(`Insufficient cpu` + `No preemption victims`)。根因:节点 CPU request 已 8980m/9000m(99%)被**共享基础设施**占满(milvus 250m/neo4j 250m/tiflash+tikv 各 200m/otel 200m,esp-shared-infra-ironrule 禁动底座),不是 st-seeder(requests 空)。旧 1.3.0 pod 被 rollout 删,**LCO 业务服务当前中断**(0/1 Pending)。patch 降 limit 1→500m + request 200m 仍调度不上(8 Pending pod 抢配额)。DGO 已回写 `33-orchestrator-vocab.yaml`(image 1.3.1 + resources 200m/500m)。
+- **非阻断**:① ESP 主业务链路健康(gateway/bff/learning/teacher 全 1/1 Available,NodePort 200/404 正常);② Claude Code 的 LCO 缓存走 `tools/lco-proxy`(本机 PID 69853,独立于集群 orchestrator),不受影响;③ orchestrator 是 ESP 业务侧 LLM 缓存层,业务 LLM 调用直穿上游不阻断。
+- **上线方法**(CPU 腾出后):`kubectl -n esp-prod rollout restart deploy/llm-orchestrator-rs`,镜像已就绪。多节点 CPU 充裕后 request 可调回 250m/1000m。
+- **诚实**:conversation-go 需先启动完成 collection 创建,Rust LCO 才能复用;若 Rust 先启动 L2 降级 skip(非致命)。
+
+### 2. dependabot/trivy SCA 扫描(✅ 双源完成+全明细,待分批 rebuild)
+- **dependabot(完整分页,修正首版漏页)**:350 open(98 critical + 99 high + 140 medium + 13 low)+ 145 fixed。生态:go 221 / npm 83 / rust 25 / maven 21。critical+high = 197。
+- **trivy fs**:24 targets 扫完,53 unique advisory(crit 1/high 25/med 22/low 2)。诚实:trivy 首次联网刷 CVE 库失败(mirror.gcr.io timeout)回退本地 8-06 缓存,漏报 5 条(jackson-databind CVE-2026-54513/54512/59888/54514 + assertj-core)。
+- **critical 集中(全 Go)**:grpc CVE-2026-33186(CRITICAL,10 服务,fix v1.82.1)+ x/crypto 11 CVE(10 服务,fix v0.52.0)+ x/net 5 CVE(fix v0.55.0)+ x/text(fix v0.39.0)+ jsonparser(fix v1.1.2)。Java:postgresql 2 CVE(3 服务,fix 42.7.12)。Rust:rustls-webpki(4 服务,fix 0.103.13)。
+- **P0 修复启动(✅ esp-common-go 升级完成)**:host 跑 go get -u(6 包达标)+ tidy + build + vet + test 全绿。otel 实际升 v1.43.0(grpc v1.82.1 硬性要求,> 目标 v1.41 合理)。esp-common-go 是共享库,下游 10 服务 go mod tidy 自动拉新版本。备份 go.mod.bak/go.sum.bak 留存可回滚。
+- **待办(分批串行,遵 BRR+snowball)**:下游 Go 服务 gateway→core→周边分批 go get+tidy+build+deploy;Java 3 服务 postgresql 升级;Rust 4 服务 rustls-webpki;前端 npm install 生 lock + npm audit 修 83 条;trivy image 扫镜像 OS 包层 + db 联网刷新补漏报。
+- **报告**:`report/sca/sca-comprehensive-2026-08-20.md` + `report/sca/trivy-fs-summary.md`。
+- **工具补全建议**:`brew install govulncheck syft && cargo install cargo-audit`(SCS SBOM 产出需 syft)。
+
+### 3. whisper 派生 Dockerfile(✅ 三件套写好,待 build PyPI 风险)
+- 根因:onerahmet/openai-whisper-api:latest mirror 404 拉不下(3h ImagePullBackOff 确证)。
+- 方案:从本地 `esp/python-runtime:3.13`(=python:3.13-slim-bookworm)派生自建,用 faster-whisper(CT2 int8 CPU 友好),实现 OpenAI 兼容契约 `/v1/audio/transcriptions` + `/health`(asr-adapter-go whisper.go:57 whisperResp={text})。
+- 产出:`deploy/docker/whisper-cpu/{Dockerfile,requirements.txt,server.py}`。铁律合规:SVD 非标 tag `esp/whisper:base-cpu-ct2`;RWP ENV HOME=/home/esp + HF_HOME 缓存挂 emptyDir;CLC transcribe 失败降级空 text;SCS 依赖 pin 版本。
+- **风险(诚实)**:build 时需 PyPI 装 faster-whisper,VM 网络对 PyPI 可达性是关键阻断点(pypi.org 探测超时)。build 失败则 DEFERRED 待网络/多节点。
+- **edge-tts handshake bug**:在 `lib-x/edgetts` Go 库内(非 ESP 源码),tts-adapter-go Running 但需实调复现,DEFERRED(库内 bug 非平凡)。
+
+### 4. k6+Locust 压测(⚠ DEFERRED,CPU 不足)
+- 集群健康但 4 服务新 RS pod Pending(`Insufficient cpu` + `No preemption victims`):emotion-svc/gamification-go/llm-orchestrator-rs/teacher-java。单节点 lima VM CPU request 预算已满,新 RS 发不出去(ProgressDeadlineExceeded)。
+- 另有 configmap 缺失致 st-seeder/esp-schema-init pod ContainerCreating(`seed-session-turns-v2`/`esp-schema-sql` not found,历史 seed job 残留非服务依赖)。
+- 压测会雪崩(esp-singlenode-host-cluster-contention + esp-lco-embedding-vm-snowball),DEFERRED 待 CPU 腾出/多节点。
+
+### push d06c399(✅ 完成)
+- push3 后台第 4 次重试成功:`7b11f91..d06c399 master -> master PUSH2_OK_4`,领先量归 0。git push 网络问题彻底解决。
+
+### LCO 代理运行核实(用户关切"Claude Code 走 LCO")
+- `tools/lco-proxy`(PID 69853)在跑,Claude Code 经 cc-switch(127.0.0.1:15721)→ LCO(15720)→ 上游。**确认 Claude Code LLM 调用走 LCO 代理**。
+- L1:hit 2 / miss 1076 / error 609(6385 port-forward 曾断,现已 PONG,error 止于 609 不增)。
+- L2:0/1076 全 miss(tools/lco-proxy 用独立 collection `lco_prompts`,与业务 LCO 的 `esp_llm_semantic` 不同;业务 LCO 的 L2 修复见上节,待 build 镜像生效)。
+
+### 改动文件
+- `backend/services/llm-orchestrator-rs/src/cache/mod.rs`:L2 三处修复(search/store URL v2→v1 + 字段 embedding→vector + data→vector 扁平)
+- `backend/shared/esp-common-go/go.mod` + `go.sum`:P0 依赖升级(6 包)
+- `deploy/docker/whisper-cpu/{Dockerfile,requirements.txt,server.py}`:whisper 派生构建三件套(NEW)
+- `report/sca/sca-comprehensive-2026-08-20.md` + `trivy-fs-summary.md`:SCA 报告(NEW)
+- `docs/PROGRESS.md`:本段落
+
+### 仍待完成(下一步)
+1. **L2 镜像 build**:docker build esp/llm-orchestrator-rs:1.3.1(BVV 校验)+ redeploy 33-orchestrator-vocab.yaml。
+2. **whisper 镜像 build**:docker build esp/whisper:base-cpu-ct2(PyPI 可达性验证)+ 改 34-asr-stack.yaml image + 清双 RS。
+3. **Go 下游服务升级分批**:gateway→core→周边 go get+tidy+build+deploy(注意 grpc v1.56→v1.82 大跨度可能有 API 破坏需适配)。
+4. **Java postgresql + Rust rustls-webpki 升级**。
+5. **trivy image 扫镜像 OS 层 + db 联网刷新补 5 条漏报**。
+6. **k6+Locust 压测**(待 CPU/多节点)。

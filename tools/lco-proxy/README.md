@@ -79,7 +79,9 @@ curl -s -D - -X POST http://127.0.0.1:15720/v1/messages \
 
 ## 已知限制
 
-- L1 Redis Cluster 经 port-forward 接入,L1Pool 维护 6 单节点 Client + MOVED 重路由,命中率 100%(多节点迁移后可改 ClusterClient + 真实 CIDR)
+- L1 Redis Cluster 经 port-forward 接入,L1Pool 维护 6 单节点 Client + MOVED 重路由。**2026-08-19 实测暴露 bug**:原 `withMovedRetry` 的 `podIdx != startIdx` 条件在 MOVED 指向 startIdx 自身时误跳过重试直接返回错误,真实命中率仅 ~50%(非声称的 100%)。已修(去掉误跳过 + 改为多 pod 遍历容错),补 3 个路径测试(TestL1PoolMovedRerouteSelfHost/AllMoved/NonMovedErrorContinues)全过,`go vet` 干净。**运行期命中率实测待集群恢复后补**(本次实测因 VM 雪崩打断)。
+- L2 embedding(Qwen3-Embedding-4B 8GB)在 MPS 上单次推理 8-34s,`LCO_L2_TIMEOUT` 默认 20s;首请求可能超时降级直穿,常驻 MPS 后 <100ms。
+- **雪崩坑**:embedding 推理 + ESP 编译并行会压爆 9 核单节点 VM(load 飙至 543 致 K8s API TLS 超时),见 memory `esp-lco-embedding-vm-snowball`。embedding 必须限流/离峰/不与编译并行。
 - L2 跨协议命中当前降级直穿(重生成 DEFERRED,需 LLM 二次调用)
-- ESP 服务侧 Phase2(L2 Milvus)/Phase3(L3 Neo4j)在 conversation-go/writing-coach/orchestrator-rs 三服务落地中,共用 `esp_llm_semantic` collection
+- ESP 服务侧 Phase2(L2 Milvus)/Phase3(L3 Neo4j)在 conversation-go/writing-coach/orchestrator-rs 三服务落地中,共用 `esp_llm_semantic` collection(orchestrator-rs 部署已 apply,运行期日志验证待集群恢复)
 - 详见 `docs/design/lco-proxy-sdd.md`

@@ -234,7 +234,9 @@ LCO 代理**不校验上游 key**,原样透传 `x-api-key`/`Authorization`/`anth
 |---|---|---|
 | L2 跨协议重生成 | ⏳ DEFERRED | 需 LLM 二次调用,成本权衡 |
 | L3 Neo4j 实际写入 | ⏳ DEFERRED | 需 schema 设计 + Cypher |
-| Redis Cluster MOVED | ⚠️ 降级 | 单节点 Client,MOVED 降级直穿 |
-| 测试覆盖 | ⚠️ 24.5% | cache 集成测试需 miniredis 补齐 |
+| Redis Cluster MOVED | ⚠️ 修后待实测 | 原 withMovedRetry `podIdx!=startIdx` 误跳过致 ~50% 命中率(非 100%);已修 + 3 路径测试 + go vet 干净;运行期实测待集群恢复 |
+| L2 embedding 超时 | ⚠️ 已配 | Qwen3-4B MPS 推理 8-34s,`LCO_L2_TIMEOUT` 默认 20s(原硬编码 3s 必超时) |
+| 雪崩风险 | ⚠️ 已记 memory | embedding+编译并行压爆 9 核 VM(load 543),必须限流/离峰/串行 |
+| 测试覆盖 | ⚠️ ~40% | cache 集成测试 + 3 路径测试补齐 |
 | CI | ✅ | .github/workflows/lco-proxy-ci.yml |
 | Dockerfile | ✅ | 多阶段构建 |

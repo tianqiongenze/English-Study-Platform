@@ -57,32 +57,42 @@ func (p *L1Pool) Set(ctx context.Context, key, value string, ttl time.Duration) 
 }
 
 // withMovedRetry 执行操作,遇 MOVED 解析 FQDN 提取 pod 索引重试。
+// CLC 铁律修正(2026-08-19):原逻辑 `podIdx != startIdx` 当 MOVED 指向 startIdx
+// 自身时跳过重试直接返回错误——但 Redis Cluster 单节点 Client 对非主辖 slot
+// 会返回 MOVED 指向真正的主(可能就是 startIdx 或其他 pod)。修法:
+// MOVED 指向其他 pod → 重试该 pod;指向 startIdx 自身或重试仍失败 → 继续外层
+// for 遍历下一个 pod(不 return 错误,多 pod 容错)。非 MOVED 错误同理继续遍历。
 func (p *L1Pool) withMovedRetry(ctx context.Context, key string, fn func(*redis.Client) (string, error)) (string, error) {
-	// 先尝试 pod-0(或任意可用)
+	var lastErr error
 	for startIdx := 0; startIdx < len(p.clients); startIdx++ {
 		c := p.clients[startIdx]
 		val, err := fn(c)
 		if err == nil {
 			return val, nil
 		}
+		lastErr = err
 		// 检查是否 MOVED
 		if moved, ok := parseMoved(err); ok {
 			// 从 FQDN 提取 pod 索引
 			podIdx := extractPodIndex(moved.host)
+			// MOVED 指向其他 pod:重试到该 pod(一次)
 			if podIdx >= 0 && podIdx < len(p.clients) && podIdx != startIdx {
-				// 重试到正确 pod
-				val2, err2 := fn(p.clients[podIdx])
-				if err2 == nil {
+				if val2, err2 := fn(p.clients[podIdx]); err2 == nil {
 					return val2, nil
+				} else {
+					lastErr = err2
 				}
 			}
+			// MOVED 指向 startIdx 自身,或重试仍失败:继续外层遍历下一个 pod
+			continue
 		}
-		// 非 MOVED 或重试失败:继续尝试下一个 pod(尽力而为)
-		if startIdx == len(p.clients)-1 {
-			return "", err
-		}
+		// 非 MOVED 错误(如 i/o timeout):继续尝试下一个 pod(尽力而为,多 pod 容错)
+		continue
 	}
-	return "", fmt.Errorf("no client available")
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no client available")
+	}
+	return "", lastErr
 }
 
 // parseMoved 从 go-redis 错误提取 MOVED 信息。

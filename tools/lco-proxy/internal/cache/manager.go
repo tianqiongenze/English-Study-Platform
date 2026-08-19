@@ -91,7 +91,7 @@ func (m *Manager) Lookup(ctx context.Context, key protocol.NormalizeKey) LookupR
 	if m.pool == nil {
 		// Redis 不可达:跳过 L1,尝试 L2(L2 独立降级)
 		if m.l2 != nil {
-			l2Ctx, l2Cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			l2Ctx, l2Cancel := context.WithTimeout(context.Background(), time.Duration(m.cfg.L2TimeoutSec)*time.Second)
 			body, srcProto, ok := m.l2.Search(l2Ctx, key)
 			l2Cancel()
 			if ok {
@@ -118,7 +118,7 @@ func (m *Manager) Lookup(ctx context.Context, key protocol.NormalizeKey) LookupR
 
 	// L2:语义匹配(跨协议)。独立短超时,避免 embedding 慢拖垮主请求(降级直穿)
 	if m.l2 != nil {
-		l2Ctx, l2Cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		l2Ctx, l2Cancel := context.WithTimeout(context.Background(), time.Duration(m.cfg.L2TimeoutSec)*time.Second)
 		body, srcProto, ok := m.l2.Search(l2Ctx, key)
 		l2Cancel()
 		if ok {

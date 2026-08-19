@@ -31,6 +31,7 @@ type Config struct {
 	L2Enabled       bool
 	L2Threshold     float64 // cosine 相似度阈值,默认 0.92
 	L2Collection    string
+	L2TimeoutSec    int // L2 embedding+检索超时(秒),默认 20(Qwen3-4B 首次加载 MPS 需 ~30s,常驻后 <100ms)
 
 	// L3 知识图谱(Neo4j,经 port-forward)
 	Neo4jURL      string // bolt://127.0.0.1:7688
@@ -58,6 +59,7 @@ func Load() (*Config, error) {
 		L2Enabled:     getenv("LCO_L2_ENABLED", "true") == "true",
 		L2Threshold:   getenvFloat("LCO_L2_THRESHOLD", 0.92),
 		L2Collection:  getenv("LCO_L2_COLLECTION", "lco_prompts"),
+		L2TimeoutSec:  getenvInt("LCO_L2_TIMEOUT", 20),
 		Neo4jURL:      getenv("LCO_NEO4J_URL", "bolt://127.0.0.1:7688"),
 		Neo4jUser:     getenv("LCO_NEO4J_USER", "neo4j"),
 		Neo4jPassword: getenv("LCO_NEO4J_PASSWORD", ""),

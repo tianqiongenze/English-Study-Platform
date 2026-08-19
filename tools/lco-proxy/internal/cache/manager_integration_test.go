@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 
 	"lco-proxy/internal/config"
 	"lco-proxy/internal/protocol"
@@ -197,3 +198,68 @@ type strErr string
 
 func (e strErr) Error() string { return string(e) }
 func toErr(s string) error     { return strErr(s) }
+
+// TestL1PoolMovedRerouteSelfHost 验证 CLC 修正:MOVED 指向 startIdx 自身时
+// 不应直接返回错误,应继续遍历下一个 pod 直到命中或全部试完。
+// 这是 2026-08-19 实测暴露的 bug:原 `podIdx != startIdx` 条件在 MOVED 指向
+// startIdx 自身时跳过重试直接 return err,导致 ~50% 命中率(非 100%)。
+func TestL1PoolMovedRerouteSelfHost(t *testing.T) {
+	// 构造 3 个 client 的池,用闭包模拟 fn 行为:
+	// - startIdx=0 (pod-0): 返回 MOVED 指向 pod-0 自身(slot 属于 pod-0 但单节点 Client 不认)
+	// - startIdx=1 (pod-1): 返回成功值 "hit-value"
+	// 期望:withMovedRetry 遍历过 pod-0 的 MOVED-self 后,继续到 pod-1 拿到 "hit-value"
+	pool := &L1Pool{clients: []*redis.Client{nil, nil, nil}} // 真实 client 不用,fn 闭包控制
+	callIdx := 0
+	fn := func(c *redis.Client) (string, error) {
+		callIdx++
+		if callIdx == 1 {
+			// pod-0 返回 MOVED 指向自身
+			return "", toErr("MOVED 4415 redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379")
+		}
+		// pod-1 命中
+		return "hit-value", nil
+	}
+	val, err := pool.withMovedRetry(context.Background(), "any-key", fn)
+	if err != nil {
+		t.Fatalf("MOVED 指向自身时应继续遍历而非返回错误, got err=%v", err)
+	}
+	if val != "hit-value" {
+		t.Errorf("val=%q, want hit-value", val)
+	}
+}
+
+// TestL1PoolMovedRerouteAllMoved 验证所有 pod 都返回 MOVED 时最终返回 lastErr(不 panic)。
+func TestL1PoolMovedRerouteAllMoved(t *testing.T) {
+	pool := &L1Pool{clients: []*redis.Client{nil, nil}}
+	fn := func(c *redis.Client) (string, error) {
+		return "", toErr("MOVED 5000 redis-cluster-new-2.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379")
+	}
+	_, err := pool.withMovedRetry(context.Background(), "any-key", fn)
+	if err == nil {
+		t.Fatal("所有 pod 都 MOVED 应返回错误")
+	}
+	// 不应是 "no client available"(那是 nil client 情况),应是 MOVED 错误
+	if err.Error() == "no client available" {
+		t.Error("应返回 MOVED 错误而非 no client available")
+	}
+}
+
+// TestL1PoolNonMovedErrorContinues 验证非 MOVED 错误(如 i/o timeout)也继续遍历。
+func TestL1PoolNonMovedErrorContinues(t *testing.T) {
+	pool := &L1Pool{clients: []*redis.Client{nil, nil}}
+	callIdx := 0
+	fn := func(c *redis.Client) (string, error) {
+		callIdx++
+		if callIdx == 1 {
+			return "", toErr("i/o timeout") // pod-0 超时
+		}
+		return "recovered", nil // pod-1 恢复
+	}
+	val, err := pool.withMovedRetry(context.Background(), "any-key", fn)
+	if err != nil {
+		t.Fatalf("非 MOVED 错误应继续遍历, got err=%v", err)
+	}
+	if val != "recovered" {
+		t.Errorf("val=%q, want recovered", val)
+	}
+}

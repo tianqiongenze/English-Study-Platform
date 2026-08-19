@@ -7,5 +7,8 @@ RUN mkdir -p /opt/java && tar xzf /tmp/jdk26.tar.gz -C /opt/java --strip-compone
 ENV JAVA_HOME=/opt/java
 ENV PATH=$JAVA_HOME/bin:$PATH
 RUN java -version 2>&1 | grep 'version "26'
-RUN useradd -r -u 1000 -m esp
+# RWP铁律根因根治(第①层):Dubbo3.3.6写${HOME}/.dubbo,无ENV HOME→HOME=/→写/.dubbo(只读根fs失败);
+# 设HOME=/home/esp让Dubbo默认路径落可写家目录/home/esp/.dubbo而非根/.dubbo
+RUN useradd -r -u 1000 -m -d /home/esp esp
+ENV HOME=/home/esp
 USER 1000

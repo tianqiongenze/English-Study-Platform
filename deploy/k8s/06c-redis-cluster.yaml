@@ -57,7 +57,7 @@ spec:
     spec:
       containers:
       - name: redis
-        image: redis:7.2-alpine
+        image: redis:8.0-alpine
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 6379
@@ -125,7 +125,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: redis-cli
-        image: redis:7.2-alpine
+        image: redis:8.0-alpine
         imagePullPolicy: IfNotPresent
         command:
         - sh

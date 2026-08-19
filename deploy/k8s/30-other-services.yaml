@@ -110,6 +110,14 @@ spec:
         readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8083}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 5}   # period 放宽到 30s 减少 kubelet 探针 CLOSE_WAIT 堆积(单节点 VM 通病诱因)
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8083}, periodSeconds: 30, failureThreshold: 3, timeoutSeconds: 15}  # 恢复 liveness:acceptor hang 时 HTTP 超时→kubelet 自愈重启,根治"假 Running 不响应"。timeout 15s 容忍单节点 VM GC 抖动
         resources: {requests: {cpu: "200m", memory: 768Mi}, limits: {cpu: "1", memory: 2048Mi}}
+        # RWP铁律(DGO回写):live已patch挂/logs+/.dubbo修复Dubbo3.3.6写/.dubbo+Nacos SDK硬编码/logs/nacos失败;回写yaml防apply重建丢挂载
+        volumeMounts:
+        - {name: nacos-logs, mountPath: /logs}
+        - {name: dubbo-meta, mountPath: /.dubbo}
+      # RWP铁律(DGO回写):emptyDir供Nacos /logs + Dubbo /.dubbo写入
+      volumes:
+      - {name: nacos-logs, emptyDir: {}}
+      - {name: dubbo-meta, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service

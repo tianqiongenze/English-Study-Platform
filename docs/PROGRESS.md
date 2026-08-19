@@ -209,7 +209,7 @@
 - bff-java 30009 `/actuator/health` **200 UP**:CRDB 读写双数据源 routingDataSource READ/WRITE 全 UP(PostgreSQL isValid())
 - 28/28 ESP pod Ready
 
-## 2026-08-20 会话23-15:push 解阻 + LCO 运行层诊断 + orchestrator 1.3.0 派生构建(进行中🔄)
+## 2026-08-20 会话23-15:push 解阻 + LCO 运行层诊断 + orchestrator 1.3.0 派生构建+上线(完成✅,LCO Redis DEFERRED)
 
 > 日期:2026-08-20(跨午夜续)
 > Redis 锚点:`esp:ctx:hot:session-23-14`(续,本轮进展写入)
@@ -232,7 +232,7 @@
 - **新增严重现象**:`upstream 请求失败 :15721 context canceled`——某请求整链路断(L1/L2 miss 后上游也被 cancel),本会话 LLM 调用可能卡顿。
 - **修复 fork 进行中**:重连 Redis port-forward + 抬 LCO_L2_TIMEOUT=45 + Neo4j 重连,目标恢复命中率>30%。
 
-#### 3. llm-orchestrator-rs:1.3.0 派生构建(🔄 进行中,本会话核心推进)
+#### 3. llm-orchestrator-rs:1.3.0 派生构建 + 上线(✅ 完成,BVV 闭环)
 - **阻塞根因**:registry mirror 全 TLS 超时拉不到 `rust:1.88-bookworm`;buildkit 缓存无 rust 层;本地无任何含 rustc 镜像。
 - **docker context 诊断修正**:此前"daemon 0 镜像"是误判,实际 docker context 残留指向已停的 colima socket;切回 `rancher-desktop` context 后 130 镜像都在。
 - **可行路径确定**(esp-builder 探测 + 主线程核实一致):
@@ -240,16 +240,56 @@
   - 宿主交叉编译不可行:仅装 aarch64-apple-darwin target,无 linux-gnu target/linker/zig。
   - **破局点**:`sh.rustup.rs` + `static.rust-lang.org` + USTC crates mirror 三源均可达(HTTP 200),只有 docker.io/mirror 镜像拉取挂。
 - **派生 Dockerfile**:`backend/services/llm-orchestrator-rs/Dockerfile.derive-1.3.0`。多阶段 FROM esp/llm-orchestrator-rs:1.2.0(debian+USTC+nonroot),builder 装 rustup stable(1.95)+ cargo build, runtime 复用 1.2.0 只 COPY 新二进制。依赖全纯 Rust 无 Native(reqwest rustls/sqlx rustls/redis 纯Rust/Neo4j reqwest HTTP),runtime 无需补库。
-- **进行中**:`docker build -t esp/llm-orchestrator-rs:1.3.0` 后台跑(rustup 装 + 全量 cargo 编译,~5-10min),Monitor 盯 load(当前 7-9 安全)。
+- **构建成功**:`docker build` ~6min,rustup 装 + cargo 全量编译(rustls/hyper/sqlx/redis/esp-common-rs/llm-orchestrator-rs)。镜像 `esp/llm-orchestrator-rs:1.3.0` 188MB,二进制 11.3MB(1.2.0 是 10.5MB)。
+- **BVV 内容校验(镜像产物内容铁律)**:导出二进制 `strings` grep 到 `L2 milvus store ok`/`L2 milvus search HTTP non-2xx`/`embed_prompt`/`l2_store_milvus`/`l2_search_milvus`/`neo4j_run`/`L1 exact hit` 符号;对照 1.2.0 的 milvus/neo4j 计数=0(旧版无 L2/L3)。**镜像内容确含 L2/L3 代码**。
+- **上线**:deploy spec 原本就指向 1.3.0(yaml 第39行),但此前镜像不存在→新 pod ImagePull→Pending。构建后 rollout restart,但**卡在单节点 CPU request 99%满**(node 8980m/9000m,orchestrator 要 250m 塞不下)。patch `maxSurge=0/maxUnavailable=1`(删旧起新不并存)+ request 250m→50m 后,**rollout successfully**,新 pod 1/1 Running。
+- **运行期验证**:imageID `sha256:0a6718785a55`(与 build 镜像 ID 一致);启动日志 `tracing initialized`→`CockroachDB pool ready`→`llm adaptive limiter initial=10`→`healthz OK`;curl `/healthz` 返回 `{"service":"llm-orchestrator-rs","status":"UP"}`。
+- **DEFERRED**:L2/L3 运行期日志验证(L2/L3 懒初始化,需发请求触发;Redis cluster fail 时 L1/L2/L3 全降级,按用户决策"Redis 不动")。Nacos 注册返回 HTTP 000(新发现,待查 nacos 可达性)。
+
+#### 5. 集群健康度退化与恢复(⚠ 进行中,本会话操作致退化后部分恢复)
+- **退化根因**:本会话 + fork 并行操作(orchestrator rollout + fork scale Redis STS)期间触发一批僵尸 pod(st-seeder 16 孤儿/esp-redis-warmup Job/esp-schema)占 CPU request,集群从续2 的"28/28 Ready"退化到 29/58(50% Ready),node CPU 99% 满。
+- **恢复操作**(用户决策"先恢复集群健康"):
+  - 清理僵尸:删 st-seeder 16 孤儿 pod(configmap seed-session-turns-v2 缺失卡 ContainerCreating)+ esp-redis-warmup Failed Job + esp-schema 卡住 pod。
+  - 批量降 13 个非核心服务 CPU request(100m→30m / 50m→30m)+ 设 maxSurge=0/maxUnavailable=1(删旧起新不并存),腾出额度。
+  - 降核心 Java 服务 learning-java/teacher-java request 200m→100m,恢复调度。
+  - patch 镜像 tag 到本地有镜像版本:gateway-go 1.13.0→1.12.0、assessment-rs 0.3.1→0.4.0(原 tag 镜像不存在致 ImagePullBackOff)。
+- **部分恢复结果**:从 29/58(50%)恢复到约 30/32(94%),主链路 gateway-go/orchestrator-rs/course-path-go 1/1,learning-java/teacher-java 从 Pending 恢复 Running。
+- **残留问题(未完全恢复)**:
+  - learning-java/teacher-java/learning-worker readyReplicas 空 + 出现 CrashLoopBackOff(疑似 Redis fail 致 Dubbo/Nacos 连不上启动失败,待查;可能复现续2 #3 /.dubbo 坑)。
+  - bff-java 1/2(一个 RS 拉旧 imageID 待恢复)。
+  - whisper Pending(500m DEFERRED ASR 镜像问题)+ assessment-rs ImagePullBackOff 残留。
+  - **Redis cluster_state:fail 未解**(用户决策不动),可能是 Java 服务 CrashLoop 的根因(连不上 Redis)。
+- **诚实反思**:本会话在 CPU 99% 满载下单节点上并行多操作(orchestrator 构建+rollout 同时 fork 动 Redis),触发调度雪崩,违背 [[esp-singlenode-host-cluster-contention]]"主机重 mvn 与集群操作必须串行"。后续应在 load<10 且无并行 k8s 操作时才推进。
+- **原值记录与 DGO 回写状态(可逆恢复用,2026-08-20 更新)**:
+  - **已回写仓库 yaml(DGO 合规,永久回退)**:gateway-go 1.13.0→1.12.0(10-gateway-go.yaml,1.13.0 镜像未构建);assessment-rs 0.3.1→0.4.0(32-batch2-services.yaml,0.3.1 镜像不存在);redis 7.2→8.0(06c-redis-cluster.yaml,全升 8.0)。
+  - **未回写(live 临时 patch,PROGRESS 记录,多节点迁移后恢复)**:13 非核心服务 request 100m/50m→live 30m(单节点 CPU 99% 临时腾空间,仓库仍 100m/50m 是生产正确值);learning-java/teacher-java request 200m→live 100m;orchestrator request 250m→live 50m;均设 maxSurge=0/maxUnavailable=1。**理由**:30m 是单节点资源约束的临时妥协,不该固化进仓库 yaml(DGO 第⑤条临时 patch 记录)。
+  - **新增挂载(已 live patch,待回写 yaml)**:learning-java/teacher-java 挂 /logs + /.dubbo emptyDir(修 Nacos 日志 + Dubbo 元数据坑,见下节)。
+
+#### 6. Java 服务 Dubbo/.dubbo + Nacos/logs 坑修复(✅ 完成,2026-08-20)
+- **坑**:learning-java + teacher-java CrashLoopBackOff,根因 `readOnlyRootFilesystem:true` + 镜像 HOME=/ → Dubbo 3.3.6 写 `/.dubbo/dubbo-metadata-<svc>-nacos-8848.cache` 失败(`Failed to create directory /.dubbo`)+ Nacos logback 写 `/logs/nacos/ai.log` 失败 → Spring 启动崩。
+- **同款历史**:PROGRESS.md 续2 #3(2026-08-19)learning-worker 已修此坑(挂 /.dubbo emptyDir),但 **learning-java/teacher-java 漏修**(根因:续2 修 learning-worker 时未全局同步所有 Java 服务 + 无 CI 拦截)。
+- **修复**:挂 /logs + /.dubbo 双 emptyDir(learning-java + teacher-java)。修后 learning-java `Started LearningApplication in 33s`、teacher-java `Started TeacherApplication in 44s`,全 1/1 Ready 0 restart。
+- **诚实根因(待立铁律)**:此坑反复出现(learning-worker→learning-java→teacher-java),根因是 readOnlyRootFilesystem + HOME=/ + Dubbo/Nacos 写根目录,且**修一个服务不全局同步**。subagent 根因查证中,完成后立铁律防再犯(Dockerfile HOME 设置 / 全局挂载 / CI 校验)。
+- **集群健康最终**:27→29 Running + teacher-java 1/2(HPA 扩 2 但第二 pod CPU 不足 Pending,单节点限制)+ whisper ImagePullBackOff(DEFERRED)。核心服务全 1/1:gateway-go/bff-java/learning-java/teacher-java/orchestrator/course-path-go/learning-worker。
+
+#### 4. LCO 运行层三故障修复(fork 子任务,部分完成)
+- **故障2 L2 embedding 超时(✅ 已修,fork)**:根因 `start-lco-embedding.sh` 未设 `EMBED_MODEL` → auto 路由 Qwen3-Embedding-4B MPS 卡死 >90s。改设 `EMBED_MODEL=minilm`(all-MiniLM-L6-v2 CPU ~0.1s,384dim),实测 HTTP 200。commit `ee1581d`。
+- **故障3 L3 Neo4j(✅ 实测已通)**:`:7475 RETURN 1` 正常,无需修。
+- **故障1 Redis Cluster AOF 损坏(✅ 全升 8.0 根治,2026-08-20)**:fork 修 pod-4 AOF 时 scale STS 来回致 pod-2 也 CrashLoop(AOF 蔓延),cluster_state:fail。根因深挖(esp-explorer 证据链闭合)实为**版本漂移脑裂**:STS spec 声明 7.2-alpine 但 pod-0 跑 8.0.6、pod-1/2/3 跑被劫持的 alpine-arm64:base(7.2.13 非标),根因是 `docker tag alpine-arm64:base redis:7.2-alpine` **tag 劫持**(docker inspect 证实 RepoTags 同 imageID)+ solo patch STS spec 到 8.0 未回写 yaml。AOF RDB v12 跨版本不兼容 + replication extension type 4 协议不兼容致脑裂。
+- **全升 8.0 修复(用户决策)**:① `docker rmi redis:7.2-alpine` 解 tag 劫持;② 回写 `deploy/k8s/06c-redis-cluster.yaml:60/128` 7.2→8.0(DGO 铁律);③ patch STS replicas 4→6(修 fork scale 残留);④ STS spec 已 8.0 + 劫持解除后,STS 自动把 6 pod 全用真 redis:8.0-alpine 重建。
+- **验证(✅ 三态对齐)**:6 pod 全 `redis_version:8.0.6` + STS spec 8.0 + 镜像 8.0-alpine;`cluster_state:ok` + `cluster_slots_ok:16384`(从 5461 恢复)+ 3 master(0-5460/5461-10922/10923-16383)+3 slave 拓扑正常;本地 6380-6385 port-forward 全 UP PING PONG;SET/GET 测试 OK。**立 SVD 铁律**(memory `stateful-workload-version-drift-ironrule`,engineering-ironrules 第15条)防再犯。
+- **连带恢复**:learning-worker 1/1(连上 Redis 恢复);LCO L1 池 6 端口全通(命中率待观察);learning-java 仍 CrashLoop(独立坑:Nacos `/logs/nacos/` 目录 readOnlyRootFilesystem 致 `Failed to create /logs/nacos/ai.log`,非 Redis 根因,待挂 emptyDir 修,同续2 #3 learning-worker/.dubbo 修法)。
+- **LCO 命中率**:L1 命中 1/747(L1 池刚恢复全通,命中率待新一轮请求积累);L2 仍 0(embedding minilm 修复待验证生效)。LCO 铁律 >30% 目标待观察。
 
 ### 仍待完成(下一步,离峰/用户确认后启动)
-1. **llm-orchestrator-rs 1.3.0 镜像构建**(受阻:registry mirror 全 403 拉 `rust:1.88-bookworm` 失败,见上节"仍 DEFERRED";mirror 恢复或派生构建后做)→ apply → 验证 L2 Milvus/L3 Neo4j 代码运行期日志
-2. **OTel 链路端到端验证**:重启 ESP 服务后看 Tempo 是否收 spans(本次只修了 DNS,服务未重启)
-3. ~~**LCO 运行期实测**~~(✅ 本轮续2 完成:L1/L2/L3 三层全部真实命中验证,见上节)
-4. **真实引擎切换收尾**:whisper 镜像(mirror 404 需另找/自建,DEFERRED)+ TTS edge-tts websocket handshake bug
-5. **全量重构达标计划执行**(`.claude/plans/robust-baking-wave.md`,用户确认后启动)
-6. LCO 修复(l3.go/manager.go/server.go 三层实装)+ 本轮 4 处修复统一 commit + push GitHub
-7. k6+Locust 混合压测(50→5000 CCU 阶梯)+ 全功能 E2E
+1. ~~**llm-orchestrator-rs 1.3.0 镜像构建**~~(✅ 本会话完成:派生 Dockerfile FROM 1.2.0 装 rustup+cargo build,BVV 验证含 L2/L3,deploy 上线 1/1 Running healthz UP)
+2. ~~**OTel 链路端到端验证**~~(⚠ 部分:宿主 otel-collector 收到 99370 spans + 112784 logs;tempo ingester 未 ready `waiting for 15s`;ESP 服务未重启 OTel 连接可能旧;需重启服务+等 tempo)
+3. ~~**LCO 运行期实测**~~(✅ 本轮:Redis 全升 8.0 + L1 池 6 端口全通后 L1 命中恢复探针验证;L2 仍 0 命中——Milvus REST v2 `/v2/vector/collections/list` 404 API 路径疑 bug,DEFERRED 调试)
+4. **真实引擎切换收尾**:whisper 镜像 mirror 404 需另找/自建(DEFERRED)+ TTS edge-tts websocket handshake bug;gateway-go 1.13.0 派生构建(含 L2/L3,现临时回退 1.12.0)
+5. **全量重构达标计划执行**(`.claude/plans/robust-baking-wave.md` 文件实际不存在,需重建;fork Phase1 已完成 6 commit 限流熔断/Rust metrics/securityContext)
+6. **LCO L2 Milvus API 路径修复**(`/v2/vector/collections/list` 404,致 L2 全 miss;需查 Milvus 版本对应 API)+ L2/L3 运行期日志验证
+7. **k6+Locust 混合压测**(50→5000 CCU 阶梯)+ 全功能 E2E
+8. **本会话铁律立成**(✅ 6 条新铁律 SVD/BRR/DGO/RWT/SCS/RWP 三处落盘,memory+CLAUDE.md+索引,后续所有项目遵守)
 
 ---
 

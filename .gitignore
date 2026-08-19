@@ -91,3 +91,4 @@ $CLAUDE_JOB_DIR
 deploy/docker/jdk26-jre/*.tar.gz
 # k6 压测二进制(arm64,本地构建产物)
 deploy/k6/linux-arm64/k6
+.scratch/

@@ -62,6 +62,14 @@ spec:
         resources:
           requests: {cpu: "200m", memory: 512Mi}   # BFF 作为边缘接入层需要更高 CPU 分配以处理 Netty I/O + Spring MVC + Dubbo Triple
           limits:   {cpu: "2",     memory: 2Gi}   # 1536Mi 偏紧导致 OOMKill;2Gi 给 Netty+Dubbo+Seata+Spring WebMVC 足够余量
+        # RWP铁律(防御性挂载):未开readOnlyRootFilesystem当前不崩,防将来开readOnly再踩;Dubbo3.3.6写/.dubbo + Nacos SDK硬编码/logs/nacos
+        volumeMounts:
+        - {name: nacos-logs, mountPath: /logs}
+        - {name: dubbo-meta, mountPath: /.dubbo}
+      # RWP铁律(防御性挂载):emptyDir供Nacos /logs + Dubbo /.dubbo写入
+      volumes:
+      - {name: nacos-logs, emptyDir: {}}
+      - {name: dubbo-meta, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service

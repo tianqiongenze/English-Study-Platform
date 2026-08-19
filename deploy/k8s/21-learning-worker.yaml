@@ -75,6 +75,16 @@ spec:
         resources:
           requests: {cpu: "100m", memory: 512Mi}
           limits: {cpu: "1", memory: 2048Mi}
+        # RWP铁律(必须修):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;Dubbo3.3.6写/.dubbo + Nacos SDK硬编码/logs/nacos + /tmp临时文件全失败
+        volumeMounts:
+        - {name: nacos-logs, mountPath: /logs}
+        - {name: dubbo-meta, mountPath: /.dubbo}
+        - {name: tmp, mountPath: /tmp}
+      # RWP铁律(必须修):emptyDir供Nacos /logs + Dubbo /.dubbo + /tmp写入
+      volumes:
+      - {name: nacos-logs, emptyDir: {}}
+      - {name: dubbo-meta, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
 
 ---
 apiVersion: autoscaling/v2

@@ -61,6 +61,14 @@ spec:
         resources:
           requests: {cpu: "200m", memory: 512Mi}
           limits: {cpu: "1", memory: 1536Mi}
+        # RWP铁律(DGO回写):live已patch挂/logs+/.dubbo修复Dubbo3.3.6写/.dubbo+Nacos SDK硬编码/logs/nacos失败;回写yaml防apply重建丢挂载
+        volumeMounts:
+        - {name: nacos-logs, mountPath: /logs}
+        - {name: dubbo-meta, mountPath: /.dubbo}
+      # RWP铁律(DGO回写):emptyDir供Nacos /logs + Dubbo /.dubbo写入
+      volumes:
+      - {name: nacos-logs, emptyDir: {}}
+      - {name: dubbo-meta, emptyDir: {}}
       terminationGracePeriodSeconds: 45
 ---
 apiVersion: v1

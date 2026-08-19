@@ -142,24 +142,39 @@ lco:1:{protocol}:{sha256前16位}
 
 ### 4.2 Milvus(L2)collection schema
 
+> 宿主 LCO 代理用 port-forward 的 Milvus(`lco_prompts`,2560维 Qwen);
+> **ESP 服务侧(三服务共用)`esp_llm_semantic`,384维 minilm**(跨服务语义缓存共享)。
+> 两者独立 collection —— 宿主侧为工具缓存(中文为主 Qwen),服务侧为运行时缓存(英文代码为主 minilm,维度稳定)。
+
 ```
-collection: lco_prompts
-fields:
+宿主 LCO collection: lco_prompts
   vector: FloatVector(2560 维, Qwen3-Embedding-4B)
   body:    VarChar(响应体)
   protocol: VarChar(源协议)
   model:   VarChar
   ts:      Int64
-index: HNSW, metric=cosine
+  index: HNSW, metric=cosine
+
+ESP 服务侧 collection: esp_llm_semantic(三服务共用)
+  prompt_sha16: VarChar(主键)
+  response:    VarChar(缓存的 LLM 回复)
+  model:       VarChar
+  scene:       VarChar(chat/code/knowledge)
+  ts:          Int64
+  embedding:   FloatVector(384 维, all-MiniLM-L6-v2)
+  index: HNSW, metric=cosine, 阈值 0.92
 ```
 
-### 4.3 Neo4j(L3)图模型(DEFERRED)
+### 4.3 Neo4j(L3)图模型
 
 ```
-(Prompt)-[:PRODUCES]->(Response)
+(Prompt)-[:ANSWERED]->(Response)
 (Prompt)-[:USES]->(Model)
 (Prompt)-[:BELONGS_TO]->(Protocol)
+constraint: Prompt.sha16 UNIQUE
 ```
+
+> L3 在宿主 LCO 代理侧 DEFERRED;ESP 服务侧 Phase3 由三服务(conversation-go/writing-coach/orchestrator-rs)落地,共用同一 Neo4j 实例。
 
 ### 4.4 embedding 模型
 

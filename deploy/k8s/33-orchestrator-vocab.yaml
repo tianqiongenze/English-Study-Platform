@@ -36,7 +36,7 @@ spec:
     spec:
       containers:
       - name: llm-orchestrator-rs
-        image: esp/llm-orchestrator-rs:1.2.0   # Phase1 L1 LLM 缓存:key 迁移至统一规范 esp:cache:llm:exact:{model}:{sha256前16}
+        image: esp/llm-orchestrator-rs:1.3.0   # Phase2 L2 Milvus 向量(LCO合规)+ L3 Neo4j 知识图谱
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8086, name: http}]
         securityContext:
@@ -67,6 +67,18 @@ spec:
         # OTEL(新规范:FQDN,对齐 Dockerfile 默认值)
         - {name: OTEL_SERVICE_NAME, value: "llm-orchestrator-rs"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        # LCO 三层缓存铁律(Phase2 L2 Milvus 向量 + Phase3 L3 Neo4j 知识图谱)
+        # L1 精确(esp:cache:llm:exact:*)代码内已实现,此处仅 L2/L3 外部依赖配置。
+        # L2 Milvus:复用 conversation-go 创建的 esp_llm_semantic collection(384dim minilm,cosine≥0.92)跨服务共享。
+        - {name: L2_ENABLED, value: "true"}
+        - {name: MILVUS_ADDR, value: "milvus:19530"}
+        - {name: EMBEDDING_URL, value: "http://host.lima.internal:15730/embed"}
+        # L3 Neo4j:Prompt→Response 知识图谱(reqwest HTTP API /db/neo4j/tx/commit,basic auth)。
+        # 密码从 secret neo4j-creds 注入(铁律:不在 git 硬编码生产密码);optional 防 secret 缺失致启动失败(降级为默认占位)。
+        - {name: L3_ENABLED, value: "true"}
+        - {name: NEO4J_URL, value: "http://neo4j:7474"}
+        - {name: NEO4J_USER, value: "neo4j"}
+        - {name: NEO4J_PASSWORD, valueFrom: {secretKeyRef: {name: neo4j-creds, key: password, optional: true}}}
         # Nacos 服务注册(entrypoint 脚本 nacos-register.sh)
         - {name: NACOS_ADDR, value: "nacos:8848"}
         - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}

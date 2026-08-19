@@ -17,7 +17,7 @@
 
 | Phase | 主题 | 目标贡献 | 依赖 | 状态 |
 |---|---|---|---|---|
-| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | ⏳ 待启动 |
+| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | 🔄 子项已核实(2 完成/5 部分),待启动 |
 | Phase2 | 基础设施升级 | 镜像/CI/CD | 无(与 P1/P4 并行) | ⏳ 待启动 |
 | Phase3 | 架构重构(达 8.5+) | 工程深度 | Phase1 完成 | ⏳ 待启动 |
 | Phase4 | 前端重构(达 8.5+) | 前端达标 | 无(与 P1/P2 并行) | ⏳ 待启动 |
@@ -33,50 +33,57 @@
 
 ### 子项 1.1 Go 限流熔断接线
 - **目标**:12 个 Go 服务全接限流 + 熔断中间件
-- **状态**:**待核实结果填入**(esp-explorer 核实中)
-- **已知**:asr-adapter-go / tts-adapter-go 已有(Gin + 限流熔断 + 健康探针)
-- **缺口**:待核实其他 Go 服务(gateway-go/listening-go/live-tutor-go/community-go/content-go/course-path-go/gamification-go)
-- **方案**:抽公共限流熔断中间件到 esp-common-go(铁律①公共包优先,≥2 服务共用必下沉)
+- **状态(2026-08-20 核实)**:**部分**(11/13 接入,2 缺口)
+- **证据**:✅ 9 个 Gin 服务全接 `middleware.GinRateLimit`+`GinCircuitBreaker`(asr-adapter/tts-adapter/community/content/gamification/listening/reading/vocab-srs 各 main.go)+ gateway-go/course-path-go 接 net/http 版 `HTTPRateLimit`+`HTTPCircuitBreaker`;⚠ conversation-go 非独立部署(gateway-go 内联引用,无 main.go)
+- **缺口**:❌ admin-go(治理面板,无限流熔断/无 metrics,仅代理 Prom)❌ live-tutor-go(桩服务,main.go 仅 4 条 HandleFunc 无限流无 metrics)
+- **方案**:admin-go/live-tutor-go 补接 esp-common-go 限流熔断中间件(铁律①≥2 服务共用必下沉)
 - **验收**:每服务 /metrics 暴露限流计数 + 熔断状态;单测覆盖
 
 ### 子项 1.2 /metrics 全覆盖
 - **目标**:所有服务(Go/Java/Rust/Python)暴露 Prometheus /metrics
-- **状态**:**待核实结果填入**
-- **已知**:Java 用 actuator + micrometer;Go 各服务 main.go 注册 /metrics(待核实)
-- **缺口**:Rust(orchestrator/assessment/media-learn)、Python(emotion-svc/writing-coach)的 /metrics 路由
+- **状态(2026-08-20 核实)**:**部分**(Go/Java/Python 全覆盖,Rust 全缺)
+- **证据**:✅ 11 个 Go 服务注册 `/metrics`(promhttp.Handler)✅ bff-java/learning-java 走 actuator+micrometer(OTEL 已配)✅ writing-py/emotion-svc 见 OTEL_SERVICE_NAME
+- **缺口**:❌ **4 个 Rust 服务(assessment-rs/llm-orchestrator-rs/media-learn-rs/pronunciation-rs)Cargo.toml 无 metrics/prometheus 依赖,src 无 /metrics 路由——全缺** ❌ live-tutor-go 也缺
+- **方案**:Rust 服务加 prometheus crate + /metrics 路由(axum middleware);live-tutor-go 补 promhttp
 - **验收**:Prometheus scrape config 覆盖全服务,target 全 UP
 
 ### 子项 1.3 Nacos 注册补齐
 - **目标**:所有服务注册到 Nacos(服务发现契约)
-- **状态**:**待核实结果填入**
-- **已知**:Java 服务 spring.cloud.nacos.discovery / Dubbo registry;Go 服务是否调 Nacos 注册 API(待核实);Rust 看 nacos-register.sh
-- **缺口**:待核实哪些服务未注册
-- **验收**:Nacos 控制台服务列表含全服务实例
+- **状态(2026-08-20 核实)**:**部分**(核心服务全注册,2 待确认)
+- **证据**:✅ Go 服务真调 `registry.RegisterNacos`(gateway-go:119/community-go:64 等)✅ Java 服务配 NACOS_ADDR/NACOS_HOST(15-bff:27/20-learning:41)✅ Rust 用 entrypoint `backend/scripts/nacos-register.sh`(POST 注册+SIGTERM 注销,31-new:131/32-batch2:38,145/33-orchestrator:82 引用)
+- **缺口**:⚠ admin-go 引用 nacos(catalog)但 main 无 RegisterNacos 调用,需确认是否真注册 ⚠ live-tutor-go nacos 引用存在同样需确认
+- **验收**:Nacos 控制台服务列表含全服务实例;`curl Nacos/ns/instance/list` 全服务有实例
 
 ### 子项 1.4 BFF DB 一致性 #227
 - **目标**:bff-java 数据一致性修复(#227)
-- **状态**:**待核实结果填入**
-- **已知**:bff-java routingDataSource 读写分离(CRDB 读写双数据源)
-- **缺口**:待核实 #227 具体内容与修复状态
-- **验收**:契约测试证明读写分离一致性
+- **状态(2026-08-20 核实)**:**未做/无可核验证据**
+- **证据**:git log 无 #227/consistency 提交;bff-java/src 无 routingDataSource/AbstractRoutingDataSource/@Transactional 命中(BffApplication.java 无相关代码)
+- **缺口**:未发现 #227 数据一致性修复的代码或提交痕迹
+- **⚠ 待用户确认**:此子项来源不明——是计划项还是已在别处处理?PROGRESS 称"routingDataSource 读写分离双数据源"但代码未命中,需澄清 #227 的实际内容(读写分离?事务一致性?多数据源同步?)后再定方案
 
 ### 子项 1.5 OTel endpoint 修正
 - **目标**:所有服务 OTel 导出端点正确,无 NXDOMAIN
-- **状态**:**本会话已修 DNS**(esp-prod 建 otel-collector ExternalName → host.lima.internal:4317/4318/8889)
-- **缺口**:服务需重启才重新建立 OTel gRPC 连接(非阻断);env 残留旧错误地址待核实清理
-- **验收**:Tempo 收全服务 spans
+- **状态(2026-08-20 核实)**:**已完成**
+- **证据**:本会话修 DNS(esp-prod 建 otel-collector ExternalName → host.lima.internal:4317/4318/8889);全部 manifest OTEL_EXPORTER_OTLP_ENDPOINT 统一指向 `http://otel-collector.esp-prod.svc.cluster.local:4317`(10-gateway:62/15-bff:50/20-learning:45/30-other:44,95,143,205/31-new:32,82,130/32-batch2:37,90,144,197,249/33-orchestrator:69,147/34-asr:73/34-community:27)——**无残留旧错误地址**
+- **缺口**:服务需重启才重新建立 OTel gRPC 连接(非阻断,本轮不重启避免扰动)
+- **验收**:重启 ESP 服务后 Tempo 收全服务 spans(端到端验证)
 
 ### 子项 1.6 securityContext 全补齐
 - **目标**:所有 deploy pod/container 有 securityContext
-- **状态**:**待核实结果填入**
-- **缺口**:待核实哪些 deploy 缺 runAsNonRoot/runAsUser/fsGroup/seccompProfile
-- **验收**:CI 门禁扫 deploy/k8s/*.yaml 无 securityContext 缺失
+- **状态(2026-08-20 核实)**:**部分**(业务 Deployment 有 container 级,infra 类全缺,pod 级普遍缺)
+- **证据**:✅ 业务 Deployment(10/15/20/21/30/31/32/33-orchestrator/34/35)均有 container 级 securityContext(10-gateway:19-21 `runAsNonRoot:true`/`runAsUser:1000`,15-bff:22-25 同)
+- **缺口**:❌ **infra 类 Deployment 无 securityContext**——06-sca-middleware/06b-redis-pvc/07-tidb-tikv/95-otel-collector/otel-collector-gateway 全 0 处 ⚠ 业务 Deployment 多为单处(container 级),**pod 级 fsGroup/seccompProfile 普遍缺失**
+- **方案**:infra Deployment 补 container 级 securityContext;业务 Deployment 补 pod 级 fsGroup + seccompProfile(RuntimeDefault)
+- **验收**:CI 门禁(kube-score/kube-hunter)扫 deploy/k8s/*.yaml 无 securityContext 缺失
 
 ### 子项 1.7 Mock 残留切断
 - **目标**:生产域 mock 零残留(MPB 铁律)
-- **状态**:**本会话已审零残留**(PROGRESS 第 14-29 行,全代码库 grep 证据驱动)
-- **结论**:conversation-go LLM_MODE/ASR_MODE/TTS_MODE、writing-coach LLM_MODE 均为合法 env 开关(生产 manifest 不设即不触发);listening-go 硬编码已改 501;llm-orchestrator-rs StubProvider manifest 有 env 不触发
-- **验收**:CI 扫生产路径(deploy/k8s/ + 生产 main)的 mock/占位/mock-key 命中红
+- **状态(2026-08-20 核实)**:**部分(有真实缺口,推翻之前"零残留"结论)**
+- **证据**:✅ conversation-go ASR_MODE/TTS_MODE 生产设 "http"(10-gateway-go.yaml:50/52,非 mock)✅ writing-py/emotion-svc 走真实 Anthropic(secret esp-secrets,30-other:29-31/183-185)✅ 无 LLM_MODE=mock 残留
+- **缺口**:**❌ llm-orchestrator-rs StubProvider 生产激活**——`00-namespace-secret.yaml:39-44` secret `llm-providers` 全空值占位(`claude-base:""`/`openai-key:""` 等),代码 `provider/mod.rs:85` `if chain.is_empty() { chain.push(StubProvider) }` 会命中 → **生产实际跑 StubProvider(echo 兜底),违反"生产域 Mock 零残留"**
+- **⚠ 诚实复盘**:PROGRESS 第14-29行称"StubProvider manifest 有 env 不触发",核实发现 manifest 的 secret 全空值占位导致 chain 为空 → StubProvider 命中。之前判断"不触发"是错的(只看 env 标签没看 secret 实际值)
+- **方案**:`llm-providers` secret 注入真实凭据(当前默认 Zhipu GLM via CC Switch / Claude via esp-secrets);或 orchestrator env `LLM_PROVIDER_*` 明确指向真实 provider 避免 chain 空命中 Stub
+- **验收**:llm-orchestrator-rs pod 日志无 "StubProvider" 激活;实测一次 LLM 调用走真实 provider
 
 ---
 

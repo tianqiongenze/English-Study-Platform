@@ -287,7 +287,7 @@
 3. ~~**LCO 运行期实测**~~(✅ 本轮:Redis 全升 8.0 + L1 池 6 端口全通后 L1 命中恢复探针验证;L2 仍 0 命中——Milvus REST v2 `/v2/vector/collections/list` 404 API 路径疑 bug,DEFERRED 调试)
 4. **真实引擎切换收尾**:whisper 镜像 mirror 404 需另找/自建(DEFERRED)+ TTS edge-tts websocket handshake bug;gateway-go 1.13.0 派生构建(含 L2/L3,现临时回退 1.12.0)
 5. **全量重构达标计划执行**(`.claude/plans/robust-baking-wave.md` 文件实际不存在,需重建;fork Phase1 已完成 6 commit 限流熔断/Rust metrics/securityContext)
-6. **LCO L2 Milvus API 路径修复**(`/v2/vector/collections/list` 404,致 L2 全 miss;需查 Milvus 版本对应 API)+ L2/L3 运行期日志验证
+6. **LCO L2 schema 不兼容修复(DEFERRED,根因已查实 2026-08-20)**:fork 调试闭合——LCO l2.go 用 v2 API + 字段 `body/protocol/model/ts`,conversation-go semantic.go(权威 collection 创建者)用 v1 API + 字段 `response/model/scene/prompt_sha16`。**两套完全不兼容**(API 版本+字段名全不同)→ LCO insert 的数据 conversation-go search 不到,LCO search 的 outputFields 在 collection 里不存在 → L2 全 miss。修复=LCO 代码重构对齐 conversation-go schema(v2→v1 API + body→response + 加 prompt_sha16 + protocol/model/scene 字段),属非平凡代码改动,需 ASV 核实 Milvus v1 API + CLC 防御性 + 测试,标 DEFERRED 专项处理。L1 已工作(LCO 铁律 L1 命中验证 OK),L2 是优化层非阻断。
 7. **k6+Locust 混合压测**(50→5000 CCU 阶梯)+ 全功能 E2E
 8. **本会话铁律立成**(✅ 6 条新铁律 SVD/BRR/DGO/RWT/SCS/RWP 三处落盘,memory+CLAUDE.md+索引,后续所有项目遵守)
 

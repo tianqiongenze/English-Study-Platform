@@ -5,6 +5,13 @@
 > 关联评分详情:`docs/design/architecture/架构评分与重构方向.md`
 > Obsidian 镜像:`人工智能项目/ESP平台/重构达标计划.md`
 
+## 重建与诚实标注(2026-08-20)
+
+- **本计划基于 `docs/PROGRESS.md` 记录重建**。PROGRESS.md 第 31-42 行引用本文件作为"全量重构达标计划",原文件曾缺失(esp-explorer + fork Obsidian subagent 均证实不存在),本轮按 PROGRESS.md 记录的计划要点 + fork subagent 报告的 Phase1 完成情况重建。
+- **Phase1 完成状态来源**:fork subagent 报告 Phase1 已完成 6 commit(限流熔断接线 `c157467` / Rust metrics 共享包 `4f944f7` / securityContext 加固 `8c0bb47` + 计划文件重建填实纠正)。**本地原未 push**,2026-08-20 经 `git filter-repo` 改写历史(剥离 214MB tarball)+ `git push --force-with-lease` 后,16 commit 全推送(含上述 Phase1 commit)。backup ref `refs/backup/pre-filter-rewrite`(原 a75aef4)保留可回退。
+- **Phase2-5 状态**:均待启动,子项内容来自 PROGRESS.md 第 36-40 行原文,本轮未改写。
+- **可核验事实**:Phase1 各子项的 commit hash、manifest 行号、dry-run RC 等证据已在各子项下标注;无证据项显式标 DEFERRED。计划要素(5 Phase 主题 / 目标评分 / 执行策略)与 PROGRESS.md 第 33-41 行一致。
+
 ## 评分基线(2026-08-12)
 
 | 维度 | 分 | 等级 |
@@ -130,6 +137,29 @@
 - **SLO/错误预算**:99.9% 可用 / P95<500ms / 错误率<0.1% / 月度错误预算 259.2s
 - **readiness-gate**:评分 8.0+ 才放行
 - **多节点迁移清单**:8 大类待办(CNI 升级 Cilium / Harbor / CRDB 重建 / 分布式 Locust)
+
+---
+
+## 本会话立成的 6 条新铁律 → 计划影响(2026-08-20)
+
+> 6 条铁律三处落盘(memory + CLAUDE.md + 索引),后续所有项目遵守。各铁律直接影响对应 Phase 的 CI 门禁与验收口径。
+
+| 代号 | 全称 | memory | 一句话 | 影响的 Phase / 子项 |
+|---|---|---|---|---|
+| **SVD** | Stateful-Version-Drift(有状态版本漂移) | `stateful-workload-version-drift-ironrule` | 有状态集群(Postgres/Redis/Neo4j/CRDB/TiDB/Kafka)禁跨版本混部,STS/CR spec 必与全 pod 实际镜像+运行版本三态对齐 | Phase1 #227 闭合(已验 Redis 6 pod 三态对齐 8.0);Phase2 镜像基线统一必含此校验;Phase5 多节点迁移清单(CRDB 重建)必守 |
+| **BRR** | Blast-Radius-Reversibility(爆炸半径与可逆性) | `blast-radius-reversibility-ironrule` | 不可逆/外向操作默认需确认,破坏性操作先 dry-run,每动作可回滚 | Phase1 子项 1.6 securityContext apply 前必 dry-run(已 17 manifest dry-run RC=0);Phase5 混沌测试每次注入可回滚 |
+| **DGO** | Declarative-GitOps(声明式与 GitOps) | `declarative-gitops-ironrule` | 所有部署经 IaC,禁手动 kubectl patch 不回写仓库,配置漂移 CI 检测,单一事实源 | Phase1 子项 1.6(已回写 3 处:gateway-go/assessment-rs/redis 7.2→8.0);Phase2 ArgoCD syncPolicy 落地必守;Phase3 契约版本化经 GitOps |
+| **RWT** | Resilience-Wiring(微服务韧性接线) | `resilience-wiring-ironrule` | 每服务限流/熔断/超时/重试退避/舱壁/降级必须显式接线,超时分级,失败必降级不阻塞主链 | Phase1 子项 1.1 限流熔断(已 13/13 Go 接入);Phase3 Resilience4j + LLM 自适应限流(gradient2)是其 Java/长尾延伸 |
+| **SCS** | Supply-Chain-Secrets(供应链与秘密) | `supply-chain-secrets-ironrule` | 秘密永不入库+轮转+最小权限,依赖扫描 SCA/trivy+SBOM 产出 | Phase1 子项 1.7 Mock 残留切断(secret 非空已实测);Phase2 CI 矩阵补 Rust/Python 流水线必含 trivy/SBOM;Phase5 安全 SEC-1~4 验收口径 |
+| **RWP** | Readonly-Writable-Paths(只读根文件系统可写路径) | `readonly-fs-writable-paths-ironrule` | readOnlyRootFilesystem 下 Dubbo/Nacos/SDK 写根目录的挂载必回写仓库 yaml + CI 拦截,Dockerfile 必设 ENV HOME | Phase1 新增挂载(learning-java/teacher-java 挂 /logs + /.dubbo emptyDir,待回写 yaml);Phase2 Dockerfile 基线必设 HOME + CI 拦截写根目录 |
+
+**CI 门禁落地口径(Phase2 矩阵补全时一并接)**:
+- SVD:k8s 集群扫描 STS/CR spec vs pod 实际 image 三态一致性,版本漂移命中红。
+- DGO:对比 `kubectl get -o yaml` live state 与仓库 yaml,diff 非空(配置漂移)命中红。
+- RWP:CI 扫 Java 服务 Dockerfile 是否设 `ENV HOME=/home/<svc>` + deploy yaml readOnlyRootFilesystem:true 时挂载根目录写路径(/.dubbo /logs 等)。
+- SCS:trivy 扫镜像 CVE + git pre-commit 扫真实密钥 + SBOM 产出归档。
+- RWT:每服务 manifest 必含 timeout/重试/限流 env,缺失命中红。
+- BRR:不可逆操作(删 ns/force push/teardown)脚本必含 `--dry-run` 选项 + 回滚锚点。
 
 ---
 

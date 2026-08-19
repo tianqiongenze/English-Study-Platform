@@ -36,7 +36,7 @@ spec:
     spec:
       containers:
       - name: llm-orchestrator-rs
-        image: esp/llm-orchestrator-rs:1.1.0
+        image: esp/llm-orchestrator-rs:1.2.0   # Phase1 L1 LLM 缓存:key 迁移至统一规范 esp:cache:llm:exact:{model}:{sha256前16}
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8086, name: http}]
         securityContext:
@@ -46,11 +46,15 @@ spec:
           allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8086"}
+        # Phase1 L1 LLM 缓存开关(默认 true,仅显式标注对齐三服务统一)
+        - {name: ESP_LLM_CACHE_ENABLED, value: "true"}
         # Redis Cluster seed:FQDN(对齐 31/32,避免短名跨 ns 解析偶发坑㉓)
         - {name: REDIS_ADDR, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
         # CRDB esp_llm(#140 全服务切 CRDB;env key 由 TIDB_DSN 改为 LLM_DB_URL 对齐代码 main.rs)
         - {name: LLM_DB_URL, value: "postgres://root@crdb-public:26257/esp_llm?sslmode=disable"}
-        - {name: LLM_DEFAULT_MODEL, value: "gpt-4o-mini"}
+        - {name: LLM_DEFAULT_MODEL, value: "claude-sonnet-4-6"}
+        # GPU/本地模型预留:未来切 Ollama 本地模型,把 LLM_PROVIDER_OPENAI_BASE 改为
+        # http://host.lima.internal:11434/v1(Ollama 兼容 OpenAI API,OpenAiCompat provider 零代码改动复用)。
         - {name: RUST_LOG, value: "info,llm_orchestrator_rs=debug"}
         # LLM provider 配置:secret llm-providers(空值占位,生产用 KMS/SealedSecret 注入真实 key)
         # 代码 provider/mod.rs from_env():无 *_BASE env 则不注入 provider,兜底 StubProvider 保证启动可跑

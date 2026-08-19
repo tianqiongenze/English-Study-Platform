@@ -1,0 +1,90 @@
+# ASR 真实引擎栈(去 mock,2026-08-19):
+#   whisper        —— 社区 OpenAI Whisper 兼容镜像,CPU base 模型(单节点 88% CPU 下轻量)
+#   asr-adapter-go —— ESP 契约适配:{chunks:[base64...]} → Whisper multipart → {text}
+# conversation-go(provider.go case "http")经 ASR_ENDPOINT=http://asr-adapter:80/transcribe 调用。
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whisper
+  namespace: esp-prod
+  labels: {app: whisper}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: whisper}}
+  template:
+    metadata: {labels: {app: whisper}}
+    spec:
+      containers:
+      - name: whisper
+        image: onerahmet/openai-whisper-api:latest   # CPU base 模型,~1-3s/句
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8000}]
+        env:
+        - {name: WHISPER_MODEL, value: "base"}
+        # GPU 预留(DEFERRED:本机 M1 Max MPS passthrough 未就绪,单节点 lima VM 无 GPU 直通)
+        # 未来切本机 GPU:改 image 为 whisper-mps,挂载 MPS 设备,设 WHISPER_DEVICE=mps
+        # resources:
+        #   limits:
+        #     nvidia.com/gpu: 1   # lima VM 无 nvidia,需自建设备插件或 MPS 直通
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+        resources:
+          requests: {cpu: "500m", memory: "512Mi"}
+          limits: {cpu: "2", memory: "2Gi"}
+        readinessProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 5}
+        livenessProbe:  {httpGet: {path: /health, port: 8000}, periodSeconds: 20, timeoutSeconds: 5, failureThreshold: 6}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: whisper, namespace: esp-prod}
+spec:
+  selector: {app: whisper}
+  ports: [{port: 80, targetPort: 8000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: asr-adapter-go
+  namespace: esp-prod
+  labels: {app: asr-adapter-go}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: asr-adapter-go}}
+  template:
+    metadata:
+      labels: {app: asr-adapter-go}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8097", prometheus.io/path: "/metrics"}
+    spec:
+      containers:
+      - name: asr-adapter-go
+        image: esp/asr-adapter-go:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8097}]
+        env:
+        - {name: WHISPER_ENDPOINT, value: "http://whisper:80/v1/audio/transcriptions"}
+        - {name: WHISPER_MODEL, value: "base"}
+        # ASR_MODE:asr-adapter-go 内部 http(默认,集群 Whisper)/local(预留,本机 Whisper-MPS,DEFERRED)。
+        # 注:与 conversation-go 的 ASR_MODE(mock/http,选 provider)语义不同,两者解耦不冲突。
+        - {name: ASR_MODE, value: "http"}
+        - {name: OTEL_SERVICE_NAME, value: "asr-adapter-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        readinessProbe: {httpGet: {path: /readyz, port: 8097}, periodSeconds: 15, timeoutSeconds: 3, failureThreshold: 3}
+        livenessProbe:  {httpGet: {path: /livez, port: 8097}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 5}
+        resources:
+          requests: {cpu: "100m", memory: "128Mi"}
+          limits: {cpu: "1", memory: "512Mi"}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: asr-adapter, namespace: esp-prod}
+spec:
+  selector: {app: asr-adapter-go}
+  ports: [{port: 80, targetPort: 8097}]

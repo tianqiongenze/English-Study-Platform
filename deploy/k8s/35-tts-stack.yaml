@@ -1,0 +1,46 @@
+# TTS 真实引擎栈(去 mock,2026-08-19):
+#   tts-adapter-go —— 纯 Go,import github.com/lib-x/edgetts 直连微软 edge-tts,
+#                     生成真实 MP3(base64)+ 四态情绪 + Preston Blair 口型时间轴。
+# conversation-go(provider.go case "http")经 TTS_ENDPOINT=http://tts-adapter:80/synthesize 调用。
+# 无本机 GPU 预留需求:edge-tts 是微软云端服务(无本地推理),不涉及 GPU。
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tts-adapter-go
+  namespace: esp-prod
+  labels: {app: tts-adapter-go}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: tts-adapter-go}}
+  template:
+    metadata:
+      labels: {app: tts-adapter-go}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8098", prometheus.io/path: "/metrics"}
+    spec:
+      containers:
+      - name: tts-adapter-go
+        image: esp/tts-adapter-go:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports: [{containerPort: 8098}]
+        env:
+        - {name: EDGE_TTS_VOICE, value: "en-US-JennyNeural"}   # Jenny:清晰标准,适合英语教学
+        - {name: OTEL_SERVICE_NAME, value: "tts-adapter-go"}
+        - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+        readinessProbe: {httpGet: {path: /readyz, port: 8098}, periodSeconds: 15, timeoutSeconds: 3, failureThreshold: 3}
+        livenessProbe:  {httpGet: {path: /livez, port: 8098}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 5}
+        resources:
+          requests: {cpu: "100m", memory: "128Mi"}
+          limits: {cpu: "1", memory: "512Mi"}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tts-adapter, namespace: esp-prod}
+spec:
+  selector: {app: tts-adapter-go}
+  ports: [{port: 80, targetPort: 8098}]

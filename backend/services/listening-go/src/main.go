@@ -8,11 +8,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -63,6 +67,9 @@ func main() {
 	api.GET("/materials/:id", getMaterial)         // 单素材(桩)
 	api.POST("/attempts", submitAttempt)           // 听写/做题提交(写 listening_attempts)
 	api.POST("/transcribe", transcribe)            // 音频转写流式占位(SSE)
+
+	// 全语言统一深度诊断面板:debug 端点(actuator 等价),由 admin-go handleDebugProxy 代理 + RequireAdminDebug 守门。
+	r.Any("/debug/*path", gin.WrapH(middleware.GinDebugGroup(middleware.DebugRoutes())))
 
 	srv := &http.Server{Addr: ":" + port, Handler: r, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -157,21 +164,51 @@ func submitAttempt(c *gin.Context) {
 	c.JSON(202, gin.H{"accepted": true, "score": body.Score})
 }
 
-// 音频转写(DEFERRED-真实ASR:需ASR引擎接入,见多节点清单#4;现状回声占位仅验证 SSE 通道)
+// 音频转写:接 asr-adapter-go(真实 Whisper)。env ASR_ENDPOINT 未配则返回 501 拒绝假数据(铁律 MPB)。
+// 未来本机 GPU 预留:ASR_ENDPOINT 改指本机 Whisper-MPS 即可,零代码改动。
 func transcribe(c *gin.Context) {
+	endpoint := os.Getenv("ASR_ENDPOINT")
+	if endpoint == "" {
+		slog.Error("listening-go: ASR_ENDPOINT 未配置,拒绝返回占位假数据(铁律 MPB)", "path", c.Request.URL.Path)
+		c.JSON(501, gin.H{"error": "ASR engine not configured (ASR_ENDPOINT empty); placeholder transcript disabled by ironrule MPB"})
+		return
+	}
+	// 读原始音频字节(base64 或 raw 由调用方约定,这里透传 raw body)
+	audioBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil || len(audioBytes) == 0 {
+		c.JSON(400, gin.H{"error": "empty audio body"})
+		return
+	}
+	chunks := []string{base64.StdEncoding.EncodeToString(audioBytes)}
+	payload, _ := json.Marshal(gin.H{"chunks": chunks})
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(502, gin.H{"error": "ASR adapter unreachable: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || out.Text == "" {
+		c.JSON(502, gin.H{"error": "ASR adapter returned empty/invalid"})
+		return
+	}
+	// SSE 单帧返回真实识别文本(占位 3 片段已下线)
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	flusher, _ := c.Writer.(http.Flusher)
-	// scaffold:推送 3 个占位片段后结束
-	chunks := []string{"Hello", ", this is", " a placeholder transcript."}
-	for _, ch := range chunks {
-		data, _ := json.Marshal(gin.H{"text": ch})
-		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
-		if flusher != nil {
-			flusher.Flush()
-		}
-		time.Sleep(100 * time.Millisecond)
+	data, _ := json.Marshal(gin.H{"text": out.Text})
+	fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+	if flusher != nil {
+		flusher.Flush()
 	}
 }
 

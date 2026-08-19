@@ -5,6 +5,7 @@ go 1.25.0
 
 use (
 	./backend/shared/esp-common-go
+	./backend/services/admin-go
 	./backend/services/conversation-go
 	./backend/services/gateway-go
 	./backend/services/course-path-go
@@ -15,4 +16,6 @@ use (
 	./backend/services/community-go
 	./backend/services/live-tutor-go
 	./backend/services/vocab-srs-go
+	./backend/services/asr-adapter-go
+	./backend/services/tts-adapter-go
 )

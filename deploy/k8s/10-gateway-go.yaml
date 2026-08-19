@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: gateway-go
-        image: esp/gateway-go:1.11.0   # #140 CRDB 切库:统一层 esp-common-go pgx 双池 + COALESCE::STRING 修复
+        image: esp/gateway-go:1.12.0   # Phase1 L1 LLM 精确缓存接线:llm.NewWithCache() 装饰 gateway-go WS Engine(NewCached Redis L2 exact)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8080}]
         securityContext:
@@ -23,10 +23,23 @@ spec:
           allowPrivilegeEscalation: false
         env:
         - {name: REDIS_ADDR, value: "redis-cluster:6379"}
+        # Phase1 L1 LLM 缓存:conversation-go 的 newLLMRedisClient 读 REDIS_HOST/REDIS_PORT(默认 redis-cluster:6379,
+        # 与 REDIS_ADDR 同一 ClusterClient 短名 ExternalName)。ESP_LLM_CACHE_ENABLED 默认 true。
+        - {name: REDIS_HOST, value: "redis-cluster"}
+        - {name: REDIS_PORT, value: "6379"}
+        - {name: ESP_LLM_CACHE_ENABLED, value: "true"}
         # LLM 真实链路(上线达标 Phase0):gateway 数字人对话走 AnthropicProvider;经 CC Switch 代理
         - {name: ANTHROPIC_API_KEY, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_API_KEY}}}
         - {name: ANTHROPIC_BASE_URL, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_BASE_URL}}}
         - {name: ANTHROPIC_AUTH_TOKEN, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_AUTH_TOKEN}}}
+        # ASR/TTS 真实引擎(去 mock,2026-08-19):conversation-go provider.go case "http" 分支,
+        # 转发到 asr-adapter-go / tts-adapter-go 微服务(契约转换:ESP {chunks}/{text} ↔ Whisper multipart / edge-tts MP3)。
+        # ASR_MODE/TTS_MODE=mock 仍保留为压测开关,生产 manifest 不设。
+        # GPU/本地模型预留:未来 ANTHROPIC_BASE_URL 改指 http://host.lima.internal:11434 即可切 Ollama 本地模型(零代码改动)。
+        - {name: ASR_MODE, value: "http"}
+        - {name: ASR_ENDPOINT, value: "http://asr-adapter:80/transcribe"}
+        - {name: TTS_MODE, value: "http"}
+        - {name: TTS_ENDPOINT, value: "http://tts-adapter:80/synthesize"}
         - {name: JWT_SECRET, valueFrom: {secretKeyRef: {name: esp-secrets, key: JWT_SECRET}}}
         # CRDB esp_speaking(#140 全服务切 CRDB;统一层 db.ReadWriteDSN 双池:会话归档写库/场景加载读库,
         # 单端点同址 crdb-public,多区域阶段设 CRDB_READ_HOST 切 follower 零代码改动;AppLogClient 写 esp_shared)

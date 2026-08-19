@@ -1,0 +1,60 @@
+# Dockerfile.derive-1.3.0 —— llm-orchestrator-rs:1.3.0 派生构建
+# 背景:registry mirror 全 TLS 超时拉不到 rust:1.88-bookworm 基础镜像,
+#   但 rustup 官方源(sh.rustup.rs)+ static.rust-lang.org + crates USTC mirror 均可达。
+#   故从既有 esp/llm-orchestrator-rs:1.2.0(debian bookworm-slim + USTC apt + nonroot + nacos-register.sh)
+#   派生,在 builder 阶段装 rustup 官方 rustc + cargo build,runtime 直接复用 1.2.0。
+#
+# 依赖全是纯 Rust 无 Native(reqwest rustls / sqlx rustls / redis 纯 Rust / Neo4j reqwest HTTP):
+#   runtime 无需补装任何 Native 库,1.2.0 的 ca-certificates+libgcc-s1+curl 已够。
+#
+# build context = backend/(与原 Dockerfile 一致)
+#   docker build -t esp/llm-orchestrator-rs:1.3.0 \
+#     -f services/llm-orchestrator-rs/Dockerfile.derive-1.3.0 \
+#     --build-arg BUILDKIT_INLINE_CACHE=1 \
+#     backend/
+
+# ===== builder 阶段:派生 1.2.0(debian bookworm-slim)装 rustup =====
+FROM esp/llm-orchestrator-rs:1.2.0 AS builder
+USER root
+WORKDIR /workspace
+
+# 装 build 依赖(curl 已有;补 pkg-config/build-essential 供某些 crate 的 build script)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates pkg-config build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 装 rustup 官方 stable(sh.rustup.rs 可达;static.rust-lang.org 可达)
+# profile minimal = rustc + cargo(无 docs/clippy),省时省空间
+# -y 全默认;--profile minimal;--default-toolchain stable
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# crates.io USTC sparse mirror(加速依赖拉取,与原 Dockerfile 一致)
+RUN mkdir -p /root/.cargo && cat >> /root/.cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "ustc"
+[source.ustc]
+registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
+[net]
+git-fetch-with-cli = true
+EOF
+
+# COPY 源码(与原 Dockerfile 一致的上下文路径)
+# esp-common-rs path 在 Cargo.toml = ../../shared/esp-common-rs → 从 WORKDIR=/workspace 出发解析
+COPY shared/esp-common-rs /shared/esp-common-rs
+COPY services/llm-orchestrator-rs/Cargo.toml /workspace/llm-orchestrator-rs/Cargo.toml
+COPY services/llm-orchestrator-rs/Cargo.lock /workspace/llm-orchestrator-rs/Cargo.lock
+COPY services/llm-orchestrator-rs/src /workspace/llm-orchestrator-rs/src
+
+WORKDIR /workspace/llm-orchestrator-rs
+# --release 优化二进制(对齐 [profile.release] opt-level=3);--offline 不可用(首次需拉 crates)
+RUN cargo build --release
+
+# ===== runtime 阶段:直接复用 1.2.0(已含全部运行依赖 + nonroot + entrypoint)=====
+FROM esp/llm-orchestrator-rs:1.2.0 AS runtime
+USER root
+# 覆盖旧二进制为新编译版(含 L2 Milvus + L3 Neo4j 代码)
+COPY --from=builder /workspace/llm-orchestrator-rs/target/release/llm-orchestrator-rs /app/llm-orchestrator-rs
+RUN chmod +x /app/llm-orchestrator-rs
+# 回到 nonroot 运行姿态(1.2.0 原配置)
+USER nonroot

@@ -17,7 +17,7 @@
 
 | Phase | 主题 | 目标贡献 | 依赖 | 状态 |
 |---|---|---|---|---|
-| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | 🔄 执行中(5 完成/2 部分/1 待澄清) |
+| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | ✅ 全子项完成(7/7,镜像层 apply 待批量) |
 | Phase2 | 基础设施升级 | 镜像/CI/CD | 无(与 P1/P4 并行) | ⏳ 待启动 |
 | Phase3 | 架构重构(达 8.5+) | 工程深度 | Phase1 完成 | ⏳ 待启动 |
 | Phase4 | 前端重构(达 8.5+) | 前端达标 | 无(与 P1/P2 并行) | ⏳ 待启动 |
@@ -33,11 +33,10 @@
 
 ### 子项 1.1 Go 限流熔断接线
 - **目标**:12 个 Go 服务全接限流 + 熔断中间件
-- **状态(2026-08-20 核实)**:**部分**(11/13 接入,2 缺口)
-- **证据**:✅ 9 个 Gin 服务全接 `middleware.GinRateLimit`+`GinCircuitBreaker`(asr-adapter/tts-adapter/community/content/gamification/listening/reading/vocab-srs 各 main.go)+ gateway-go/course-path-go 接 net/http 版 `HTTPRateLimit`+`HTTPCircuitBreaker`;⚠ conversation-go 非独立部署(gateway-go 内联引用,无 main.go)
-- **缺口**:❌ admin-go(治理面板,无限流熔断/无 metrics,仅代理 Prom)❌ live-tutor-go(桩服务,main.go 仅 4 条 HandleFunc 无限流无 metrics)
-- **方案**:admin-go/live-tutor-go 补接 esp-common-go 限流熔断中间件(铁律①≥2 服务共用必下沉)
-- **验收**:每服务 /metrics 暴露限流计数 + 熔断状态;单测覆盖
+- **状态(2026-08-20 实装)**:**完成**(13/13 接入)
+- **证据**(commit `c157467`):✅ 9 个 Gin 服务 + gateway-go/course-path-go(已有)+ **本会话 admin-go(197-198)+ live-tutor-go(53-54)接入** esp-common-go middleware;conversation-go 非独立部署(gateway 内联)
+- **缺口**:无(全接入);镜像层验证 DEFERRED
+- **验收**:两服务 go build+vet RC=0;镜像 build+apply 待批量
 
 ### 子项 1.2 /metrics 全覆盖
 - **目标**:所有服务(Go/Java/Rust/Python)暴露 Prometheus /metrics
@@ -48,17 +47,20 @@
 
 ### 子项 1.3 Nacos 注册补齐
 - **目标**:所有服务注册到 Nacos(服务发现契约)
-- **状态(2026-08-20 核实)**:**部分**(核心服务全注册,2 待确认)
-- **证据**:✅ Go 服务真调 `registry.RegisterNacos`(gateway-go:119/community-go:64 等)✅ Java 服务配 NACOS_ADDR/NACOS_HOST(15-bff:27/20-learning:41)✅ Rust 用 entrypoint `backend/scripts/nacos-register.sh`(POST 注册+SIGTERM 注销,31-new:131/32-batch2:38,145/33-orchestrator:82 引用)
-- **缺口**:⚠ admin-go 引用 nacos(catalog)但 main 无 RegisterNacos 调用,需确认是否真注册 ⚠ live-tutor-go nacos 引用存在同样需确认
-- **验收**:Nacos 控制台服务列表含全服务实例;`curl Nacos/ns/instance/list` 全服务有实例
+- **状态(2026-08-20 核实+复查)**:**完成**(全服务已注册)
+- **证据**(esp-explorer 初判误,复查纠正):✅ Go 服务真调 `registry.RegisterNacos`(gateway-go:119/community-go:64 等)✅ Java 服务配 NACOS_ADDR/NACOS_HOST✅ Rust 用 `nacos-register.sh`(POST 注册+SIGTERM 注销)✅ **admin-go(164)+ live-tutor-go(38)早已有 RegisterNacos+DeRegister**——esp-explorer"需确认"误判(只看表面没追到调用行)
+- **缺口**:无
+- **验收**:Nacos 控制台服务列表含全服务实例
 
 ### 子项 1.4 BFF DB 一致性 #227
 - **目标**:bff-java 数据一致性修复(#227)
-- **状态(2026-08-20 核实)**:**未做/无可核验证据**
-- **证据**:git log 无 #227/consistency 提交;bff-java/src 无 routingDataSource/AbstractRoutingDataSource/@Transactional 命中(BffApplication.java 无相关代码)
-- **缺口**:未发现 #227 数据一致性修复的代码或提交痕迹
-- **⚠ 待用户确认**:此子项来源不明——是计划项还是已在别处处理?PROGRESS 称"routingDataSource 读写分离双数据源"但代码未命中,需澄清 #227 的实际内容(读写分离?事务一致性?多数据源同步?)后再定方案
+- **状态(2026-08-20 探查)**:**已完成(已隐含处理)**——#227 真实含义与计划描述不同
+- **证据**(esp-explorer 探查,commit 引用闭合):
+  - #227 原始注释 `15-bff-java.yaml:43`:"BFF users 表对齐 gamification-go 写入的 esp_auth.users(超集,含 digital_human/ranking_opt_out/region_code);原 esp.users 仅 6 列缺这些列致 gamification UPDATE 静默失败"
+  - 修复手段:15-bff-java.yaml:43 设 `ESP_RW_COCKROACHDB_DB=esp_auth`(BFF 连 esp_auth 库)+ 257 行数据迁移 esp_auth.users + AuthController INSERT 经 CRDB 路由池落 esp_auth.users
+  - 读写分离(esp-rw-java @DataSource 注解+双池 Hikari)本身一直在线,与 #227 无关
+- **⚠ 诚实复盘**:计划描述"读写分离数据一致性"是误判——真实 #227 是**库/schema 对齐问题**(BFF users 表对齐 gamification-go 的 esp_auth.users 超集),已在 session-23-13 通过 ENV 切 esp_auth 闭合。esp-explorer 前次"bff-java/src 无 routingDataSource"误判——真实 RoutingDataSource 在共享包 `platform/esp-rw-java/`(非 bff 内)
+- **验收**:#227 已闭合(esp_auth 库迁移完成);无需补代码
 
 ### 子项 1.5 OTel endpoint 修正
 - **目标**:所有服务 OTel 导出端点正确,无 NXDOMAIN

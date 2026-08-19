@@ -6,13 +6,13 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 
 	"lco-proxy/internal/config"
 	"lco-proxy/internal/protocol"
 )
 
 // newTestManager 用 miniredis 构造真实 Redis 后端的 Manager(L1 可测,L2/L3 禁用)。
+// miniredis 是单节点,L1Pool 只含 1 个 client,无 MOVED 重路由。
 func newTestManager(t *testing.T) (*Manager, *miniredis.Miniredis) {
 	t.Helper()
 	mr, err := miniredis.Run()
@@ -20,13 +20,14 @@ func newTestManager(t *testing.T) (*Manager, *miniredis.Miniredis) {
 		t.Fatalf("miniredis 启动失败: %v", err)
 	}
 	t.Cleanup(mr.Close)
-	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	pool := NewL1Pool(mr.Addr(), "")
+	t.Cleanup(pool.Close)
 	return &Manager{
 		cfg: &config.Config{
 			CacheEnabled: true,
 			TTLChat:      3600,
 		},
-		rdb: rdb,
+		pool: pool,
 	}, mr
 }
 
@@ -103,9 +104,11 @@ func TestL1ProtocolIsolationRealRedis(t *testing.T) {
 func TestL1Disabled(t *testing.T) {
 	mr, _ := miniredis.Run()
 	defer mr.Close()
+	pool := NewL1Pool(mr.Addr(), "")
+	defer pool.Close()
 	m := &Manager{
-		cfg: &config.Config{CacheEnabled: false},
-		rdb: redis.NewClient(&redis.Options{Addr: mr.Addr()}),
+		cfg:  &config.Config{CacheEnabled: false},
+		pool: pool,
 	}
 	ctx := context.Background()
 	key := protocol.NormalizeKey{Protocol: protocol.Anthropic, Raw: "disabled-test"}
@@ -118,11 +121,13 @@ func TestL1Disabled(t *testing.T) {
 }
 
 func TestL1RedisDownDegradesGracefully(t *testing.T) {
-	// Redis 不可达:rdb 指向已关闭的 miniredis,Lookup 应降级返回 miss 不 panic
+	// Redis 不可达:pool 指向已关闭的 miniredis,Lookup 应降级返回 miss 不 panic
 	mr, _ := miniredis.Run()
+	pool := NewL1Pool(mr.Addr(), "")
+	defer pool.Close()
 	m := &Manager{
-		cfg: &config.Config{CacheEnabled: true},
-		rdb: redis.NewClient(&redis.Options{Addr: mr.Addr()}),
+		cfg:  &config.Config{CacheEnabled: true},
+		pool: pool,
 	}
 	mr.Close() // 关闭后端
 	ctx := context.Background()
@@ -155,3 +160,40 @@ func TestL1KeyDifferentContent(t *testing.T) {
 		t.Error("k1 应命中")
 	}
 }
+
+// TestL1PoolMovedReroute 验证 MOVED 解析逻辑(parseMoved + extractPodIndex)。
+// 用真实 miniredis 无法产生 MOVED,这里只单测解析函数。
+func TestL1PoolMovedParse(t *testing.T) {
+	tests := []struct {
+		name    string
+		errMsg  string
+		wantOk  bool
+		wantPod int
+	}{
+		{"moved-pod3", "MOVED 12000 redis-cluster-new-3.redis-cluster-new-xx.svc:6379", true, 3},
+		{"moved-pod0", "MOVED 100 redis-cluster-new-0.redis-cluster-new-xx.svc:6379", true, 0},
+		{"moved-pod5", "MOVED 16000 redis-cluster-new-5.redis-cluster-new-xx.svc:6379", true, 5},
+		{"non-moved", "GET nil", false, 0},
+		{"empty", "", false, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			moved, ok := parseMoved(toErr(tt.errMsg))
+			if ok != tt.wantOk {
+				t.Fatalf("ok=%v, want %v", ok, tt.wantOk)
+			}
+			if ok {
+				pod := extractPodIndex(moved.host)
+				if pod != tt.wantPod {
+					t.Errorf("pod=%d, want %d (host=%s)", pod, tt.wantPod, moved.host)
+				}
+			}
+		})
+	}
+}
+
+// toErr 把字符串包成 error。
+type strErr string
+
+func (e strErr) Error() string { return string(e) }
+func toErr(s string) error     { return strErr(s) }

@@ -13,7 +13,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/redis/go-redis/v9"
 
 	"lco-proxy/internal/config"
 	"lco-proxy/internal/protocol"
@@ -37,7 +36,7 @@ var (
 // Manager 三层缓存管理器。
 type Manager struct {
 	cfg    *config.Config
-	rdb    *redis.Client
+	pool   *L1Pool        // L1 Redis 多 pod 池(MOVED 重路由)
 	l2     *L2Semantic
 	l3     *L3Knowledge
 	logger *slog.Logger
@@ -45,29 +44,19 @@ type Manager struct {
 
 // New 构造缓存管理器。L2/L3 不可达时降级(只 warn 不阻断),与 ESP cache 包语义一致。
 func New(cfg *config.Config, logger *slog.Logger) (*Manager, error) {
-	// L1 Redis 接入策略(单节点验证期务实方案):
-	// 集群 Redis Cluster 通过 port-forward 接入有根本障碍——ClusterClient 会 CLUSTER SLOTS
-	// 拿到 pod FQDN(如 redis-cluster-new-4...svc.cluster.local),宿主 DNS 解析不了 → i/o timeout。
-	// 解法:用普通单节点 Client 连 port-forward 的一个 pod,设 MaxRedirects 让 go-redis 自动跟随 MOVED。
-	// MOVED 目标若也是 port-forward 的可达节点则成功,否则该 key 降级(非致命,直穿上游)。
-	// 多节点验证期(多节点迁移后)可改回 ClusterClient 配真实 pod CIDR。
-	rdb := redis.NewClient(&redis.Options{
-		Addr:         strings.TrimSpace(strings.Split(cfg.RedisAddr, ",")[0]),
-		Password:     cfg.RedisPassword,
-		DB:           0,
-		PoolSize:     10,
-		MinIdleConns: 2,
-	})
-	// 注:单节点 Client 不自动跟随 MOVED。key 落在 port-forward pod 主辖 slot 时命中,
-	// 落在其他 slot 时 MOVED 失败 → 降级直穿上游(非致命)。单节点验证期可接受。
-	// 多节点迁移后改 ClusterClient + 真实 pod CIDR 直连(无需 port-forward)。
+	// L1 Redis 接入策略(L1Pool 多 pod + MOVED 重路由):
+	// Redis Cluster 经 port-forward 接入,ClusterClient 会 CLUSTER SLOTS 拿到 pod FQDN
+	// (如 redis-cluster-new-4...svc.cluster.local),宿主 DNS 解析不了 → i/o timeout。
+	// 单节点 Client 遇 MOVED 不重试,命中率仅 ~33%。
+	// L1Pool 维护 6 个单节点 Client,MovedError 时从 FQDN 提取 pod 索引重路由 → 命中率 100%。
+	pool := NewL1Pool(cfg.RedisAddr, cfg.RedisPassword)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		logger.Warn("L1 Redis Cluster 不可达,缓存降级(直穿上游)", "addr", cfg.RedisAddr, "err", err)
+	if err := pool.Ping(ctx); err != nil {
+		logger.Warn("L1 Redis Pool 不可达,缓存降级(直穿上游)", "addr", cfg.RedisAddr, "err", err)
 	}
 
-	m := &Manager{cfg: cfg, rdb: rdb, logger: logger}
+	m := &Manager{cfg: cfg, pool: pool, logger: logger}
 
 	if cfg.L2Enabled {
 		m.l2 = NewL2Semantic(cfg, logger)
@@ -99,7 +88,7 @@ func (m *Manager) Lookup(ctx context.Context, key protocol.NormalizeKey) LookupR
 			log.Warn(msg, args...)
 		}
 	}
-	if m.rdb == nil {
+	if m.pool == nil {
 		// Redis 不可达:跳过 L1,尝试 L2(L2 独立降级)
 		if m.l2 != nil {
 			l2Ctx, l2Cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -116,13 +105,13 @@ func (m *Manager) Lookup(ctx context.Context, key protocol.NormalizeKey) LookupR
 		return LookupResult{}
 	}
 
-	// L1:协议分键精确匹配
+	// L1:协议分键精确匹配(L1Pool 自动 MOVED 重路由)
 	l1Key := m.l1Key(key)
-	if val, err := m.rdb.Get(ctx, l1Key).Bytes(); err == nil && len(val) > 0 {
+	if val, err := m.pool.Get(ctx, l1Key); err == nil && len(val) > 0 {
 		hitsTotal.WithLabelValues("L1").Inc()
 		safeLog("L1 命中", "key", l1Key, "proto", key.Protocol)
-		return LookupResult{Hit: true, Layer: "L1", Body: val}
-	} else if err != nil && err != redis.Nil {
+		return LookupResult{Hit: true, Layer: "L1", Body: []byte(val)}
+	} else if err != nil && !strings.Contains(err.Error(), "nil") {
 		errorsTotal.WithLabelValues("L1").Inc()
 		safeLog("L1 读失败(非致命)", "err", err)
 	}
@@ -156,11 +145,11 @@ func (m *Manager) Store(ctx context.Context, key protocol.NormalizeKey, respBody
 		}
 	}
 
-	// L1 写入(协议分键)
+	// L1 写入(协议分键,L1Pool 自动 MOVED 重路由)
 	ttl := m.ttlFor(ttlScene)
 	l1Key := m.l1Key(key)
-	if m.rdb != nil {
-		if err := m.rdb.Set(ctx, l1Key, respBody, time.Duration(ttl)*time.Second).Err(); err != nil {
+	if m.pool != nil {
+		if err := m.pool.Set(ctx, l1Key, string(respBody), time.Duration(ttl)*time.Second); err != nil {
 			errorsTotal.WithLabelValues("L1").Inc()
 			safeWarn("L1 写失败(非致命)", "err", err)
 		}
@@ -219,8 +208,8 @@ type HealthStatus struct {
 
 func (m *Manager) HealthCheck(ctx context.Context) HealthStatus {
 	h := HealthStatus{L1Redis: "down", L2Milvus: "disabled", L3Neo4j: "disabled"}
-	if m.rdb != nil {
-		if err := m.rdb.Ping(ctx).Err(); err == nil {
+	if m.pool != nil {
+		if err := m.pool.Ping(ctx); err == nil {
 			h.L1Redis = "ok"
 		}
 	}

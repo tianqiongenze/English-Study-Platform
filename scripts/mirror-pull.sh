@@ -10,27 +10,29 @@ TOKEN=$(curl -s -m 30 "${MIRROR}/openapi/v1/auth/token?service=docker.1ms.run&sc
 echo "token OK (${#TOKEN} chars)"
 AUTH="Authorization: Bearer ${TOKEN}"
 
-# 1. fetch index/manifest-list, try to find amd64 digest
+# 1. fetch index/manifest-list, find target-arch digest (default arm64: rd-vm 是 Apple Silicon arm64)
+# 用法: mirror-pull.sh <repo> <tag> [arch]   (arch 默认 arm64,可选 amd64)
+ARCH="${3:-arm64}"
 IDX=$(mktemp -d)
 curl -s -m 60 -H "$AUTH" -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
   -o "$IDX/manifest" "${MIRROR}/v2/${REPO}/manifests/${TAG}"
-DIGEST=$(python3 - "$IDX" <<'EOF'
+DIGEST=$(python3 - "$IDX" "$ARCH" <<'EOF'
 import json,sys
-m=json.load(open(sys.argv[1]+"/manifest"))
+m=json.load(open(sys.argv[1]+"/manifest")); arch=sys.argv[2]
 if 'manifests' in m:
     for e in m['manifests']:
         p=e.get('platform',{})
-        if p.get('architecture')=='amd64' and p.get('os')=='linux':
+        if p.get('architecture')==arch and p.get('os')=='linux':
             print(e['digest']); break
 else:
     print('SELF')
 EOF
 )
 if [ "$DIGEST" = "SELF" ] || [ -z "$DIGEST" ]; then
-  echo "single manifest (amd64 assumed or single-arch)"; DIGEST=""
+  echo "single manifest ($ARCH assumed or single-arch)"; DIGEST=""
   cp "$IDX/manifest" "$IDX/image-manifest"
 else
-  echo "amd64 digest: $DIGEST"
+  echo "$ARCH digest: $DIGEST"
   curl -s -m 60 -H "$AUTH" -H "Accept: application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
     -o "$IDX/image-manifest" "${MIRROR}/v2/${REPO}/manifests/${DIGEST}"
 fi

@@ -65,7 +65,7 @@
 | writing-coach | ANTHROPIC_BASE_URL→Claude | 同→Ollama | 现就绪(纯 env) |
 | emotion-svc | 无 LLM(纯关键词) | EMOTION_LLM_BASE 预留 | DEFERRED |
 
-**⚠ 阻塞中(registry mirror 403)**:`docker.1ms.run` 对 golang:1.25-alpine/alpine:3.22 返回 403 Forbidden,基础镜像拉取失败,asr/tts 镜像无法构建。这是临时基础设施故障(37h 前 content-go 还能构建),mirror-pull.sh 绕过脚本正在后台运行(ID: brac9wmea)。恢复后执行:`cd backend && DOCKER_CONTEXT=rd-vm docker build -t esp/asr-adapter-go:1.0.0 -f services/asr-adapter-go/Dockerfile .`(tts 同理),再 apply 34/35 yaml。
+**⚠ 阻塞中(registry mirror 403)——已定位绕过方案**:`docker.1ms.run` 对 HEAD 请求返回 403(daemon 拉取失败),但 **GET+token 认证 + curl 跟随 Location 重定向**可绕过(空层 `4f4fb700...` 32 字节 gzip 需特殊处理)。**关键坑:必须拉 arm64 变体**(rd-vm 是 arm64,现有 esp 镜像全是 arm64;mirror-pull.sh 原脚本硬编码 amd64 是错的)。绕过脚本 `/tmp/esp-pull-arm64.sh`(arm64 + token + redirect + 空层)后台拉取中(monitor: bbu352dn8)。恢复后执行:`cd backend && DOCKER_CONTEXT=rd-vm docker build -t esp/asr-adapter-go:1.0.0 -f services/asr-adapter-go/Dockerfile .`(tts 同理),再 `kubectl -n esp-prod apply -f deploy/k8s/34-asr-stack.yaml -f deploy/k8s/35-tts-stack.yaml`。**根治**:基础镜像拉下后 `docker tag golang:1.25-alpine esp/golang-builder:1.25` + `docker tag alpine:3.22 esp/alpine-runtime:3.22`,Dockerfile 改用 esp/ 前缀本地 tag,一劳永逸不再依赖外部 registry。
 
 #### 4. 会话23-13续3 完成项(本轮前已全部完成,见归档)
 - 归档: `docs/progress/archive/2026-08-19-session-23-13-sink-tempo-llmcache.md`

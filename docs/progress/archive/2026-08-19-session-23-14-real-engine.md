@@ -61,3 +61,18 @@
 - Node allocatable 9 核，requests 已 99%（8930m）。TiDB/TiKV/PD 已全部 scale 0（不占资源）。
 - 真实引擎切换临时缩容：learning-java 6→1、learning-worker 3→1、bff-java 2→1（为 gateway/orchestrator rollout 让路）
 - **注意**：这些缩容需在验证完成后恢复，或标记为正式降配。
+
+## 补充：arm64 vs amd64 架构坑（重要）
+
+- rd-vm 是 **linux/arm64**（Apple Silicon），现有 esp 镜像全是 arm64
+- mirror-pull.sh 原脚本**硬编码 amd64**（已修复为参数化 `mirror-pull.sh <repo> <tag> [arch]`，默认 arm64）
+- 拉 amd64 变体会导致：构建出的镜像与 arm64 节点/其他 esp 镜像不匹配，且 qemu 仿真慢
+- 正确做法：`mirror-pull.sh library/golang 1.25-alpine arm64` + `mirror-pull.sh library/alpine 3.22 arm64`
+- alpine:3.22(arm64) 已成功 load 进 rd-vm 并验证 `docker run --rm alpine:3.22 echo OK`
+- golang:1.25-alpine(arm64) 拉取中（57.7MB layer 3 是慢点，CDN 间歇返回 HTML 错误页需重试）
+
+## 彻底解决方案（根治 registry mirror 403）
+
+1. **一次性缓存**：golang:1.25-alpine + alpine:3.22 拉进 rd-vm 后永久保留（除非 `docker system prune`）
+2. **本地 tag**：`docker tag golang:1.25-alpine esp/golang-builder:1.25` + `docker tag alpine:3.22 esp/alpine-runtime:3.22`
+3. **Dockerfile 改 esp/ 前缀**：未来所有 Go 服务构建不再依赖外部 registry，一劳永逸

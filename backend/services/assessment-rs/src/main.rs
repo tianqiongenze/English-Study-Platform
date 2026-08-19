@@ -27,7 +27,7 @@ static RATE_LIMITER: LazyLock<AppRateLimiter> = LazyLock::new(|| {
 async fn rate_limit_middleware(req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next) -> axum::response::Response {
     let path = req.uri().path().to_string();
     // Skip rate limiting for health check endpoints
-    if path == "/healthz" || path.starts_with("/actuator/health") {
+    if path == "/healthz" || path == "/metrics" || path.starts_with("/actuator/health") {
         return next.run(req).await;
     }
     if !RATE_LIMITER.check().is_ok() {
@@ -88,6 +88,8 @@ async fn main() -> anyhow::Result<()> {
         // threaddump/heapdump Rust 无原生等价(标 NA,可扩展 backtrace/dhat)。
         // 鉴权:debug 端点仅经 admin-go 代理可达,admin-go 侧 requireAdmin(admin JWT)把关。
         .merge(esp_common::debug::debug_router())
+        // Phase1 子项 1.2:Prometheus /metrics 抓取端点(进程级 + 后续业务自定义 metric)。
+        .merge(esp_common::metrics::metrics_router())
         .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

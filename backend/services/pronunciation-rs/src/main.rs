@@ -28,7 +28,7 @@ static RATE_LIMITER: LazyLock<AppRateLimiter> = LazyLock::new(|| {
 /// Rate-limit middleware: skip health endpoints
 async fn rate_limit_middleware(req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next) -> axum::response::Response {
     let path = req.uri().path().to_string();
-    if path == "/healthz" || path.starts_with("/actuator/health") {
+    if path == "/healthz" || path == "/metrics" || path.starts_with("/actuator/health") {
         return next.run(req).await;
     }
     if !RATE_LIMITER.check().is_ok() {
@@ -84,6 +84,8 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state)
         // 全语言统一深度诊断面板(Step2):挂载 actuator 风格 debug 端点(env/loglevel/beans/mappings)。
         .merge(esp_common::debug::debug_router())
+        // Phase1 子项 1.2:Prometheus /metrics 抓取端点(进程级 + 后续业务自定义 metric)。
+        .merge(esp_common::metrics::metrics_router())
         .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

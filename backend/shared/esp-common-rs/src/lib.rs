@@ -8,5 +8,6 @@
 pub mod db;
 pub mod debug;
 pub mod health;
+pub mod metrics;
 pub mod redisx;
 pub mod tracing_init;

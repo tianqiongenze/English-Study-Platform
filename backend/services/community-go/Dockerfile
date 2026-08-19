@@ -1,5 +1,5 @@
 # community-go —— 圈子社区(功能拓展:组队/建圈共同学习、分享经验)
-FROM golang:1.25-alpine AS builder
+FROM esp/golang-builder:1.25 AS builder
 WORKDIR /app
 COPY shared/esp-common-go ./esp-common-go
 COPY services/community-go/go.mod ./
@@ -9,7 +9,7 @@ RUN go mod download
 COPY services/community-go/src ./src
 RUN go mod tidy && CGO_ENABLED=0 go build -o /out/community-go ./src
 
-FROM alpine:3.22
+FROM esp/alpine-runtime:3.22
 RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 WORKDIR /app

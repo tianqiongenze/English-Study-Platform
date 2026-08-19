@@ -1,7 +1,7 @@
 # listening-go(S4, P1)—— 精听/泛听/听写/语速自适应 + 音频转写流式
 # 多阶段构建:go builder + alpine runtime(对标 course-path-go 0 漏洞基线)
 # ADR: docs/design/adr-new-services.md / PRD §四 / schema esp_listening
-FROM golang:1.25-alpine AS builder
+FROM esp/golang-builder:1.25 AS builder
 WORKDIR /app
 # esp-common-go 通过 replace 指令引用(../esp-common-go),build context 需含同级公共包目录。
 # 此处 COPY esp-common-go 到 /app/../esp-common-go 不可行,故改放 /app/esp-common-go 并用 build arg 覆盖 replace。
@@ -14,7 +14,7 @@ RUN go mod download
 COPY services/listening-go/src ./src
 RUN go mod tidy && CGO_ENABLED=0 go build -o /out/listening-go ./src
 
-FROM alpine:3.22
+FROM esp/alpine-runtime:3.22
 RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 WORKDIR /app

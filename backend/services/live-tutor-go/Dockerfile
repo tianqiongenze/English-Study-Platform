@@ -1,5 +1,5 @@
 # 编译阶段
-FROM golang:1.25-alpine AS builder
+FROM esp/golang-builder:1.25 AS builder
 WORKDIR /app
 COPY shared/esp-common-go ./esp-common-go
 COPY services/live-tutor-go/go.mod ./
@@ -15,7 +15,7 @@ RUN go mod tidy && CGO_ENABLED=0 go build -o /out/live-tutor-go ./src
 # - nonroot 变体内置 user 65532:nonroot,无需 addgroup/adduser,无 shell 无 apk 无 apt
 # 镜像拉取:国内拉 gcr.io 常超时,优先用本地 mirror(registry.aliyuncs.com/google_containers/distroless)。
 # ADR-security-scanning §4:对标 gateway-go/course-path-go 0 漏洞基线
-FROM alpine:3.22
+FROM esp/alpine-runtime:3.22
 RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 WORKDIR /app

@@ -1,5 +1,6 @@
 # asr-adapter-go —— ASR 适配微服务(纯 Go,无状态转发层)
-FROM golang:1.25-alpine AS builder
+# 方案3根治:基础镜像用 esp/ 前缀本地 tag,不再依赖外部 registry(规避 mirror 403)
+FROM esp/golang-builder:1.25 AS builder
 WORKDIR /app
 COPY shared/esp-common-go ./esp-common-go
 COPY services/asr-adapter-go/go.mod ./
@@ -9,7 +10,7 @@ RUN go mod download
 COPY services/asr-adapter-go/src ./src
 RUN go mod tidy && CGO_ENABLED=0 go build -o /out/asr-adapter-go ./src
 
-FROM alpine:3.22
+FROM esp/alpine-runtime:3.22
 RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 WORKDIR /app

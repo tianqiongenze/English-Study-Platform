@@ -1,5 +1,5 @@
 # gamification-go(S7, P1)—— 学习目标/连胜/排行榜/成就/积分商城(事件驱动 Pulsar)
-FROM golang:1.25-alpine AS builder
+FROM esp/golang-builder:1.25 AS builder
 WORKDIR /app
 COPY shared/esp-common-go ./esp-common-go
 COPY services/gamification-go/go.mod ./
@@ -9,7 +9,7 @@ RUN go mod download
 COPY services/gamification-go/src ./src
 RUN go mod tidy && CGO_ENABLED=0 go build -o /out/gamification-go ./src
 
-FROM alpine:3.22
+FROM esp/alpine-runtime:3.22
 RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 WORKDIR /app

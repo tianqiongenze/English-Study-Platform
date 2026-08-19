@@ -1,5 +1,5 @@
 # 编译阶段
-FROM golang:1.25-alpine AS builder
+FROM esp/golang-builder:1.25 AS builder
 WORKDIR /app
 ENV GOPROXY=https://goproxy.cn,direct
 COPY shared/esp-common-go ./esp-common-go
@@ -16,7 +16,7 @@ RUN go mod tidy && CGO_ENABLED=0 go build -o /out/vocab-srs-go ./src
 # 镜像拉取:国内拉 gcr.io 可能失败,可替换为
 #   registry.aliyuncs.com/google_containers/distroless 或建本地 mirror
 # ADR-security-scanning §4:对标 gateway-go/course-path-go 0 漏洞基线
-FROM alpine:3.22
+FROM esp/alpine-runtime:3.22
 RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 WORKDIR /app

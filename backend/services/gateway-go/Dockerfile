@@ -1,5 +1,5 @@
 # 编译阶段
-FROM golang:1.25-alpine AS builder
+FROM esp/golang-builder:1.25 AS builder
 WORKDIR /app
 COPY shared/esp-common-go ./esp-common-go
 COPY services/conversation-go ./conversation-go
@@ -12,7 +12,7 @@ COPY services/gateway-go/src ./src
 RUN go mod tidy && CGO_ENABLED=0 go build -o /out/gateway-go ./src
 
 # 运行阶段
-FROM alpine:3.22
+FROM esp/alpine-runtime:3.22
 RUN apk add --no-cache ca-certificates
 # 安全:非 root 运行(ADR-security-scanning §4 Semgrep run-as-non-root 修复)
 RUN addgroup -S app && adduser -S -G app app

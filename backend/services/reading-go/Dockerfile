@@ -1,5 +1,5 @@
 # reading-go(S6, P1)—— 分级阅读 + 长难句解析 + 题目自动生成
-FROM golang:1.25-alpine AS builder
+FROM esp/golang-builder:1.25 AS builder
 WORKDIR /app
 COPY shared/esp-common-go ./esp-common-go
 COPY services/reading-go/go.mod ./
@@ -9,7 +9,7 @@ RUN go mod download
 COPY services/reading-go/src ./src
 RUN go mod tidy && CGO_ENABLED=0 go build -o /out/reading-go ./src
 
-FROM alpine:3.22
+FROM esp/alpine-runtime:3.22
 RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S -G app app
 WORKDIR /app

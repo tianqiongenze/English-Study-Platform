@@ -14,9 +14,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"esp/common-go/config"
 	"esp/common-go/health"
+	"esp/common-go/middleware"
 	"esp/common-go/registry"
 	"esp/common-go/tracing"
 )
@@ -43,9 +45,17 @@ func main() {
 	mux.HandleFunc("/api/tutor/availability", availability) // 查可用时段(桩)
 	mux.HandleFunc("/ws/signaling/", signaling)    // DEFERRED-单节点限制(多节点接 SFU/MCU):信令回声占位验证握手
 
+	// /metrics:Prometheus 抓取端点(自身指标 + middleware 包注册的限流/熔断 gauge)。
+	mux.Handle("/metrics", promhttp.Handler())
+
+	// 治理铁律:限流(100rps/桶200)+ 熔断(5 次失败触发 30s)统一包裹整 mux,
+	// 复用 esp-common-go 共享中间件(与 gateway-go/course-path-go 同构,禁止服务内复制)。
+	rateLimited := middleware.HTTPRateLimit(mux, 100, 200)
+	cbProtected := middleware.HTTPCircuitBreaker(rateLimited, 5, 30*time.Second, serviceName)
+
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           mux,
+		Handler:           cbProtected,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

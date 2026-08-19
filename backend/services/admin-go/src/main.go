@@ -17,11 +17,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"esp/common-go/middleware"
 	"esp/common-go/registry"
 )
 
@@ -67,7 +71,7 @@ func env(k, def string) string {
 
 func probeOne(t Target) ProbeResult {
 	r := ProbeResult{Name: t.Name, Kind: t.Kind, Lang: t.Lang, Svc: t.Svc, Port: t.Port, Path: t.Path}
-	addr := fmt.Sprintf("%s:%d", t.Svc, t.Port)
+	addr := net.JoinHostPort(t.Svc, strconv.Itoa(t.Port))
 	if t.Type == "tcp" {
 		start := time.Now()
 		conn, err := net.DialTimeout("tcp", addr, probeTimeout)
@@ -183,8 +187,16 @@ func main() {
 	mux.HandleFunc("/api/admin/debug/capabilities", srv.requireAdmin(srv.handleDebugCapabilities))
 	mux.HandleFunc("/api/admin/debug/", srv.requireAdmin(srv.handleDebugProxy))
 
+	// /metrics:Prometheus 抓取端点(治理面板自身指标 + middleware 包注册的限流/熔断 gauge)。
+	mux.Handle("/metrics", promhttp.Handler())
+
 	addr := ":" + env("PORT", "8099")
-	httpSrv := &http.Server{Addr: addr, Handler: mux}
+	// 治理铁律:限流(100rps/桶200)+ 熔断(5 次失败触发 30s)统一包裹整 mux,
+	// 复用 esp-common-go 共享中间件(与 gateway-go/course-path-go 同构,禁止服务内复制)。
+	// 链序:限流先拒(早失败)→ 熔断(保护下游)→ mux 分发。
+	rateLimited := middleware.HTTPRateLimit(mux, 100, 200)
+	cbProtected := middleware.HTTPCircuitBreaker(rateLimited, 5, 30*time.Second, adminServiceName)
+	httpSrv := &http.Server{Addr: addr, Handler: cbProtected}
 	go func() {
 		log.Printf("esp-admin starting %s", addr)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

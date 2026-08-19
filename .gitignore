@@ -85,3 +85,9 @@ $CLAUDE_JOB_DIR
 *.local
 *.local.*
 .turbo/
+
+# --- 构建产物(2026-08-19 加入,防超 GitHub 100MB 限制) ---
+# JDK runtime tarball(由 Dockerfile 本地构建,不入库)
+deploy/docker/jdk26-jre/*.tar.gz
+# k6 压测二进制(arm64,本地构建产物)
+deploy/k6/linux-arm64/k6

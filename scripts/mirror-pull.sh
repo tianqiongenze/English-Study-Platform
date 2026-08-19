@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Manual docker image pull via mirror GET+token (bypass daemon HEAD 403), then docker load into RD VM.
 # Usage: mirror-pull.sh <repo> <tag>
 set +e

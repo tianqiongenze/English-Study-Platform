@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ESP 宿主中间件混沌测试脚本
 # 测试宿主机中间件故障对 K8s 内 ESP 服务的影响
 # 用法: ./host-middleware-chaos.sh --target <service> --action <kill|pause|resume> [--yes]

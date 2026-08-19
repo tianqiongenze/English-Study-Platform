@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # LCO 代理 + embedding 服务 + port-forward 三通道 一键启动(含 launchd 自愈)
 # 复用 ESP Nacos-CRDB 通道的 launchd 自愈模式。
 # 用法: ./start-lco.sh [start|stop|status]

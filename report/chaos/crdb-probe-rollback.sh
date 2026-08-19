@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # CRDB probe 回滚脚本(还原为 timeout=1s)
 kubectl -n esp-crdb patch sts crdb --type=json -p='[
   {"op":"replace","path":"/spec/template/spec/containers/0/livenessProbe/timeoutSeconds","value":1},

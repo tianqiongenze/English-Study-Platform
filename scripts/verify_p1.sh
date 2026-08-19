@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # P1 验证清单(会话22-24):幂等/outbox/ratelimit/cache metrics/JWT refresh+logout
 # 入口:traefik 127.0.0.1:80 + Host: esp.example.com(单节点 RD localhost 转发)
 set -u

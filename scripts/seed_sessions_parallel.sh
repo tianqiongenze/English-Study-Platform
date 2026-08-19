@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 批量灌 sessions STRING 数据到 CRDB
 # 并发度=PARALLEL,每批 BATCH 行,总目标 TARGET 行
 # id 区间不重叠:每进程领 [base + i*step, base + (i+1)*step)

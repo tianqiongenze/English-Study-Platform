@@ -17,7 +17,7 @@
 
 | Phase | 主题 | 目标贡献 | 依赖 | 状态 |
 |---|---|---|---|---|
-| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | 🔄 执行中(4 完成/3 部分/1 待澄清) |
+| Phase1 | 治理落地(P0 阻断上线) | 工程基础达标 | 无 | 🔄 执行中(5 完成/2 部分/1 待澄清) |
 | Phase2 | 基础设施升级 | 镜像/CI/CD | 无(与 P1/P4 并行) | ⏳ 待启动 |
 | Phase3 | 架构重构(达 8.5+) | 工程深度 | Phase1 完成 | ⏳ 待启动 |
 | Phase4 | 前端重构(达 8.5+) | 前端达标 | 无(与 P1/P2 并行) | ⏳ 待启动 |
@@ -69,11 +69,13 @@
 
 ### 子项 1.6 securityContext 全补齐
 - **目标**:所有 deploy pod/container 有 securityContext
-- **状态(2026-08-20 核实)**:**部分**(业务 Deployment 有 container 级,infra 类全缺,pod 级普遍缺)
-- **证据**:✅ 业务 Deployment(10/15/20/21/30/31/32/33-orchestrator/34/35)均有 container 级 securityContext(10-gateway:19-21 `runAsNonRoot:true`/`runAsUser:1000`,15-bff:22-25 同)
-- **缺口**:❌ **infra 类 Deployment 无 securityContext**——06-sca-middleware/06b-redis-pvc/07-tidb-tikv/95-otel-collector/otel-collector-gateway 全 0 处 ⚠ 业务 Deployment 多为单处(container 级),**pod 级 fsGroup/seccompProfile 普遍缺失**
-- **方案**:infra Deployment 补 container 级 securityContext;业务 Deployment 补 pod 级 fsGroup + seccompProfile(RuntimeDefault)
-- **验收**:CI 门禁(kube-score/kube-hunter)扫 deploy/k8s/*.yaml 无 securityContext 缺失
+- **状态(2026-08-20 实装)**:**代码完成**(部分 DEFERRED,apply 待批量确认)
+- **证据**(commit `8c0bb47`,17 manifest dry-run RC=0):
+  - ✅ infra 完整加固(otel 3 文件,镜像非 root):runAsNonRoot+runAsUser:10001+readOnly+seccomp+capabilities drop + /tmp emptyDir + pod 级 fsGroup
+  - ✅ infra 保守加固(nacos/sentinel/redis/tikv 等 root 镜像):allowPrivilegeEscalation:false + seccompProfile
+  - ✅ 业务 22 Deployment pod 级 fsGroup:1000+seccompProfile:RuntimeDefault(PVC 全 0 无副作用)
+- **缺口**(DEFERRED,诚实):nacos/sentinel/seata/redis/pd/tikv/tidb/tiflash 的 runAsNonRoot+runAsUser(需重打非 root 镜像 + chown 数据卷,多节点生产化时补)
+- **验收**:17 manifest dry-run RC=0;实际 apply 待批量确认(改 manifest 未 apply,可逆)
 
 ### 子项 1.7 Mock 残留切断
 - **目标**:生产域 mock 零残留(MPB 铁律)

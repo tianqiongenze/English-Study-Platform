@@ -27,6 +27,7 @@ AI 英语教育平台(Home-Tutor / ESP):多语言微服务(Go/Java/Python)+ 读�
 - TiDB: `tidb-primary:4000` root 无密码,DB `esp`,11 张表(已建,schema 见 `docs/design/schema.sql`)。
 - 各服务端口:gateway-go 8080、learning 8081、writing 8082、teacher 8083、emotion 8084。NodePort gateway-go 30080。
 - 非 git 仓库 —— 无 git 安全网,改动靠文件 + PROGRESS.md 追踪。
+- **⚠️ 项目运行前提(2026-08-19 确立)**:宿主中间件(Nacos/Prometheus/Loki/Alertmanager/OTel/Grafana/Tempo + CRDB通道 + Redis Cluster)是 ESP 服务硬依赖,**必须先起**。每次开机/VM 重启后先 `bash scripts/start-host-middleware.sh` 并验证 `curl localhost:8848/nacos/v1/ns/operator/metrics` 返回 `{"status":"UP"}` + Redis `cluster_state:ok`,再操作 Java 服务(否则全 CrashLoop)。详见 `docs/ops/host-middleware-startup.md` 第 0 节。
 
 ## 4. Subagent 分工(见 `.claude/agents/*.md`)
 - `esp-explorer`:只读搜索/定位代码与资源,返回路径+结论。

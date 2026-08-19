@@ -1,7 +1,47 @@
 # ESP 宿主中间件运维手册
 
 > 中间件从 K8s 迁移到 macOS 宿主机(Rancher Desktop Lima VM)后的完整运维指南。
-> 最后更新: 2026-08-18
+> 最后更新: 2026-08-19
+
+---
+
+## 0. ⚠️ 项目运行前提(必读,2026-08-19 确立)
+
+**宿主中间件必须先启动,否则 ESP 全部 Java 服务 CrashLoopBackOff。**
+
+下沉到宿主的中间件(Nacos / Prometheus / Loki / Alertmanager / OTel Collector / Grafana / Tempo)是 ESP 服务运行期**硬依赖**:
+
+- **Nacos:8848**(最关键):BFF / learning-java / teacher-java 等所有 Java 服务通过 Dubbo `NacosDynamicConfiguration` 启动时连 Nacos 做配置中心 + 注册中心。**Nacos 不起 → Dubbo `Failed to create nacos config service client: server status check failed` → 全 Java 服务 CrashLoop**。
+- **CRDB:26257**(经 launchd ssh tunnel 自愈到集群 `esp-crdb`):Nacos 自身的外部存储 + ESP 部分服务的数据源。通道断 → Nacos 起不来或写不进。
+- **Redis Cluster:6379**(集群内 `redis-cluster-new`,经 `redis-cluster-selfheal.sh` 自愈):ESP 会话态 + `esp:ctx:*` 跨会话锚点。VM 重启后 nodes.conf 旧 IP 致 `cluster_state:fail` → CLUSTERDOWN 拒写。
+- **OTel:4317/4318**:ESP 服务 trace/metrics 上报端点,断则服务启动可能卡(取决于配置是否 required)。
+
+### 每次开机 / VM 重启后的标准启动顺序
+
+```bash
+# 1. 启动全部宿主中间件(含 Nacos,内部含 Redis selfheal [8/8] + CRDB 通道 launchd 自愈)
+bash scripts/start-host-middleware.sh
+
+# 2. 验证 Nacos 真正 ready(不只是端口在,要 metrics UP)
+curl -s http://localhost:8848/nacos/v1/ns/operator/metrics   # 期望 {"status":"UP"}
+curl -s http://localhost:8848/nacos/v1/console/health/liveness  # 期望 HTTP 200
+
+# 3. 验证 Redis Cluster 自愈成功(VM 重启后必跑,脚本幂等已集成在 start [8/8])
+kubectl -n ekb-m2-aws-us-east-1 exec redis-cluster-new-0 -- redis-cli -c CLUSTER INFO | grep cluster_state  # 期望 cluster_state:ok
+
+# 4. 验证 CRDB 通道(nacos 写 crdb 的路径)
+nc -z 127.0.0.1 26257 && echo "CRDB channel OK"
+
+# 5. 中间件全绿后,再重启卡死的 Java 服务(否则重启无用,会再次 CrashLoop)
+kubectl -n esp-prod rollout restart deploy/bff-java deploy/learning-java deploy/teacher-java
+```
+
+### 反模式(禁止)
+
+- ❌ **先 `kubectl rollout restart` Java 服务,再起中间件**:服务会立即 CrashLoop,Nacos 未起时 Dubbo 配置客户端构建失败,滚动更新永远卡在 MinimumReplicasUnavailable。
+- ❌ **只起 Nacos 不验 `metrics UP`**:Tomcat 端口 8848 监听 ≠ Nacos 就绪(Nacos 还在加载 CRDB schema),Java 服务此时连会 `server status check failed`。必须 `{"status":"UP"}`。
+- ❌ **VM 重启后不跑 Redis selfheal**:nodes.conf 持久化旧 PodIP,`cluster_state:fail`,所有 `esp:ctx:*` 锚点读不了,跨会话恢复失明。
+- ❌ **停宿主中间件时不重启依赖它的 Java 服务**:Nacos 一断,Dubbo 靠本地缓存保活一段时间后会失效,Java 服务静默半死。
 
 ---
 

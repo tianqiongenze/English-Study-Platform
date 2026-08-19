@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # ESP Host Middleware Start Script
@@ -89,22 +89,28 @@ fi
 
 # --- 2. Prometheus ---
 echo -e "\n=== [2/7] Prometheus ==="
+# 二进制可能在 $OBS_DIR/prometheus(老路径)或版本号子目录(prometheus-2.55.0.darwin-arm64/prometheus)
 PROM_BIN="$OBS_DIR/prometheus"
+if [[ ! -x "$PROM_BIN" ]]; then
+    PROM_BIN=$(find "$OBS_DIR" -maxdepth 2 -type f -name prometheus -path '*darwin-arm64*' 2>/dev/null | head -1)
+    [[ -z "$PROM_BIN" ]] && PROM_BIN=$(find "$OBS_DIR" -maxdepth 2 -type f -name prometheus 2>/dev/null | head -1)
+fi
 if [[ -x "$PROM_BIN" ]]; then
     start_one prometheus 9090 \
         "$PROM_BIN" \
         --config.file="$PROM_YML" \
         --storage.tsdb.path=$HOME/observability/data/prometheus \
         --storage.tsdb.retention.time=7d \
-        --web.enable-lifecycle \
-        --web.enable-rule-api
+        --web.enable-lifecycle
 else
-    echo -e "  ${RED}[SKIP]${NC} $PROM_BIN not found"
+    echo -e "  ${RED}[SKIP]${NC} prometheus binary not found under $OBS_DIR"
 fi
 
 # --- 3. Loki ---
 echo -e "\n=== [3/7] Loki ==="
+# loki 二进制:优先 $OBS_DIR/loki,次选 $OBS_DIR/loki-darwin-arm64(下载包真名)
 LOKI_BIN="$OBS_DIR/loki"
+[[ ! -x "$LOKI_BIN" ]] && LOKI_BIN="$OBS_DIR/loki-darwin-arm64"
 LOKI_CFG="$OBS_DIR/loki-fixed.yaml"
 if [[ -x "$LOKI_BIN" ]] && [[ -f "$LOKI_CFG" ]]; then
     start_one loki 3100 \
@@ -117,6 +123,10 @@ fi
 # --- 4. Alertmanager ---
 echo -e "\n=== [4/7] Alertmanager ==="
 AM_BIN="$OBS_DIR/alertmanager"
+if [[ ! -x "$AM_BIN" ]]; then
+    AM_BIN=$(find "$OBS_DIR" -maxdepth 2 -type f -name alertmanager -path '*darwin-arm64*' 2>/dev/null | head -1)
+    [[ -z "$AM_BIN" ]] && AM_BIN=$(find "$OBS_DIR" -maxdepth 2 -type f -name alertmanager 2>/dev/null | head -1)
+fi
 AM_CFG="$OBS_DIR/alertmanager.yml"
 if [[ -x "$AM_BIN" ]] && [[ -f "$AM_CFG" ]]; then
     start_one alertmanager 9093 \
@@ -129,7 +139,9 @@ fi
 
 # --- 5. OTel Collector ---
 echo -e "\n=== [5/7] OTel Collector ==="
+# otelcol 二进制:优先 $OBS_DIR/otelcol,次选 $OBS_DIR/otelcol-contrib
 OTEL_BIN="$OBS_DIR/otelcol"
+[[ ! -x "$OTEL_BIN" ]] && OTEL_BIN="$OBS_DIR/otelcol-contrib"
 OTEL_CFG="$OBS_DIR/otel-gateway-config.yaml"
 if [[ -x "$OTEL_BIN" ]] && [[ -f "$OTEL_CFG" ]]; then
     start_one otelcol 4317 \
@@ -165,18 +177,23 @@ fi
 
 # --- 7. Grafana ---
 echo -e "\n=== [7/7] Grafana ==="
+# grafana 二进制:优先 $OBS_DIR/grafana/bin/grafana(老路径),次选版本号子目录
 GRAFANA_BIN="$OBS_DIR/grafana/bin/grafana"
-GRAFANA_HOME="$OBS_DIR/grafana"
+if [[ ! -x "$GRAFANA_BIN" ]]; then
+    GRAFANA_BIN=$(find "$OBS_DIR" -maxdepth 4 -type f -name grafana -path '*/bin/grafana' 2>/dev/null | head -1)
+fi
+GRAFANA_HOME="$(dirname "$(dirname "$GRAFANA_BIN")")"  # grafana-v11.6.0
 GRAFANA_CFG="$OBS_DIR/grafana.ini"
 if [[ -x "$GRAFANA_BIN" ]]; then
     # Ensure data dir exists
     mkdir -p $HOME/observability/data/grafana
+    # grafana v11 用 `server` 子命令,-homepath/-config 是 server 子命令的 flag(非顶层 flag)
     start_one grafana 3000 \
-        "$GRAFANA_BIN" \
+        "$GRAFANA_BIN" server \
         -homepath="$GRAFANA_HOME" \
         -config="$GRAFANA_CFG"
 else
-    echo -e "  ${RED}[SKIP]${NC} $GRAFANA_BIN not found"
+    echo -e "  ${RED}[SKIP]${NC} grafana binary not found under $OBS_DIR"
 fi
 
 # --- 8. Redis Cluster self-heal (VM 重启后 nodes.conf 旧 IP 自愈) ---

@@ -93,30 +93,130 @@
 - **文档诚实更正**:README + SDD 7. 已知限制里"L1 命中率 100%"改为"原 ~50% 已修待实测",补 L2 超时 + 雪崩风险条目。
 - **commit 待做**(雪崩后统一 commit)。
 
-### VM 雪崩事故(2026-08-19 17:30,已止血恢复中)
+### VM 雪崩事故(2026-08-19 17:30 起,18:36 暂停;19:00 恢复会话确认功能性崩溃+授权重启 RD VM)
 - **现象**:VM lima-0 load 飙 408→543,K8s API TLS handshake timeout,k3s CRI DeadlineExceeded,port-forward 后端 Redis 空响应 LCO L1 全断,VM 内 1717 线程 CPU 0% idle。
 - **根因**:LCO embedding Qwen3-Embedding-4B(8GB)MPS 推理 8-34s/次占满 CPU(测命中率连发多次)+ 3 ESP agent 宿主编译(go build/cargo/docker images/rdctl shell ssh)+ 共享基础设施 Pulsar 3 broker/Neo4j/Sentinel 常驻负载,9 核单节点 VM 被压爆。吻合 [[esp-singlenode-host-cluster-contention]] + [[esp-crdb-probe-timeout-1s-pitfall]] 模式。
 - **止血**:杀 embedding(PID 47722)+ 停 lco-proxy + TaskStop 3 agent + 杀残留 go build/rustc/cargo/ssh/rdctl shell 子进程 + 杀卡死 kubectl 查询。外部加压全停。
-- **恢复**:load 从 543 缓降但震荡(413→269→328→449,中枢下移但反复),疑有探针 restart 震荡叠加。Monitor 45s 采样等 load<50。结构性过载(CRDB 3 节点 + Pulsar 3 + Neo4j + 多 Spring Boot 1717 线程 vs 9 核)需较长恢复。
+- **恢复观察(17:30~18:36)**:load 543→268→...→81,震荡稳态 80~250 带状,中枢未稳定下行到 <50。
+- **18:36 用户决策暂停**:落盘状态等回会话。未重启 VM、未探测 kubectl、未推进 LCO/真实引擎/压测。
+- **19:00 恢复会话重新诊断**:`rdctl shell cat /proc/loadavg` 显示 load=67/111/155(5min 仍 111,未降),6443 监听在但 kubectl 连接被拒。k3s 日志暴露 **kubelet PLEG 死锁**(pleg was last seen active 3m14s ago, threshold 3m0s)+ **node NotReady**(KubeletNotReady)+ housekeeping took 1m40s(预期 1s)+ kine Slow SQL 1.8s + http2 client connection lost watch 全断。**判定:非单纯负载型雪崩,已演变为 kubelet PLEG 功能性死锁,靠纯等待无法自愈**。宿主侧再次核验干净(host load 6.57,无残留加压进程)。
+- **用户授权(19:00 AskUserQuestion)**:授权重启 Rancher Desktop VM 以解开 PLEG 死锁。风险已知并接受:Pulsar/Neo4j 未落盘数据可能丢失,重启后需重跑 pause 镜像预置 + port-forward + launchd 自愈(Nacos-CRDB 通道 + Redis cluster 自愈)。
 - **memory 落盘**:`esp-lco-embedding-vm-snowball`(embedding 必限流/离峰/不与编译并行;雪崩恢复期纯等不加压;Monitor 不要用会被 pkill 的命令)。
 
-### 恢复协议(上下文溢出后)
-1. 读 docs/PROGRESS.md 热区(本文件)
-2. Redis GET `esp:ctx:hot:session-23-14`
-3. 归档: `docs/progress/archive/2026-08-19-session-23-13-sink-tempo-llmcache.md`
-4. 计划: `.claude/plans/robust-baking-wave.md`
-5. 集群现状:ESP 服务全连宿主 Nacos(host.lima.internal:8848,集群 Nacos 已删);宿主 Nacos↔CRDB 走 127.0.0.1:26257(launchd 自愈);Tempo:14317/14318 收 OTel 转发;OTel:4317/4318 收 ESP 服务;Redis cluster-new 5 块 Running;**VM 雪崩后 load 待回落<50 才能操作**
-6. LCO 代码已修(L1 MOVED + L2 超时),二进制 /tmp/lco-proxy 构建好,运行期实测待集群恢复
-7. 本地 commit 99d97e0 未 push(push 失败 443 超时);LCO 修复 commit 待做
+## 2026-08-19 会话23-14续2:LCO 三层缓存完整实装(L1/L2/L3 全部真实运行)(完成✅)
 
-### 下一步(恢复后执行)
-1. **等 VM load<50**(Monitor 报平安)→ 短超时试 `kubectl get nodes` 确认 API 恢复
-2. **LCO 运行期实测**(离峰、不连发):重起 port-forward → embedding → lco-proxy,实测 L1 命中率从 ~50% 提升验证;改用查 Redis key 方式测 L1(不走 embedding 链路)
-3. **ESP 服务 L2/L3 运行期验证**(只看日志,不重编译):orchestrator-rs deployment 已 apply,看 pod 日志 provider chain 含 milvus/neo4j;conversation-go/writing-coach 检查代码落盘状态 + 日志
-4. **真实引擎切换收尾** — registry mirror 403 恢复后构建 asr/tts 镜像 + apply 34/35 yaml + 验证 WS 链路
-5. **全量重构达标计划执行** — 用户确认计划后启动
-6. LCO 修复 + 文档更正统一 commit + push GitHub
-7. k6+Locust 混合压测(50→5000 CCU 阶梯) + 全功能 E2E
+> 用户诉求"完整三层都起":LCO 代理 L1/L2/L3 从"L1 修了+L2 实装+L3 占位 DEFERRED"推进到**三层全部真实运行 + 端到端验证**。
+> Redis 锚点:`esp:ctx:hot:session-23-14`(续,本轮 LCO 三层完成证据写入)
+
+### 本轮完成(证据驱动)
+
+#### 1. L3 Neo4j 知识图谱从 MVP 占位 → 真实 REST 实装(✅)
+- **原状**:`l3.go` Record/Enhance 为 DEFERRED 占位;Health 只返回 "ok-deferred" 不真探活。
+- **实装**(`tools/lco-proxy/internal/cache/l3.go`):
+  - `neo4jTx`:Neo4j 5.x REST `/db/neo4j/tx/commit` + basic auth(bolt→http URL 转换;`LCO_NEO4J_REST_URL` env 显式指定)。
+  - `ensureSchema`:幂等建 `prompt_hash`/`response_id` UNIQUE 约束 + `prompt_text` 索引(启动时调一次,失败降级)。
+  - `Record`:MERGE Prompt(hash/text/proto/model/ts)→ Response(id/body/ts)+ `ANSWERED_BY` 关系。
+  - `Enhance`:CONTAINS 模糊查询最近相关历史 response(作为 L2 未命中的图补充)。
+  - `Health`:真实 REST `RETURN 1` 探活(不再 "ok-deferred")。
+  - `truncate`:UTF-8 安全截断(参数名 max→maxLen 避免遮蔽 Go1.21+ 内置 max)。
+- **CLC 铁律修复(根因:之前 l3.go 引用未定义 `hashKey()` 会编译失败)**:
+  - 补 `hashKey(key)` = sha256(key.Raw)[:16](与 L1 `l1Key` 同源)。
+  - Record/Enhance/ensureSchema 补 nil 安全(`if l==nil||l.cfg==nil`)。
+  - Record/Enhance 用调用方 ctx(继承超时/取消),不再 `context.Background()` 掩盖调用方超时意图。
+
+#### 2. L3 Enhance 接入查询路径(✅,"只写不读"→"读+写")
+- **原状**:`Lookup` 只走 L1→L2,L3 `Enhance` 写了但**从未被调用** → L3 只写不读,违反"完整三层都起"。
+- **修复**(`manager.go`):
+  - `LookupResult` 加 `EnhancedContext string` 字段。
+  - `Lookup` 在 L1+L2 miss 时调 `m.l3.Enhance(ctx, key)` 填充 EnhancedContext(独立 5s 超时,失败降级空)。
+  - Redis 降级路径(`m.pool==nil`)也补 L3 Enhance(L3 独立于 Redis)。
+  - `New()` 构造 L3 后调 `ensureSchema`(之前漏调,导致 MERGE 跑但 CONTAINS 全表扫 + CONSTRAINT 未建)。
+- **server.go**:miss 路径若有 EnhancedContext → 响应头 `X-LCO-Context-Enhanced` 暴露(本轮不改请求体;真实 RAG 注入重写 DEFERRED)。
+
+#### 3. CLC 静态检查门禁全过(✅,铁律要求实际运行非"配而未接")
+- `go vet ./...` ✅ RC=0
+- `go build -o /tmp/lco-proxy ./cmd/lco-proxy` ✅ RC=0(24MB)
+- `go test ./internal/cache/...` ✅ PASS
+- `golangci-lint run ./...` ✅(v1.62.2 本会话 `go install` 装上并实跑;`.golangci.yml` 启 errcheck/govet/staticcheck/revive 等 8 linter;`l3.go` 零 issue;余 l1pool.go/测试文件的 revive 提示为既有非本轮引入,RC=0)
+
+#### 4. 运行期端到端验证(✅ 三层全部真实命中)
+- 重启 lco-proxy(新二进制)+ env `LCO_NEO4J_REST_URL=http://127.0.0.1:7475`。
+- `/healthz`:`{"l1_redis":"ok","l2_milvus":"ok","l3_neo4j":"ok"}`(L3 从 "ok-deferred" → 真实 "ok")。
+- **L3 Record 验证**:探针请求 `/v1/messages` 内容"LCO三层缓存L3探针:回答一句话" → 转发上游 200 + 回写缓存 → Neo4j 出现 `Prompt(hash=06969e7a6fab2482, model=claude-sonnet-4-6, proto=anthropic, textLen=51)` -[:ANSWERED_BY]-> `Response(bodyLen=1777)`。
+- **L1 命中验证**:同 prompt 二次请求 → `X-Lco-Cache-Hit: L1` + 8ms 返回 + 日志 `L1 命中 key=lco:1:anthropic:06969e7a6fab2482`。
+- **L2 语义命中验证**:Probe A "LCO语义缓存L2测试用例:解释什么是余弦相似度"(miss,store)→ Probe B "什么是余弦相似度的定义解释"(不同措辞同义)→ `X-Lco-Cache-Hit: L2` + `X-Lco-Source-Protocol: anthropic` + 日志 `L2 语义命中`。
+- **embedding 服务**:Qwen3-Embedding-4B MPS 冷加载 ~60s(首次 L2 store embedding 超时非致命),加载后每次 ~8s;`embed_seconds_total=22.35` for 3 req,0 errors。
+- **Prometheus 指标**(`lco_cache_hits_total{layer}` / `lco_l2_hits_total` 等)正常暴露,命中率可观测(LCO 铁律 ✅)。
+
+#### 5. 仍 DEFERRED(本轮诚实记录)
+- **llm-orchestrator-rs:1.3.0 镜像构建受阻**:registry mirror(docker.1ms.run/daocloud/dockerproxy/dockerpull 全 403)拉不到 `rust:1.88-bookworm` 基础镜像。1.2.0 镜像在跑(Running),1.3.0 代码已 commit(d7622bb 含 L2 Milvus+L3 Neo4j)但镜像无法构建。需 mirror 恢复或派生构建(rust 基础层无本地缓存,不可像 Go 类从 buildkit 恢复)。
+- **L3 Enhance 真实 RAG 注入**:本轮仅响应头暴露 EnhancedContext,未改上游请求体注入(避免格式串台 + 成本权衡)。
+- **L2 embedding 在本机 MPS 不稳(运行期实测,2026-08-19 22:40~)**:Qwen3-Embedding-4B MPS 推理在本机偶发**卡死(进程 STAT=U 不可中断等待)**或**超慢(>90s/次)**,9 次请求 0 error 但 `seconds_total=0`(请求接了但 `model.encode()` 不返回)。遵 [[esp-lco-embedding-vm-snowball]],单节点 MPS 不可靠。**已设 launchd 常驻**(`com.esp.lco-embedding`,KeepAlive+ThrottleInterval 30s,挂了自愈,kill -9 验证重启),进程级自愈 OK;但 MPS 卡死是更深问题,launchd 重启进程不解决 MPS 本身。**LCO 已配 `LCO_L2_TIMEOUT=8`**:L2 慢则 8s 超时→降级直穿(不阻塞主请求),L1+L3 不受影响(L1 9ms 命中验证 OK,L3 直连 Neo4j 0.04s OK)。生产稳定 L2 需 GPU 节点或换轻量模型(all-MiniLM-L6-v2 384dim CPU 可稳,但跨语言语义弱于 Qwen)。
+- **embedding launchd 常驻(✅ 本轮新增)**:`scripts/start-lco-embedding.sh` + `~/Library/LaunchAgents/com.esp.lco-embedding.plist`(KeepAlive=true,RunAtLoad=true,ThrottleInterval=30s)。kill -9 后 ~30s 内 launchd 自动拉起验证通过。start 脚本修了 pgrep 匹配(原 `python3 $APP` 匹配不到 `Python.app/Contents/MacOS/Python`,改匹配 `app.py` 路径)。
+
+#### 6. Claude Code 接入 LCO(✅ 本轮完成,用户确认)
+- `~/.claude/settings.json` 的 `ANTHROPIC_BASE_URL` 从 `15721`(CC Switch)切到 **`15720`(LCO 三层缓存)**。备份 `settings.json.bak.pre-lco-1787150139`。
+- **生效条件**:Claude Code 进程启动时读一次 settings.json env 块,运行期改不生效。**用户需 `/exit` 重开 claude** 才走 LCO。
+- 重开后:每次 LLM 调用响应头带 `X-Lco-Cache-Hit: L1/L2/MISS`(命中层)+ `X-LCO-Context-Enhanced`(L3 增强命中时);`/metrics`(curl localhost:15720/metrics)有命中率指标。
+- 当前会话仍走 15721(进程已起,settings 改了但本会话不重读)。
+
+### 本轮 LCO 修复汇总(待统一 commit)
+- `tools/lco-proxy/internal/cache/l3.go`:L3 Neo4j REST 全实装 + hashKey 补齐 + nil 安全 + ctx 修正 + truncate max→maxLen
+- `tools/lco-proxy/internal/cache/manager.go`:LookupResult 加 EnhancedContext + Lookup 接 L3 Enhance(含降级路径)+ New() 调 ensureSchema
+- `tools/lco-proxy/internal/server/server.go`:miss 路径 X-LCO-Context-Enhanced 响应头
+
+---
+
+
+
+> VM 重启后 PLEG 死锁解除,load 回落 6~9。本会话恢复全部任务并修复雪崩暴露的 4 个真实 bug。
+
+### 本轮完成(证据驱动)
+
+#### 1. 集群功能性恢复(✅)
+- VM load:543(雪崩)→ 6.79(本会话),node Ready,kubectl/API 恢复
+- 宿主中间件健康:Nacos `{"status":"UP"}` + Redis cluster-new 6/6 Running + OTel 4317 监听
+- ESP 服务 **28/28 pod 全 Ready**(清理前 5 个非 Ready)
+
+#### 2. OTel 导出持续超时根因修复(✅,新发现 bug)
+- **根因**:ESP 服务 env 普遍写 `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-prod.svc.cluster.local:4317`,但 **esp-prod ns 内无 otel-collector svc**(下沉宿主后只建在 esp-observability ns)→ DNS NXDOMAIN → 所有服务 OTel traces/logs 导出持续超时(gateway-go 日志刷 `name resolver error: produced zero addresses`,learning-worker 日志刷 `UnknownHostException`)
+- **修复**:esp-prod 内建 otel-collector ExternalName → host.lima.internal:4317/4318/8889(纯 K8s,可逆 `kubectl -n esp-prod delete svc otel-collector`)
+- **验证**:gateway-go pod `nslookup otel-collector.esp-prod.svc.cluster.local` → CNAME host.lima.internal → 192.168.5.2;4318 HTTP 连通(404=HTTP 通)
+- **遗留**:gateway-go 等服务需重启才重新建立 OTel gRPC 连接(非阻断,本轮不重启避免扰动)
+
+#### 3. learning-worker 持续 CrashLoopBackOff 根因修复(✅,会话23-13续3 #7 bff-java 同类坑的遗漏)
+- **根因**:learning-worker deploy 有 `readOnlyRootFilesystem: true` + 镜像 HOME=/ → Dubbo 3.3.6 元数据写 `/.dubbo/dubbo-metadata-learning-java-nacos-8848.cache` 失败(`Failed to create directory /.dubbo`)→ Spring 启动失败 → startup probe 338 次失败 → 35 次 restart。bff-java 那次用 emptyDir 挂 /.dubbo 修了,learning-worker 漏修
+- **修复**:patch deploy 加 `/.dubbo` emptyDir 挂载(纯 K8s patch,可逆)
+- **验证**:新 RS 7978fb6b66 起来,learning-worker **3/3 Ready**(revision 30 期望 replicas=3 全部满足)
+
+#### 4. teacher-java 持续 CrashLoopBackOff 修复(✅)
+- **根因**:同 #3,teacher-java deploy 回退到 1.10.0 镜像(yaml 30-other-services.yaml:72 写 1.10.0),1.10.0 镜像 HOME=/ 无 readOnly 豁免 → Dubbo 写 /.dubbo 失败。1.13.1 镜像已修复该问题
+- **修复**:`kubectl rollout undo deploy/teacher-java --to-revision=43`(回 1.13.1)
+- **验证**:teacher-java **1/1 Ready**,img=esp/teacher-java:1.13.1
+
+#### 5. llm-orchestrator-rs ImagePullBackOff 止血(✅,1.3.0 镜像构建待离峰)
+- **根因**:deploy revision 12 指向 `esp/llm-orchestrator-rs:1.3.0`(含 L2 Milvus+L3 Neo4j 代码,33-orchestrator-vocab.yaml:39),但 **1.3.0 镜像未构建**(雪崩中断)→ ImagePullBackOff。1.2.0 镜像存在且 Running
+- **止血**:`kubectl rollout undo deploy/llm-orchestrator-rs --to-revision=10`(回 1.2.0 Running)
+- **DEFERRED**:1.3.0 镜像构建(Rust release 编译重,VM load 安全后离峰单独做,不与其它编译并行,遵 [[esp-lco-embedding-vm-snowball]])
+
+#### 6. 僵尸 pod/RS 清理(✅)
+- 删 tmp-hc-4668(遗留健康检查 pod,busybox 无镜像 ImagePullBackOff)
+- 删孤儿 RS teacher-java-cf8559dbc(1.10.0 旧版持续 crash)
+- scale down llm-orchestrator-rs-785c9d58c8(1.3.0 RS 残留)
+
+### 主链路端到端验证(✅)
+- NodePort 30080(gateway-go-np)HTTP 响应(404=网关在响应,根路径无路由,正常)
+- bff-java 30009 `/actuator/health` **200 UP**:CRDB 读写双数据源 routingDataSource READ/WRITE 全 UP(PostgreSQL isValid())
+- 28/28 ESP pod Ready
+
+### 仍待完成(下一步,离峰/用户确认后启动)
+1. **llm-orchestrator-rs 1.3.0 镜像构建**(受阻:registry mirror 全 403 拉 `rust:1.88-bookworm` 失败,见上节"仍 DEFERRED";mirror 恢复或派生构建后做)→ apply → 验证 L2 Milvus/L3 Neo4j 代码运行期日志
+2. **OTel 链路端到端验证**:重启 ESP 服务后看 Tempo 是否收 spans(本次只修了 DNS,服务未重启)
+3. ~~**LCO 运行期实测**~~(✅ 本轮续2 完成:L1/L2/L3 三层全部真实命中验证,见上节)
+4. **真实引擎切换收尾**:whisper 镜像(mirror 404 需另找/自建,DEFERRED)+ TTS edge-tts websocket handshake bug
+5. **全量重构达标计划执行**(`.claude/plans/robust-baking-wave.md`,用户确认后启动)
+6. LCO 修复(l3.go/manager.go/server.go 三层实装)+ 本轮 4 处修复统一 commit + push GitHub
+7. k6+Locust 混合压测(50→5000 CCU 阶梯)+ 全功能 E2E
 
 ---
 

@@ -63,6 +63,12 @@ func New(cfg *config.Config, logger *slog.Logger) (*Manager, error) {
 	}
 	if cfg.L3Enabled {
 		m.l3 = NewL3Knowledge(cfg, logger)
+		// L3 启动建 Neo4j 约束+索引(幂等,失败仅 warn 降级为无图增强)。
+		// 2026-08-19 修正:之前 NewL3Knowledge 后未调 ensureSchema,导致
+		// MERGE 可跑但 CONTAINS 查询全表扫,且 CONSTRAINT 未建则 MERGE 无法保证唯一。
+		schemaCtx, schemaCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		m.l3.ensureSchema(schemaCtx)
+		schemaCancel()
 	}
 	return m, nil
 }
@@ -73,6 +79,9 @@ type LookupResult struct {
 	Layer    string // "L1" / "L2" / "" (miss)
 	Body     []byte // 缓存的响应体(已是目标协议格式)
 	SourceProto protocol.Protocol // L2 命中时记录源协议(用于跨协议重生成判断)
+	// L3 上下文增强(L1/L2 miss 时从知识图谱查到的相关历史 response)。
+	// 非空时调用方可作为 RAG 上下文前缀注入上游请求;本轮仅通过响应头暴露,不修改请求体。
+	EnhancedContext string
 }
 
 // Lookup 查询缓存:L1 精确(同协议)→ L2 语义(跨协议,需重生成)→ L3 上下文增强。
@@ -102,7 +111,17 @@ func (m *Manager) Lookup(ctx context.Context, key protocol.NormalizeKey) LookupR
 				return LookupResult{Hit: true, Layer: "L2", Body: body, SourceProto: srcProto}
 			}
 		}
-		return LookupResult{}
+		// Redis 降级路径仍走 L3 上下文增强(L3 独立于 Redis)
+		var enhanced string
+		if m.l3 != nil {
+			l3Ctx, l3Cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			enhanced = m.l3.Enhance(l3Ctx, key)
+			l3Cancel()
+			if enhanced != "" {
+				hitsTotal.WithLabelValues("L3").Inc()
+			}
+		}
+		return LookupResult{EnhancedContext: enhanced}
 	}
 
 	// L1:协议分键精确匹配(L1Pool 自动 MOVED 重路由)
@@ -128,8 +147,23 @@ func (m *Manager) Lookup(ctx context.Context, key protocol.NormalizeKey) LookupR
 		}
 	}
 
+	// L3:上下文增强(L1/L2 miss 时查知识图谱找相关历史 response 作为 RAG 上下文)。
+	// 2026-08-19 实装:之前 Enhance 写了但 Lookup 未调用→L3 只写不读,违反"完整三层都起"。
+	// 独立短超时,失败降级为空上下文(直穿上游)。仅暴露为 EnhancedContext 字段,不修改请求体
+	// (真实 RAG 注入需改上游请求体,成本权衡后本轮仅标记 + 响应头暴露,重写 DEFERRED)。
+	var enhanced string
+	if m.l3 != nil {
+		l3Ctx, l3Cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		enhanced = m.l3.Enhance(l3Ctx, key)
+		l3Cancel()
+		if enhanced != "" {
+			hitsTotal.WithLabelValues("L3").Inc()
+			safeLog("L3 上下文增强命中", "ctxLen", len(enhanced), "proto", key.Protocol)
+		}
+	}
+
 	missesTotal.WithLabelValues("L1").Inc()
-	return LookupResult{}
+	return LookupResult{EnhancedContext: enhanced}
 }
 
 // Store 写入缓存:L1(同协议)+ L2(归一化向量,供跨协议检索)+ L3(知识图谱节点)。

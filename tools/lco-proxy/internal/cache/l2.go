@@ -106,19 +106,21 @@ func (l *L2Semantic) embed(ctx context.Context, text string) ([]float32, error) 
 	return out.Vector, nil
 }
 
-// milvusSearch / milvusInsert 通过 Milvus REST API(2.3+ 支持 /v2/vector/search,insert)。
+// milvusSearch / milvusInsert 通过 Milvus REST API(2.5 v2/vectordb/entities 端点)。
 // 单节点验证期用 REST 简化(避免 Go Milvus SDK 重依赖)。
+// 2026-08-19 实测修正:Milvus 2.5 正确端点是 /v2/vectordb/entities/search|insert,
+//   原 /v2/vector/* 在 2.5 返回 404 静默失败(WTV 核实目标系统);data 字段需 [[vec]] 二层数组。
 func (l *L2Semantic) milvusSearch(ctx context.Context, vec []float32, threshold float64) (*l2Record, bool) {
 	body := map[string]any{
 		"collectionName": l.cfg.L2Collection,
-		"data":           []any{vec},
+		"data":           [][]float32{vec},
 		"limit":          1,
 		"outputFields":   []string{"body", "protocol", "model", "ts"},
 		"params":         map[string]any{"radius": threshold},
 	}
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("http://%s/v2/vector/search", l.cfg.MilvusAddr), bytes.NewReader(b))
+		fmt.Sprintf("http://%s/v2/vectordb/entities/search", l.cfg.MilvusAddr), bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := l.hc.Do(req)
 	if err != nil {
@@ -127,6 +129,9 @@ func (l *L2Semantic) milvusSearch(ctx context.Context, vec []float32, threshold 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		// 诊断:读 body 帮助定位(collection 不存在/维度不匹配等),不阻断(降级)
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		l.logger.Warn("L2 Milvus search 非 200(非致命)", "status", resp.StatusCode, "body", string(rb))
 		return nil, false
 	}
 	var out struct {
@@ -168,25 +173,32 @@ func (l *L2Semantic) milvusInsert(ctx context.Context, vec []float32, rec l2Reco
 	}
 	b, _ := json.Marshal(body)
 	req, _ := http.NewRequestWithContext(ctx, "POST",
-		fmt.Sprintf("http://%s/v2/vector/insert", l.cfg.MilvusAddr), bytes.NewReader(b))
+		fmt.Sprintf("http://%s/v2/vectordb/entities/insert", l.cfg.MilvusAddr), bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := l.hc.Do(req)
 	if err != nil {
 		l.logger.Warn("L2 Milvus insert 失败(非致命)", "err", err)
 		return
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		rb, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		l.logger.Warn("L2 Milvus insert 非 200(非致命)", "status", resp.StatusCode, "body", string(rb))
+	}
 }
 
 func (l *L2Semantic) Health(ctx context.Context) string {
-	req, _ := http.NewRequestWithContext(ctx, "GET",
-		fmt.Sprintf("http://%s/healthz", l.cfg.MilvusAddr), nil)
+	// 2026-08-19 修正:Milvus 2.5 无 /healthz 端点(404),改用 collections/list POST 探活
+	rb, _ := json.Marshal(map[string]any{})
+	req, _ := http.NewRequestWithContext(ctx, "POST",
+		fmt.Sprintf("http://%s/v2/vectordb/collections/list", l.cfg.MilvusAddr), bytes.NewReader(rb))
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := l.hc.Do(req)
 	if err != nil {
 		return "down"
 	}
-	resp.Body.Close()
-	if resp.StatusCode < 500 {
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
 		return "ok"
 	}
 	return "down"

@@ -106,7 +106,15 @@ func (s *Server) handleLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// miss:转发上游,响应回写缓存
+	// miss:转发上游,响应回写缓存。L3 上下文增强(若有)通过响应头暴露(本轮不改请求体)。
+	if result.EnhancedContext != "" {
+		// 仅截断头值(响应头不宜过长),完整上下文留待后续 RAG 注入阶段使用。
+		hint := result.EnhancedContext
+		if len(hint) > 128 {
+			hint = hint[:128]
+		}
+		w.Header().Set("X-LCO-Context-Enhanced", hint)
+	}
 	s.forwardUpstream(w, r, body, key.Raw)
 }
 

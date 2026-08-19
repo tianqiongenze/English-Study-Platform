@@ -17,6 +17,8 @@ const Grading = lazy(() => import("./pages/teacher/Grading"));
 const Profile = lazy(() => import("./pages/Profile"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const GovernanceDashboard = lazy(() => import("./pages/admin/GovernanceDashboard"));
+const MiddlewarePanel = lazy(() => import("./pages/admin/MiddlewarePanel"));
+const DebugPanel = lazy(() => import("./pages/admin/DebugPanel"));
 const ContentLibrary = lazy(() => import("./pages/learning/ContentLibrary"));
 const ContentAdmin = lazy(() => import("./pages/admin/ContentAdmin"));
 const CommunityPage = lazy(() => import("./pages/community/CommunityPage"));
@@ -60,6 +62,8 @@ export default function App() {
         <Route path="/admin" element={<RequireAuth role="admin"><Lazy><AdminDashboard /></Lazy></RequireAuth>} />
         <Route path="/admin/content" element={<RequireAuth role="admin"><Lazy><ContentAdmin /></Lazy></RequireAuth>} />
         <Route path="/admin/governance" element={<RequireAuth role="admin"><Lazy><GovernanceDashboard /></Lazy></RequireAuth>} />
+        <Route path="/admin/middleware" element={<RequireAuth role="admin"><Lazy><MiddlewarePanel /></Lazy></RequireAuth>} />
+        <Route path="/admin/debug" element={<RequireAuth role="admin"><Lazy><DebugPanel /></Lazy></RequireAuth>} />
         <Route path="*" element={<Navigate to="/learning/speech" replace />} />
       </Routes>
     </BrowserRouter>

@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: esp-platform:/Service:esp-observability/otel-collector-gateway
+  creationTimestamp: "2026-08-14T23:08:36Z"
+  name: otel-collector-gateway
+  namespace: esp-observability
+  resourceVersion: "1323186"
+  uid: f2d26ab7-b807-4f9a-915b-243d616bb923
+spec:
+  clusterIP: 10.43.11.120
+  clusterIPs:
+  - 10.43.11.120
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    protocol: TCP
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    protocol: TCP
+    targetPort: 4318
+  selector:
+    app: otel-collector-gateway
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}

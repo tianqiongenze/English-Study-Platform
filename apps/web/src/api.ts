@@ -60,7 +60,15 @@ export const api = {
   rankingGap: client.rankingGap.bind(client),
   rankingRegions: client.rankingRegions.bind(client),
   setRankingOptOut: client.setRankingOptOut.bind(client),
+  // admin 全语言统一深度诊断面板(Step4 · actuator 全 6 endpoint)
+  adminCatalog: () => client.adminCatalog(),
+  adminDebugCapabilities: () => client.adminDebugCapabilities(),
+  adminDebugEndpoint: client.adminDebugEndpoint.bind(client),
+  adminDebugHeapdump: (service: string) => client.adminDebugHeapdump(service),
+  adminDebugSetLogLevel: client.adminDebugSetLogLevel.bind(client),
   // 数字人 persona(功能拓展:per-user 形象,X-User-Id 由 BFF 注入)
   getDigitalHuman: () => client.getDigitalHuman(),
   setDigitalHuman: (persona_id: string) => client.setDigitalHuman(persona_id),
+  // 中间件统一访问面板(BFF 代理,2026-08-19):聚合各中间件在线状态
+  adminMiddlewareHealth: () => client.adminMiddlewareHealth(),
 };

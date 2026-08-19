@@ -87,28 +87,29 @@ pub struct TurnDto {
 
 // ---------------- session handlers ----------------
 
-pub async fn list_sessions(
-    State(h): State<AppHandle>,
-    Query(q): Query<ListQuery>,
-) -> Response {
+pub async fn list_sessions(State(h): State<AppHandle>, Query(q): Query<ListQuery>) -> Response {
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let rows: Result<Vec<(i64, i64, Option<i64>, Option<i64>, Option<String>, String)>, _> =
         match q.user_id {
-            Some(uid) => sqlx::query_as(
-                "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
+            Some(uid) => {
+                sqlx::query_as(
+                    "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
                  FROM dialogue_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
-            )
-            .bind(uid)
-            .bind(limit)
-            .fetch_all(&h.0.pg)
-            .await,
-            None => sqlx::query_as(
-                "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
+                )
+                .bind(uid)
+                .bind(limit)
+                .fetch_all(&h.0.pg)
+                .await
+            }
+            None => {
+                sqlx::query_as(
+                    "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
                  FROM dialogue_sessions ORDER BY created_at DESC LIMIT $1",
-            )
-            .bind(limit)
-            .fetch_all(&h.0.pg)
-            .await,
+                )
+                .bind(limit)
+                .fetch_all(&h.0.pg)
+                .await
+            }
         };
     match rows {
         Ok(rs) => {
@@ -149,10 +150,7 @@ pub async fn create_session(
     }
 }
 
-pub async fn get_session(
-    State(h): State<AppHandle>,
-    Path(id): Path<i64>,
-) -> Response {
+pub async fn get_session(State(h): State<AppHandle>, Path(id): Path<i64>) -> Response {
     let res: Result<(i64, i64, Option<i64>, Option<i64>, Option<String>, String), _> =
         sqlx::query_as(
             "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
@@ -163,17 +161,19 @@ pub async fn get_session(
         .await;
     match res {
         Ok(r) => Json(json!(SessionDto {
-            id: r.0, user_id: r.1, scenario_id: r.2, persona_id: r.3, cefr_level: r.4, status: r.5
+            id: r.0,
+            user_id: r.1,
+            scenario_id: r.2,
+            persona_id: r.3,
+            cefr_level: r.4,
+            status: r.5
         }))
         .into_response(),
         Err(e) => err_response(404, &e.to_string()),
     }
 }
 
-pub async fn list_turns(
-    State(h): State<AppHandle>,
-    Path(session_id): Path<i64>,
-) -> Response {
+pub async fn list_turns(State(h): State<AppHandle>, Path(session_id): Path<i64>) -> Response {
     let rows: Result<Vec<(i64, i64, String, String, i32, i32, i32)>, _> = sqlx::query_as(
         "SELECT id, session_id, role, content, tokens_in, tokens_out, latency_ms \
          FROM dialogue_turns WHERE session_id = $1 ORDER BY created_at ASC",
@@ -229,11 +229,10 @@ pub async fn chat_sse(
     // 2. 调 provider(自适应限流保护;非流式简化实现;流式见 provider SSE 解析)
     let _permit = h.0.llm_limiter.acquire().await;
     let started = std::time::Instant::now();
-    let result = h
-        .0
-        .providers
-        .call(None, None, &req.content, req.max_tokens, false, &trace_id)
-        .await;
+    let result =
+        h.0.providers
+            .call(None, None, &req.content, req.max_tokens, false, &trace_id)
+            .await;
     let rtt = started.elapsed();
     let latency_ms = rtt.as_millis() as i32;
     // 释放 permit + 自适应调整
@@ -265,8 +264,10 @@ pub async fn chat_sse(
                 })
             );
             let mut resp = Response::new(axum::body::Body::from(body));
-            resp.headers_mut()
-                .insert("content-type", HeaderValue::from_static("text/event-stream"));
+            resp.headers_mut().insert(
+                "content-type",
+                HeaderValue::from_static("text/event-stream"),
+            );
             resp.headers_mut()
                 .insert("cache-control", HeaderValue::from_static("no-cache"));
             resp
@@ -278,13 +279,22 @@ pub async fn chat_sse(
 // ---------------- persona handlers ----------------
 
 pub async fn list_personas(State(h): State<AppHandle>) -> Response {
-    let rows: Result<Vec<(i64, String, String, Option<String>, Option<String>, Option<String>)>, _> =
-        sqlx::query_as(
-            "SELECT id, name, persona_prompt, voice_id, accent, cefr_level \
+    let rows: Result<
+        Vec<(
+            i64,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )>,
+        _,
+    > = sqlx::query_as(
+        "SELECT id, name, persona_prompt, voice_id, accent, cefr_level \
              FROM dialogue_personas ORDER BY id ASC LIMIT 100",
-        )
-        .fetch_all(&h.0.pg)
-        .await;
+    )
+    .fetch_all(&h.0.pg)
+    .await;
     match rows {
         Ok(rs) => {
             let dtos: Vec<PersonaDto> = rs
@@ -329,7 +339,8 @@ pub async fn create_persona(
 
 fn err_response(status: u16, msg: &str) -> Response {
     (
-        axum::http::StatusCode::from_u16(status).unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
+        axum::http::StatusCode::from_u16(status)
+            .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
         Json(json!({"error": msg})),
     )
         .into_response()

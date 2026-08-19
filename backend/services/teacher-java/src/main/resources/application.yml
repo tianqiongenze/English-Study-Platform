@@ -91,7 +91,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,caches
+        # 全语言统一深度诊断面板(Step2):暴露 actuator 全 6 深度 endpoint + health/info/metrics/prometheus/caches。
+        # 敏感 6 项(env/loggers/threaddump/heapdump/beans/mappings)由 esp-common-java DebugEndpointSecurityFilter
+        # 强制 admin-role JWT(ASV:6 Endpoint 类在 SB4.0.7 actuator jar 已 javap 核实存在)。
+        include: health,info,metrics,prometheus,caches,env,loggers,beans,threaddump,heapdump,mappings
   endpoint:
     health:
       probes:

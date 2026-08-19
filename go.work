@@ -1,21 +1,22 @@
 // ESP Go workspace(会话22-3 债1+2):统一本地解析 esp/common-go 与 7 Go 服务。
 // 注意:go.work 不进 Docker 构建上下文(各服务 Dockerfile 仅 COPY 自身目录),
 // 容器内靠各 go.mod 的 replace esp/common-go => ../esp-common-go 解析;本地 IDE/编译靠本 go.work。
-go 1.25.0
+go 1.26.5
 
 use (
-	./backend/shared/esp-common-go
 	./backend/services/admin-go
-	./backend/services/conversation-go
-	./backend/services/gateway-go
-	./backend/services/course-path-go
-	./backend/services/listening-go
-	./backend/services/reading-go
-	./backend/services/gamification-go
-	./backend/services/content-go
-	./backend/services/community-go
-	./backend/services/live-tutor-go
-	./backend/services/vocab-srs-go
 	./backend/services/asr-adapter-go
+	./backend/services/community-go
+	./backend/services/content-go
+	./backend/services/conversation-go
+	./backend/services/course-path-go
+	./backend/services/gamification-go
+	./backend/services/gateway-go
+	./backend/services/listening-go
+	./backend/services/live-tutor-go
+	./backend/services/reading-go
 	./backend/services/tts-adapter-go
+	./backend/services/vocab-srs-go
+	./backend/shared/esp-common-go
+	./tools/lco-proxy
 )

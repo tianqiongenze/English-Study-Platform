@@ -174,6 +174,15 @@ func main() {
 	mux.HandleFunc("/api/admin/governance/sentinel", srv.requireAdmin(srv.handleSentinelRules))
 	mux.HandleFunc("/api/admin/governance/health", srv.requireAdmin(srv.handleGovernanceHealth))
 
+	// 中间件统一访问面板(BFF 代理层,2026-08-19):替换前端硬编码 VM IP 链接。
+	// health:聚合各中间件在线状态;{name}/:反向代理到 UI(剥前缀,白名单防 SSRF)。
+	// 鉴权:requireAdmin(role=admin),与其它 admin API 对齐。
+	mux.HandleFunc("/api/admin/middleware/health", srv.requireAdmin(srv.handleMiddlewareHealth))
+	mux.HandleFunc("/api/admin/middleware/{name}/", srv.requireAdmin(srv.handleMiddlewareProxy))
+	// 全语言统一深度诊断面板(Step3):代理到各服务 debug/actuator 端点 + 能力矩阵。
+	mux.HandleFunc("/api/admin/debug/capabilities", srv.requireAdmin(srv.handleDebugCapabilities))
+	mux.HandleFunc("/api/admin/debug/", srv.requireAdmin(srv.handleDebugProxy))
+
 	addr := ":" + env("PORT", "8099")
 	httpSrv := &http.Server{Addr: addr, Handler: mux}
 	go func() {

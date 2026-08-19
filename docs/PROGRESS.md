@@ -84,22 +84,39 @@
 
 ### 后台任务状态
 - **subagent a2ec45bd58057d39e(三任务收尾)**:运行中,路由 admin-go debug proxy;输出 `tasks/a2ec45bd58057d39e.output`
+- **3 个 ESP 服务 L2/L3 agent(conversation-go/writing-coach/orchestrator-rs)**:已 TaskStop(因 VM 雪崩中断);orchestrator-rs 临死前完成 deployment apply + rollout restart(镜像含新 L2/L3 代码);conversation-go 在搞 gateway-go 二进制路径;writing-coach 在 VM SSH 构建被中断;**代码改动大部分已落盘,运行期日志验证待集群恢复**
+
+### LCO 代理代码修复(本轮完成,运行期实测待集群恢复)
+- **L1 MOVED 重路由 bug**(CLC 铁律,2026-08-19 实测暴露):`withMovedRetry` 原 `podIdx != startIdx` 条件在 MOVED 指向 startIdx 自身时误跳过重试直接返回错误,真实命中率仅 ~50%(非之前声称的 100%)。修:去掉误跳过 + 改多 pod 遍历容错(MOVED 指向自身/重试失败/非 MOVED 错误都继续遍历下一 pod)。补 3 路径测试(TestL1PoolMovedRerouteSelfHost/AllMoved/NonMovedErrorContinutes)全过,`go vet` 干净,二进制已构建。**运行期命中率实测待集群恢复**(本次因 VM 雪崩打断)。
+- **L2 embedding 超时**:`LCO_L2_TIMEOUT` 可配(默认 20s,原硬编码 3s 对 Qwen3-Embedding-4B MPS 推理 8-34s 必超时)。config.go 加 L2TimeoutSec 字段,manager.go 两处 3s 改用 cfg.L2TimeoutSec。
+- **接入 Claude Code 实测**:配置优先级 = `~/.claude/settings.json` env 块 > shell env。临时改 settings.json `ANTHROPIC_BASE_URL` 15721→15720,子 claude 进程发 LCOPROBE2 → LCO 日志从 11→15 行(新增 4 条请求),证明 LLM 调用确实经过 LCO。测完恢复备份(当前会话仍走 15721 不受影响)。**接入方式:改 ~/.claude/settings.json env.ANTHROPIC_BASE_URL 到 15720,下次 /exit 重开 claude 自动走 LCO**(不需让 LCO 抢 15721,CC Switch 端口 15721 写死在 SQLite schema 不能改)。
+- **文档诚实更正**:README + SDD 7. 已知限制里"L1 命中率 100%"改为"原 ~50% 已修待实测",补 L2 超时 + 雪崩风险条目。
+- **commit 待做**(雪崩后统一 commit)。
+
+### VM 雪崩事故(2026-08-19 17:30,已止血恢复中)
+- **现象**:VM lima-0 load 飙 408→543,K8s API TLS handshake timeout,k3s CRI DeadlineExceeded,port-forward 后端 Redis 空响应 LCO L1 全断,VM 内 1717 线程 CPU 0% idle。
+- **根因**:LCO embedding Qwen3-Embedding-4B(8GB)MPS 推理 8-34s/次占满 CPU(测命中率连发多次)+ 3 ESP agent 宿主编译(go build/cargo/docker images/rdctl shell ssh)+ 共享基础设施 Pulsar 3 broker/Neo4j/Sentinel 常驻负载,9 核单节点 VM 被压爆。吻合 [[esp-singlenode-host-cluster-contention]] + [[esp-crdb-probe-timeout-1s-pitfall]] 模式。
+- **止血**:杀 embedding(PID 47722)+ 停 lco-proxy + TaskStop 3 agent + 杀残留 go build/rustc/cargo/ssh/rdctl shell 子进程 + 杀卡死 kubectl 查询。外部加压全停。
+- **恢复**:load 从 543 缓降但震荡(413→269→328→449,中枢下移但反复),疑有探针 restart 震荡叠加。Monitor 45s 采样等 load<50。结构性过载(CRDB 3 节点 + Pulsar 3 + Neo4j + 多 Spring Boot 1717 线程 vs 9 核)需较长恢复。
+- **memory 落盘**:`esp-lco-embedding-vm-snowball`(embedding 必限流/离峰/不与编译并行;雪崩恢复期纯等不加压;Monitor 不要用会被 pkill 的命令)。
 
 ### 恢复协议(上下文溢出后)
 1. 读 docs/PROGRESS.md 热区(本文件)
 2. Redis GET `esp:ctx:hot:session-23-14`
 3. 归档: `docs/progress/archive/2026-08-19-session-23-13-sink-tempo-llmcache.md`
 4. 计划: `.claude/plans/robust-baking-wave.md`
-5. 集群现状:ESP 服务全连宿主 Nacos(host.lima.internal:8848,集群 Nacos 已删);宿主 Nacos↔CRDB 走 127.0.0.1:26257(launchd 自愈);Tempo:14317/14318 收 OTel 转发;OTel:4317/4318 收 ESP 服务;Redis cluster-new 5 块 Running
-6. 本地 commit 99d97e0 未 push(push 失败 443 超时)
+5. 集群现状:ESP 服务全连宿主 Nacos(host.lima.internal:8848,集群 Nacos 已删);宿主 Nacos↔CRDB 走 127.0.0.1:26257(launchd 自愈);Tempo:14317/14318 收 OTel 转发;OTel:4317/4318 收 ESP 服务;Redis cluster-new 5 块 Running;**VM 雪崩后 load 待回落<50 才能操作**
+6. LCO 代码已修(L1 MOVED + L2 超时),二进制 /tmp/lco-proxy 构建好,运行期实测待集群恢复
+7. 本地 commit 99d97e0 未 push(push 失败 443 超时);LCO 修复 commit 待做
 
 ### 下一步(恢复后执行)
-1. **真实引擎切换收尾** — registry mirror 403 恢复后构建 asr/tts 镜像 + apply 34/35 yaml + 验证 WS 链路真实识别/合成
-2. **全量重构达标计划执行** — 用户确认计划后启动(Phase1/2/4 并行)
-3. admin Grafana/Sentinel 硬编码链接修复(改 ExternalName)
-4. push GitHub(网络恢复后)
-5. LLM 缓存 Phase1 subagent 完成验证
-6. k6+Locust 混合压测(50→5000 CCU 阶梯) + 全功能 E2E
+1. **等 VM load<50**(Monitor 报平安)→ 短超时试 `kubectl get nodes` 确认 API 恢复
+2. **LCO 运行期实测**(离峰、不连发):重起 port-forward → embedding → lco-proxy,实测 L1 命中率从 ~50% 提升验证;改用查 Redis key 方式测 L1(不走 embedding 链路)
+3. **ESP 服务 L2/L3 运行期验证**(只看日志,不重编译):orchestrator-rs deployment 已 apply,看 pod 日志 provider chain 含 milvus/neo4j;conversation-go/writing-coach 检查代码落盘状态 + 日志
+4. **真实引擎切换收尾** — registry mirror 403 恢复后构建 asr/tts 镜像 + apply 34/35 yaml + 验证 WS 链路
+5. **全量重构达标计划执行** — 用户确认计划后启动
+6. LCO 修复 + 文档更正统一 commit + push GitHub
+7. k6+Locust 混合压测(50→5000 CCU 阶梯) + 全功能 E2E
 
 ---
 

@@ -82,6 +82,9 @@ func main() {
 	api.PUT("/items/:id", contentSrv.requireAdmin(contentSrv.updateItem))
 	api.POST("/import", contentSrv.requireAdmin(contentSrv.importBatch))
 
+	// 全语言统一深度诊断面板:debug 端点(actuator 等价),由 admin-go handleDebugProxy 代理 + RequireAdminDebug 守门。
+	r.Any("/debug/*path", gin.WrapH(middleware.GinDebugGroup(middleware.DebugRoutes())))
+
 	httpSrv := &http.Server{Addr: ":" + port, Handler: r, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

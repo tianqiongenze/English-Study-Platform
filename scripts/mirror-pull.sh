@@ -41,17 +41,42 @@ fi
 CONFIG=$(python3 -c 'import json;print(json.load(open("'$IDX'/image-manifest"))["config"]["digest"])')
 curl -s -m 60 -H "$AUTH" -o "$IDX/config.json" "${MIRROR}/v2/${REPO}/blobs/${CONFIG}"
 LAYERS_FILE="$IDX/layers.txt"
-python3 -c 'import json;[print(l["digest"]) for l in json.load(open("'$IDX'/image-manifest"))["layers"]]' > "$LAYERS_FILE"
+python3 -c 'import json;[print(l["digest"],l.get("size","")) for l in json.load(open("'$IDX'/image-manifest"))["layers"]]' > "$LAYERS_FILE"
 NL=$(wc -l < "$LAYERS_FILE" | tr -d ' ')
 echo "layers: $NL"
 
 mkdir -p "$IDX/layer-tars"
 i=0
-while IFS= read -r L; do
-  i=$((i+1)); echo "layer $i/$NL $L"
-  curl -sL -m 600 -H "$AUTH" -o "$IDX/layer-tars/$i.tar" "${MIRROR}/v2/${REPO}/blobs/${L}"
-  ls -la "$IDX/layer-tars/$i.tar" | awk '{print "  size:", $5}'
+FAILED_LAYERS=""
+while IFS=' ' read -r L EXPECTED_SIZE; do
+  i=$((i+1)); echo "layer $i/$NL $L (expected ${EXPECTED_SIZE:-?} bytes)"
+  OK=0
+  for attempt in 1 2 3; do
+    curl -sL -m 600 --retry 2 --retry-delay 3 -H "$AUTH" -o "$IDX/layer-tars/$i.tar" "${MIRROR}/v2/${REPO}/blobs/${L}"
+    ACTUAL_SIZE=$(stat -f%z "$IDX/layer-tars/$i.tar" 2>/dev/null || stat -c%s "$IDX/layer-tars/$i.tar" 2>/dev/null || echo 0)
+    # size 校验:expected 为空(canonical empty layer 或 manifest 缺字段)时跳过校验
+    if [ -z "$EXPECTED_SIZE" ] || [ "$EXPECTED_SIZE" = "0" ]; then
+      echo "  attempt $attempt: actual=$ACTUAL_SIZE (size 字段空,跳过校验,接受)"
+      OK=1; break
+    fi
+    if [ "$ACTUAL_SIZE" = "$EXPECTED_SIZE" ]; then
+      echo "  attempt $attempt: actual=$ACTUAL_SIZE == expected OK"
+      OK=1; break
+    else
+      echo "  attempt $attempt: CDN stall/不匹配 actual=$ACTUAL_SIZE vs expected=$EXPECTED_SIZE,重试..."
+      rm -f "$IDX/layer-tars/$i.tar"
+    fi
+  done
+  if [ "$OK" != "1" ]; then
+    echo "  WARN: layer $i $L 3 次重试 size 仍不匹配 (actual=$ACTUAL_SIZE expected=$EXPECTED_SIZE),跳过该层"
+    FAILED_LAYERS="${FAILED_LAYERS}${i}:${L}:act=${ACTUAL_SIZE}:exp=${EXPECTED_SIZE} "
+    # 删除空/损坏文件,避免 docker load 报错;该层缺失后续 load 会报 "layer not found"
+    rm -f "$IDX/layer-tars/$i.tar"
+  fi
 done < "$LAYERS_FILE"
+if [ -n "$FAILED_LAYERS" ]; then
+  echo "=== 失败层汇总(DEFERRED): $FAILED_LAYERS ==="
+fi
 
 # 3. assemble docker-archive (legacy manifest.json format)
 CID=$(echo "$CONFIG" | cut -d: -f2).json

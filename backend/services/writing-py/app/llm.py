@@ -82,23 +82,55 @@ class LLMCache:
         self.redis = redis_client
         self.ttl = ttl
 
-    def cache_key(self, prompt: str, model: str = "", **kwargs) -> str:
-        raw = json.dumps({"prompt": prompt, "model": model, **kwargs}, sort_keys=True)
-        return f"llm:cache:{hashlib.sha256(raw.encode()).hexdigest()}"
+    # 统一 key 规范(架构文档):esp:cache:llm:exact:{model}:{sha256前16}
+    # model 为空时用 "_default" 占位,保持与历史调用一致。
+    _UNIFIED_PREFIX = "esp:cache:llm:exact:"
 
-    async def get_or_call(self, key: str, call_fn):
+    # 旧 key 前缀(双写期保留,2 周后删除 —— 标注日期:2026-09-02 后清理)
+    _LEGACY_PREFIX = "llm:cache:"
+
+    def cache_key(self, prompt: str, model: str = "", **kwargs) -> str:
+        """返回新统一 key。model 纳入 key,sha256 取前 16 位(与 conversation-go 对齐)。"""
+        raw = json.dumps({"prompt": prompt, "model": model, **kwargs}, sort_keys=True)
+        digest = hashlib.sha256(raw.encode()).hexdigest()[:16]
+        safe_model = model or "_default"
+        return f"{self._UNIFIED_PREFIX}{safe_model}:{digest}"
+
+    def legacy_cache_key(self, prompt: str, model: str = "", **kwargs) -> str:
+        """旧 key(双写期读旧命中,写时双写)。2 周后(2026-09-02)删除本方法与旧 key。"""
+        raw = json.dumps({"prompt": prompt, "model": model, **kwargs}, sort_keys=True)
+        return f"{self._LEGACY_PREFIX}{hashlib.sha256(raw.encode()).hexdigest()}"
+
+    async def get_or_call(self, key: str, call_fn, legacy_key: str | None = None):
         if self.redis is None:
             return await call_fn()
+        # 1) 先查新 key
         try:
             cached = await self.redis.get(key)
             if cached:
-                logger.debug("llm cache hit: %s", key[:32])
+                logger.debug("llm cache hit (unified): %s", key[:32])
                 return json.loads(cached)
         except Exception as e:
             logger.warning("llm cache read failed (non-fatal): %s", e)
+        # 2) 双写期:查旧 key 命中则回填新 key(渐进迁移)
+        if legacy_key is not None:
+            try:
+                legacy_cached = await self.redis.get(legacy_key)
+                if legacy_cached:
+                    logger.debug("llm cache hit (legacy): %s", legacy_key[:32])
+                    try:
+                        await self.redis.setex(key, self.ttl, legacy_cached)
+                    except Exception as e:
+                        logger.warning("llm cache backfill write failed (non-fatal): %s", e)
+                    return json.loads(legacy_cached)
+            except Exception as e:
+                logger.warning("llm cache legacy read failed (non-fatal): %s", e)
         result = await call_fn()
+        # 3) 双写:新 key + 旧 key(旧 key 2 周后删,见 legacy_cache_key 标注)
         try:
             await self.redis.setex(key, self.ttl, json.dumps(result))
+            if legacy_key is not None:
+                await self.redis.setex(legacy_key, self.ttl, json.dumps(result))
         except Exception as e:
             logger.warning("llm cache write failed (non-fatal): %s", e)
         return result
@@ -109,11 +141,12 @@ _global_cache: LLMCache | None = None
 
 
 def get_cache() -> LLMCache | None:
-    """获取 LLM 缓存实例。CACHE_ENABLED=false 或 Redis 不可用时返回 None。"""
+    """获取 LLM 缓存实例。ESP_LLM_CACHE_ENABLED/CACHE_ENABLED=false 或 Redis 不可用时返回 None。"""
     global _global_cache
     if _global_cache is not None:
         return _global_cache
-    cache_enabled = os.getenv("CACHE_ENABLED", "true").lower() != "false"
+    # ESP_LLM_CACHE_ENABLED 为权威开关(与三服务统一);兼容历史 CACHE_ENABLED
+    cache_enabled = os.getenv("ESP_LLM_CACHE_ENABLED", os.getenv("CACHE_ENABLED", "true")).lower() != "false"
     if not cache_enabled:
         return None
     try:
@@ -218,15 +251,16 @@ class AnthropicLlmProvider:
         if self.auth_token:
             headers["authorization"] = f"Bearer {self.auth_token}"
 
-        # LLM 缓存:相同 prompt+model 命中直返
+        # LLM 缓存:相同 prompt+model 命中直返(双写迁移:新统一 key + 旧 key)
         cache = get_cache()
         if cache is not None:
             cache_key = cache.cache_key(user, model=self.model, system=system)
+            legacy_key = cache.legacy_cache_key(user, model=self.model, system=system)
 
             async def _call():
                 return await self._raw_call(body, headers)
 
-            cached = await cache.get_or_call(cache_key, _call)
+            cached = await cache.get_or_call(cache_key, _call, legacy_key=legacy_key)
             return cached
 
         return await self._raw_call(body, headers)

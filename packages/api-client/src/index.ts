@@ -57,6 +57,30 @@ export interface AdminNacosService {
 export interface AdminSentinelRule {
   resource: string; grade: number; count: number; strategy: number; controlBehavior?: number;
 }
+// 中间件统一访问面板(BFF 代理,2026-08-19):各中间件在线状态。
+export interface AdminMiddlewareHealth {
+  name: string; kind: string; addr: string;
+  status: string; latency_ms: number; msg?: string;
+}
+export interface AdminMiddlewareHealthResponse {
+  kind: string; checked_at: string;
+  summary: { total: number; up: number; down: number };
+  items: AdminMiddlewareHealth[];
+}
+
+// 全语言统一深度诊断面板类型(Step4 · actuator 风格全 6 endpoint)
+export interface AdminDebugCapabilities {
+  capabilities: Record<string, string[]>;
+  endpoints: string[];
+  note: string;
+}
+export interface AdminDebugLoggers {
+  configuredLevel: string;
+  effectiveLevel?: string;
+  loggers?: Record<string, string>;
+  status?: string;
+  error?: string;
+}
 
 // 简版 traceparent 生成(00-<32hex>-<16hex>-01),与三端原 trace.ts 行为一致
 function traceparent(): string {
@@ -258,6 +282,43 @@ export class ApiClient {
   }
   adminGovernanceSentinel(): Promise<{ rules: Record<string, AdminSentinelRule[]> }> {
     return this.request("GET", "/api/admin/governance/sentinel");
+  }
+  // 中间件统一访问面板(BFF 代理,2026-08-19):聚合各中间件在线状态。
+  // 控制台链接走 /api/admin/middleware/<name>/... 由 admin-go 反向代理,前端不持宿主 IP。
+  adminMiddlewareHealth(): Promise<AdminMiddlewareHealthResponse> {
+    return this.request("GET", "/api/admin/middleware/health");
+  }
+
+  // ---- admin:全语言统一深度诊断面板(Step4 · actuator 风格全 6 endpoint) ----
+  // 全 6 endpoint:env / loggers / threaddump / heapdump / beans / mappings。
+  // Java=actuator 原生全 6;Go pprof 等价 threaddump+heapdump;Python/Rust 无原生 dump(标 NA)。
+  adminDebugCapabilities(): Promise<AdminDebugCapabilities> {
+    return this.request("GET", "/api/admin/debug/capabilities");
+  }
+  /** 查询某服务某诊断 endpoint(env/loggers/threaddump/beans/mappings 返回 JSON;heapdump 返回二进制)。 */
+  adminDebugEndpoint(service: string, endpoint: string): Promise<unknown> {
+    return this.request("GET", `/api/admin/debug/${service}/${endpoint}`);
+  }
+  /** heapdump 下载(Java only):返回 Blob,前端 a 下载。 */
+  async adminDebugHeapdump(service: string): Promise<Blob> {
+    const token = this.storage.getToken();
+    const headers: Record<string, string> = { traceparent: traceparent() };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await this.transport.request({
+      method: "GET",
+      url: `${this.base}/api/admin/debug/${service}/heapdump`,
+      headers,
+      timeoutMs: 60000,
+    });
+    if (res.status >= 400) throw new ApiError(res.status, res.body, `HTTP ${res.status}: heapdump`);
+    // body 是二进制 dump 的 base64 文本传输(FetchTransport 返 text);此处降级为 JSON 解析失败兜底。
+    // 真实二进制下载走浏览器原生 fetch(Blob)以确保字节完整。
+    const r = await fetch(`${this.base}/api/admin/debug/${service}/heapdump`, { headers });
+    return r.blob();
+  }
+  /** 动态调日志级别:POST ?level=DEBUG 或 body {configuredLevel}。 */
+  adminDebugSetLogLevel(service: string, level: string): Promise<AdminDebugLoggers> {
+    return this.request("POST", `/api/admin/debug/${service}/loggers?level=${encodeURIComponent(level)}`);
   }
 
   // ---- community:圈子社区(功能拓展阶段2) ----

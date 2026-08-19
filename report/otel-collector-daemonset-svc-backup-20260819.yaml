@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: esp-platform:/Service:esp-observability/otel-collector-daemonset
+  creationTimestamp: "2026-08-14T23:08:36Z"
+  name: otel-collector-daemonset
+  namespace: esp-observability
+  resourceVersion: "1323171"
+  uid: 9db5ad42-dabd-4b03-9581-334c69a76a4c
+spec:
+  clusterIP: 10.43.41.86
+  clusterIPs:
+  - 10.43.41.86
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    protocol: TCP
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    protocol: TCP
+    targetPort: 4318
+  selector:
+    app: otel-collector-daemonset
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}

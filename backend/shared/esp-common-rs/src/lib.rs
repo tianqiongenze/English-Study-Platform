@@ -6,6 +6,7 @@
 // 仅把重复代码上提。error enum 不抽(改 HTTP body 契约,单列评估)。
 
 pub mod db;
+pub mod debug;
 pub mod health;
 pub mod redisx;
 pub mod tracing_init;

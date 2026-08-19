@@ -103,7 +103,9 @@ func main() {
 		rdb:       rdb,
 		sessions:  session.NewManager(rdb, 2*time.Hour),
 		scenarios: scenario.NewRepository(),
-		engine:    &dialog.Engine{LLM: llm.New(), HintIdle: 8 * time.Second},
+		// L1 精确缓存(Phase1):NewWithCache 在 llm.New() 外包 CachedProvider,
+		// Redis 可达且未设 ESP_LLM_CACHE_ENABLED=false 时生效;否则降级直穿(语义不变)。
+		engine:    &dialog.Engine{LLM: llm.NewWithCache(), HintIdle: 8 * time.Second},
 		asr:       asr.New(),
 		tts:       tts.New(),
 		jwt:       jwtValidator,

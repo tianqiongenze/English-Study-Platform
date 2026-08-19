@@ -106,6 +106,14 @@
             <version>1.0.0</version>
             <scope>provided</scope>
         </dependency>
+        <!-- HikariCP:CockroachDbConfig 直接 import com.zaxxer.hikari.*(esp-rw-java 将 hikari 声明为 provided
+             故不传递;esp-common-java 直接使用须显式声明,与 esp-rw-java 6.3.3 对齐)。 -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>6.3.3</version>
+            <scope>provided</scope>
+        </dependency>
 
         <!-- test -->
         <dependency>
@@ -114,24 +122,8 @@
             <version>5.14.4</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>io.jsonwebtoken</groupId>
-            <artifactId>jjwt-api</artifactId>
-            <version>${jjwt.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>io.jsonwebtoken</groupId>
-            <artifactId>jjwt-impl</artifactId>
-            <version>${jjwt.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>io.jsonwebtoken</groupId>
-            <artifactId>jjwt-jackson</artifactId>
-            <version>${jjwt.version}</version>
-            <scope>test</scope>
-        </dependency>
+        <!-- jjwt 已在上方声明为 provided(provided 同时覆盖 compile+test classpath,无需 test 重复声明;
+             重复 test 声明会触发 Maven 重复解析覆盖,导致 main 源码编译期 io.jsonwebtoken not found)。 -->
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>

@@ -1,0 +1,143 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: esp-platform:apps/DaemonSet:esp-observability/otel-collector-daemonset
+    deprecated.daemonset.template.generation: "1"
+  creationTimestamp: "2026-08-14T23:08:39Z"
+  generation: 1
+  name: otel-collector-daemonset
+  namespace: esp-observability
+  resourceVersion: "1747167"
+  uid: 7910b038-f309-4df7-a48f-0a7b8e40c101
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: otel-collector-daemonset
+  template:
+    metadata:
+      labels:
+        app: otel-collector-daemonset
+    spec:
+      containers:
+      - args:
+        - --config
+        - /etc/otelcol/config.yaml
+        image: otel/opentelemetry-collector-contrib:0.110.0
+        imagePullPolicy: IfNotPresent
+        name: collector
+        ports:
+        - containerPort: 4317
+          name: otlp-grpc
+          protocol: TCP
+        - containerPort: 4318
+          name: otlp-http
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/otelcol
+          name: config
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: otel-collector-daemonset-config
+        name: config
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+status:
+  currentNumberScheduled: 1
+  desiredNumberScheduled: 1
+  numberAvailable: 1
+  numberMisscheduled: 0
+  numberReady: 1
+  observedGeneration: 1
+  updatedNumberScheduled: 1
+apiVersion: v1
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      # tail-sampling:边缘层降量,大规模下避免撑爆 Tempo。
+      # 策略:常规 10% + ERROR 100% + 慢查询(span>1s)100% + DB 写 100%。
+      tail_sampling:
+        decision_wait: 30s
+        num_traces: 50000
+        expected_new_traces_per_sec: 1000
+        policies:
+          - name: error-traces
+            type: status_code
+            status_code:
+              status_codes: [ERROR]
+          - name: slow-spans
+            type: latency
+            latency:
+              threshold_ms: 1000
+          - name: db-write
+            type: string_attribute
+            string_attribute:
+              key: db.operation
+              values: [insert, update, delete]
+          - name: baseline-10pct
+            type: probabilistic
+            probabilistic:
+              sampling_percentage: 10
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+      resource:
+        attributes:
+          - key: deployment.environment
+            value: esp-prod
+            action: upsert
+    exporters:
+      # 边缘层只发到中心 Gateway,不直连后端
+      otlp/gateway:
+        endpoint: otel-collector-gateway.esp-observability.svc.cluster.local:4317
+        tls:
+          insecure: true
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [resource, tail_sampling, batch]
+          exporters: [otlp/gateway]
+        logs:
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [otlp/gateway]
+        metrics:
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [otlp/gateway]
+kind: ConfigMap
+metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: esp-platform:/ConfigMap:esp-observability/otel-collector-daemonset-config
+  creationTimestamp: "2026-08-14T23:08:34Z"
+  name: otel-collector-daemonset-config
+  namespace: esp-observability
+  resourceVersion: "1323094"
+  uid: f36e0c02-4747-43ae-b1fe-fc3c10690ab8

@@ -8,7 +8,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
 
-
 /// 单次调用结果
 pub struct CallResult {
     pub content: String,
@@ -87,7 +86,10 @@ impl ProviderRegistry {
         }
 
         let default_model = env::var("LLM_DEFAULT_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
-        Self { chain, default_model }
+        Self {
+            chain,
+            default_model,
+        }
     }
 
     pub async fn call(
@@ -118,7 +120,11 @@ impl ProviderRegistry {
             let p = &self.chain[i];
             match p.call(model, prompt, max_tokens, stream, trace_id).await {
                 Ok(content) => {
-                    return Ok(CallResult { content, provider: p.name().into(), model: model.into() });
+                    return Ok(CallResult {
+                        content,
+                        provider: p.name().into(),
+                        model: model.into(),
+                    });
                 }
                 Err(e) => {
                     tracing::warn!(provider = p.name(), err = %e, "provider failed, trying fallback");
@@ -135,7 +141,9 @@ impl ProviderRegistry {
             .map(|h| h.to_string())
             .or_else(|| self.chain.first().map(|p| p.name().to_string()))
             .unwrap_or_else(|| "unknown".into());
-        let m = model.map(|m| m.to_string()).unwrap_or_else(|| self.default_model.clone());
+        let m = model
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| self.default_model.clone());
         (p, m)
     }
 }
@@ -192,10 +200,16 @@ impl LlmProvider for OpenAiCompat {
         stream: bool,
         trace_id: &str,
     ) -> Result<String, ProviderError> {
-        let url = format!("{}/v1/chat/completions", self.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        );
         let body = OaReq {
             model,
-            messages: vec![OaMsg { role: "user", content: prompt }],
+            messages: vec![OaMsg {
+                role: "user",
+                content: prompt,
+            }],
             max_tokens,
             stream,
         };
@@ -213,10 +227,16 @@ impl LlmProvider for OpenAiCompat {
         }
         // 流式场景:聚合 SSE delta(简化版,实测可改进)
         if stream {
-            let text = resp.text().await.map_err(|e| ProviderError(e.to_string()))?;
+            let text = resp
+                .text()
+                .await
+                .map_err(|e| ProviderError(e.to_string()))?;
             return Ok(parse_sse_text(&text));
         }
-        let parsed: OaResp = resp.json().await.map_err(|e| ProviderError(e.to_string()))?;
+        let parsed: OaResp = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError(e.to_string()))?;
         parsed
             .choices
             .into_iter()
@@ -271,7 +291,10 @@ impl LlmProvider for ClaudeProvider {
         let body = ClReq {
             model,
             max_tokens: max_tokens.unwrap_or(1024),
-            messages: vec![OaMsg { role: "user", content: prompt }],
+            messages: vec![OaMsg {
+                role: "user",
+                content: prompt,
+            }],
         };
         let resp = self
             .client
@@ -286,7 +309,10 @@ impl LlmProvider for ClaudeProvider {
         if !resp.status().is_success() {
             return Err(ProviderError(format!("http {}", resp.status())));
         }
-        let parsed: ClResp = resp.json().await.map_err(|e| ProviderError(e.to_string()))?;
+        let parsed: ClResp = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError(e.to_string()))?;
         Ok(parsed
             .content
             .into_iter()

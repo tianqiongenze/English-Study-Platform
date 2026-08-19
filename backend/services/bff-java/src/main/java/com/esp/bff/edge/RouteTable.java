@@ -49,6 +49,9 @@ public final class RouteTable {
         DEFAULT_ROUTES.put("/api/content",       "content-go:80");
         DEFAULT_ROUTES.put("/api/community",     "community-go:80");
         DEFAULT_ROUTES.put("/api/gamification",  "gamification-go:80");
+        // 中间件管理代理路由:admin-go 统一鉴权(requireAdmin) + SSRF 白名单 + 反向代理
+        // (handleMiddlewareProxy 白名单:grafana/prometheus/nacos/loki/alertmanager/tempo)。
+        DEFAULT_ROUTES.put("/api/admin/middleware", "admin-go:80");
     }
 
     /** 当前路由快照(volatile + 引用替换,读无锁) */

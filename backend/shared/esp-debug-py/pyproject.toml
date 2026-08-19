@@ -1,0 +1,15 @@
+[project]
+name = "esp-debug-py"
+version = "1.0.0"
+description = "ESP 全语言统一深度诊断面板 Python 侧:actuator 风格 env/loglevel/beans/mappings(Litestar)"
+requires-python = ">=3.11"
+dependencies = [
+    "litestar>=2.24.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["esp_debug"]

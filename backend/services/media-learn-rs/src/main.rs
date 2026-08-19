@@ -51,6 +51,8 @@ async fn main() {
         .route("/api/media/clips", get(list_clips))         // 片段列表(桩)
         .route("/api/media/clips/:id/subtitles", get(subtitles)) // 字幕同步(桩)
         .route("/api/media/clips/:id/cards", get(cards))   // 表达卡片(桩)
+        // 全语言统一深度诊断面板(Step2):挂载 actuator 风格 debug 端点(env/loglevel/beans/mappings)。
+        .merge(esp_common::debug::debug_router())
         .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

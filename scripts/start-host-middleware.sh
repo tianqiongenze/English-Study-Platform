@@ -68,6 +68,16 @@ else
     echo -e "  ${RED}[SKIP]${NC} $NACOS_SH not found"
 fi
 
+# --- Nacos ↔ CRDB 通道自愈(launchd 托管,无需手动) ---
+# 宿主 Nacos 写 CRDB 走本地 26257,由 ssh mux port-forward 经 lima-0 转发到
+# esp-crdb/crdb-public ClusterIP。VM 重启会致 ssh mux 消失,转发断。
+# 已由 launchd agent com.esp.nacos-crdb-channel 每 30s 健康检查 + 自愈重连,
+# 无需本脚本额外处理。详见:
+#   - scripts/nacos-crdb-channel-health.sh
+#   - ~/Library/LaunchAgents/com.esp.nacos-crdb-channel.plist
+# 局限(层2 多节点根治,DEFERRED): 单节点 Rancher Desktop 下 pod CIDR 不可从
+# 宿主直连,必须经 lima ssh tunnel。多节点迁移后改宿主直连 ClusterIP 消除 tunnel。
+
 # --- Fix Prometheus rule_files path ---
 PROM_YML="$OBS_DIR/prometheus.yml"
 RULES_FILE="$OBS_DIR/rules.yml"
@@ -167,6 +177,21 @@ if [[ -x "$GRAFANA_BIN" ]]; then
         -config="$GRAFANA_CFG"
 else
     echo -e "  ${RED}[SKIP]${NC} $GRAFANA_BIN not found"
+fi
+
+# --- 8. Redis Cluster self-heal (VM 重启后 nodes.conf 旧 IP 自愈) ---
+# 背景(memory esp-redis-cluster-nodes-conf-stale-ip):RD VM 重启后 redis-cluster-new
+#   Pod 拿到新 PodIP,但 PVC 持久化的 nodes.conf 仍记旧 IP,redis 7.2 CLUSTER MEET 不认
+#   hostname(只认 IP),gossip 不建链 → cluster_state:fail → 全集群 CLUSTERDOWN 拒写
+#   (含 esp:ctx:* 跨会话锚点)。此步用实时 PodIP 发 CLUSTER MEET 重建 gossip。
+#   幂等:cluster_state 已 ok 则跳过,不破坏稳态。只读+MEET,不 scale/重启 Redis pod
+#   (esp-shared-infra-ironrule)。k3s 未起/pod 未 Ready 时脚本自跳过不阻断启动。
+echo -e "\n=== [8/8] Redis Cluster self-heal ==="
+SELFHEAL_SH="$HOME/claude-Projects/English-Study-Platform/scripts/redis-cluster-selfheal.sh"
+if [[ -x "$SELFHEAL_SH" ]]; then
+    bash "$SELFHEAL_SH"
+else
+    echo -e "  ${YELLOW}[SKIP]${NC} $SELFHEAL_SH not found/executable (Redis self-heal not applied)"
 fi
 
 # --- Summary ---

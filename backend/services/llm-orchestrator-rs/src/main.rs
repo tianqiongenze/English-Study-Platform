@@ -24,28 +24,39 @@ use std::env;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use tokio::sync::Semaphore;
 
 const SERVICE_NAME: &str = "llm-orchestrator-rs";
 
 // ---------- governor 令牌桶限流(替代手写 AtomicU64) ----------
-type AppRateLimiter = GovernorLimiter<governor::state::NotKeyed, governor::state::InMemoryState, governor::clock::DefaultClock>;
-static RATE_LIMITER: LazyLock<AppRateLimiter> = LazyLock::new(|| {
-    GovernorLimiter::direct(Quota::per_second(NonZeroU32::new(100).unwrap()))
-});
+type AppRateLimiter = GovernorLimiter<
+    governor::state::NotKeyed,
+    governor::state::InMemoryState,
+    governor::clock::DefaultClock,
+>;
+static RATE_LIMITER: LazyLock<AppRateLimiter> =
+    LazyLock::new(|| GovernorLimiter::direct(Quota::per_second(NonZeroU32::new(100).unwrap())));
 
 /// Rate-limit middleware: skip health endpoints
-async fn rate_limit_middleware(req: axum::http::Request<Body>, next: axum::middleware::Next) -> axum::response::Response {
+async fn rate_limit_middleware(
+    req: axum::http::Request<Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
     let path = req.uri().path().to_string();
-    if path == "/healthz" || path == "/readyz" || path == "/livez" || path.starts_with("/actuator/health") {
+    if path == "/healthz"
+        || path == "/readyz"
+        || path == "/livez"
+        || path.starts_with("/actuator/health")
+    {
         return next.run(req).await;
     }
     if !RATE_LIMITER.check().is_ok() {
         return (
             axum::http::StatusCode::TOO_MANY_REQUESTS,
             Json(json!({"error": "rate limit exceeded", "retry_after": 1})),
-        ).into_response();
+        )
+            .into_response();
     }
     next.run(req).await
 }
@@ -53,7 +64,8 @@ async fn rate_limit_middleware(req: axum::http::Request<Body>, next: axum::middl
 // ---------- 自适应并发限制器(gradient2 思路) ----------
 /// 低 RTT 放量(+1),高 RTT 保持。进程内 tokio Semaphore,无需 Redis 共享。
 pub struct AdaptiveLimiter {
-    semaphore: Arc<Semaphore>,
+    // Mutex 提供内部可变性:release_with_rtt 需从 &self 重建更大 Semaphore(自适应扩容)。
+    semaphore: Arc<Mutex<Arc<Semaphore>>>,
     initial: usize,
     max_concurrency: AtomicUsize,
     min_rtt_ms: AtomicUsize, // 整数化避免 atomic f64(精度足够:0.1ms)
@@ -62,7 +74,7 @@ pub struct AdaptiveLimiter {
 impl AdaptiveLimiter {
     fn new(initial: usize) -> Self {
         Self {
-            semaphore: Arc::new(Semaphore::new(initial)),
+            semaphore: Arc::new(Mutex::new(Arc::new(Semaphore::new(initial)))),
             initial,
             max_concurrency: AtomicUsize::new(initial),
             min_rtt_ms: AtomicUsize::new(u32::MAX as usize),
@@ -71,17 +83,20 @@ impl AdaptiveLimiter {
 
     /// 获取 permit(阻塞直到有空位)
     pub async fn acquire(&self) -> tokio::sync::OwnedSemaphorePermit {
-        self.semaphore.clone().acquire_owned().await
-            .unwrap_or_else(|_| {
-                tracing::warn!("adaptive limiter semaphore closed");
-                self.semaphore.clone().try_acquire_owned().unwrap()
-            })
+        let sem = self.semaphore.lock().unwrap().clone();
+        sem.acquire_owned().await.unwrap_or_else(|_| {
+            tracing::warn!("adaptive limiter semaphore closed");
+            let sem2 = self.semaphore.lock().unwrap().clone();
+            sem2.try_acquire_owned().unwrap()
+        })
     }
 
     /// 释放 permit + 根据 RTT 调整并发上限
     fn release_with_rtt(&self, rtt: std::time::Duration) {
         let rtt_ms = (rtt.as_secs_f64() * 1000.0) as usize;
-        if rtt_ms == 0 { return; }
+        if rtt_ms == 0 {
+            return;
+        }
         let prev_min = self.min_rtt_ms.load(Ordering::Relaxed);
         if prev_min == u32::MAX as usize || rtt_ms < prev_min {
             self.min_rtt_ms.store(rtt_ms, Ordering::Relaxed);
@@ -94,11 +109,17 @@ impl AdaptiveLimiter {
             if target > cur {
                 self.max_concurrency.store(target, Ordering::Relaxed);
                 // 重建更大 Semaphore(旧的等释放后 GC;新增 permit 立即可用)
-                let old = self.semaphore.clone();
-                self.semaphore = Arc::new(Semaphore::new(target));
-                tracing::info!("adaptive limiter: max_concurrency {} -> {} (rtt={}ms, min={}ms)", cur, target, rtt_ms, min);
+                // 通过 Mutex 提供 &self 下的内部可变性(原 Arc<Semaphore> 赋值在 &self 下不合法)。
+                let mut guard = self.semaphore.lock().unwrap();
+                *guard = Arc::new(Semaphore::new(target));
+                tracing::info!(
+                    "adaptive limiter: max_concurrency {} -> {} (rtt={}ms, min={}ms)",
+                    cur,
+                    target,
+                    rtt_ms,
+                    min
+                );
                 // 注:旧 Semaphore 仍持有可能的等待者,不丢弃;新 Semaphore 新 permit 可立即获取
-                let _ = old; // prevent drop warning; old permits still valid
             }
         }
     }
@@ -128,7 +149,10 @@ pub struct AppHandle(Arc<AppState>);
 async fn main() {
     esp_common::tracing_init::init(SERVICE_NAME);
 
-    let port: u16 = env::var("PORT").unwrap_or_else(|_| "8086".into()).parse().unwrap_or(8086);
+    let port: u16 = env::var("PORT")
+        .unwrap_or_else(|_| "8086".into())
+        .parse()
+        .unwrap_or(8086);
     tracing::info!("[{}] starting on :{}", SERVICE_NAME, port);
 
     let state = init_state().await;
@@ -142,11 +166,22 @@ async fn main() {
         .route("/api/llm/chat", post(llm_chat))
         // dialogue 子模块
         .route("/api/dialogue/chat", post(dialogue::chat_sse))
-        .route("/api/dialogue/sessions", get(dialogue::list_sessions).post(dialogue::create_session))
+        .route(
+            "/api/dialogue/sessions",
+            get(dialogue::list_sessions).post(dialogue::create_session),
+        )
         .route("/api/dialogue/sessions/:id", get(dialogue::get_session))
-        .route("/api/dialogue/sessions/:id/turns", get(dialogue::list_turns))
-        .route("/api/dialogue/personas", get(dialogue::list_personas).post(dialogue::create_persona))
+        .route(
+            "/api/dialogue/sessions/:id/turns",
+            get(dialogue::list_turns),
+        )
+        .route(
+            "/api/dialogue/personas",
+            get(dialogue::list_personas).post(dialogue::create_persona),
+        )
         .with_state(handle)
+        // 全语言统一深度诊断面板(Step2):挂载 actuator 风格 debug 端点(env/loglevel/beans/mappings)。
+        .merge(esp_common::debug::debug_router())
         .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -157,7 +192,8 @@ async fn main() {
 async fn init_state() -> AppState {
     // Redis:ESP 用真 Redis Cluster(3 master 分片)。ClusterConnection 自动处理 MOVED/ASK。
     // env=REDIS_ADDR,缺省 redis://redis-cluster:6379(对齐原默认值)。
-    let redis_addr = env::var("REDIS_ADDR").unwrap_or_else(|_| esp_common::redisx::DEFAULT_ADDR.into());
+    let redis_addr =
+        env::var("REDIS_ADDR").unwrap_or_else(|_| esp_common::redisx::DEFAULT_ADDR.into());
     let redis = esp_common::redisx::connect_required(&redis_addr, SERVICE_NAME).await;
 
     // CockroachDB 单 pool(env=LLM_DB_URL,缺省 crdb-public esp_llm)。#140 全服务切 CRDB。
@@ -173,9 +209,18 @@ async fn init_state() -> AppState {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(10);
-    tracing::info!("[{}] llm adaptive limiter: initial={}", SERVICE_NAME, max_concurrency);
+    tracing::info!(
+        "[{}] llm adaptive limiter: initial={}",
+        SERVICE_NAME,
+        max_concurrency
+    );
 
-    AppState { redis, pg, providers, llm_limiter: Arc::new(AdaptiveLimiter::new(max_concurrency)) }
+    AppState {
+        redis,
+        pg,
+        providers,
+        llm_limiter: Arc::new(AdaptiveLimiter::new(max_concurrency)),
+    }
 }
 
 // ---------------- health ----------------
@@ -190,7 +235,10 @@ async fn readiness(State(h): State<AppHandle>) -> Json<Value> {
     // Redis ping
     let redis_ok = {
         let mut conn = h.0.redis.clone();
-        redis::cmd("PING").query_async::<String>(&mut conn).await.is_ok()
+        redis::cmd("PING")
+            .query_async::<String>(&mut conn)
+            .await
+            .is_ok()
     };
     checks.insert("redis".into(), json!(if redis_ok { "UP" } else { "DOWN" }));
 
@@ -257,7 +305,11 @@ async fn llm_chat(
     let idem_key = format!("esp:idem:llm:chat:{}", request_id);
     {
         let mut conn = h.0.redis.clone();
-        match redis::cmd("GET").arg(&idem_key).query_async::<Option<String>>(&mut conn).await {
+        match redis::cmd("GET")
+            .arg(&idem_key)
+            .query_async::<Option<String>>(&mut conn)
+            .await
+        {
             Ok(Some(cached)) if !cached.is_empty() => {
                 tracing::info!(trace_id = %trace_id, request_id = %request_id, "llm idempotent replay");
                 if let Ok(v) = serde_json::from_str::<Value>(&cached) {
@@ -266,7 +318,9 @@ async fn llm_chat(
                 // 解析失败则放行,执行业务
             }
             Ok(_) => {}
-            Err(e) => tracing::warn!(trace_id = %trace_id, "llm idem read failed (non-fatal): {}", e),
+            Err(e) => {
+                tracing::warn!(trace_id = %trace_id, "llm idem read failed (non-fatal): {}", e)
+            }
         }
     }
 
@@ -308,16 +362,17 @@ async fn llm_chat(
     // 调 provider:自适应并发限制(acquire → 调用 → release_with_rtt)
     let _permit = h.0.llm_limiter.acquire().await;
     let started = std::time::Instant::now();
-    let result = h.0.providers
-        .call(
-            req.provider.as_deref(),
-            req.model.as_deref(),
-            &req.prompt,
-            req.max_tokens,
-            req.stream.unwrap_or(false),
-            &trace_id,
-        )
-        .await;
+    let result =
+        h.0.providers
+            .call(
+                req.provider.as_deref(),
+                req.model.as_deref(),
+                &req.prompt,
+                req.max_tokens,
+                req.stream.unwrap_or(false),
+                &trace_id,
+            )
+            .await;
 
     let latency_ms = started.elapsed().as_millis() as i32;
     // 释放 permit(自动 drop) + 自适应调整并发上限
@@ -326,7 +381,9 @@ async fn llm_chat(
     let (provider, model, status, error_msg) = match &result {
         Ok(r) => (r.provider.clone(), r.model.clone(), "ok".to_string(), None),
         Err(e) => {
-            let (p, m) = h.0.providers.fallback_names(req.provider.as_deref(), req.model.as_deref());
+            let (p, m) =
+                h.0.providers
+                    .fallback_names(req.provider.as_deref(), req.model.as_deref());
             (p, m, "error".to_string(), Some(e.to_string()))
         }
     };
@@ -355,7 +412,16 @@ async fn llm_chat(
     match result {
         Ok(r) => {
             // 回写缓存(L1 精确 + L2 语义索引)
-            cache::set(&h.0.redis, &req.prompt, req.model.as_deref(), &scene, &r.content, 3600).await.ok();
+            cache::set(
+                &h.0.redis,
+                &req.prompt,
+                req.model.as_deref(),
+                &scene,
+                &r.content,
+                3600,
+            )
+            .await
+            .ok();
             let resp = LlmChatResp {
                 content: r.content.clone(),
                 provider: r.provider.clone(),
@@ -367,8 +433,13 @@ async fn llm_chat(
             let payload = serde_json::to_string(&resp).unwrap_or_else(|_| "{}".into());
             let mut conn = h.0.redis.clone();
             if let Err(e) = redis::cmd("SET")
-                .arg(&idem_key).arg(&payload).arg("NX").arg("EX").arg(60u32)
-                .query_async::<()>(&mut conn).await
+                .arg(&idem_key)
+                .arg(&payload)
+                .arg("NX")
+                .arg("EX")
+                .arg(60u32)
+                .query_async::<()>(&mut conn)
+                .await
             {
                 tracing::warn!(trace_id = %trace_id, "llm idem write failed (non-fatal): {}", e);
             }
@@ -383,10 +454,16 @@ async fn llm_chat(
 
 /// SSE 响应 helper:把流式 token 包装成 text/event-stream
 #[allow(dead_code)]
-pub fn sse_response(stream: impl tokio_stream::Stream<Item = Result<String, std::io::Error>> + Send + 'static) -> Response {
+pub fn sse_response(
+    stream: impl tokio_stream::Stream<Item = Result<String, std::io::Error>> + Send + 'static,
+) -> Response {
     let body = Body::from_stream(stream);
     let mut resp = Response::new(body);
-    resp.headers_mut().insert("content-type", HeaderValue::from_static("text/event-stream"));
-    resp.headers_mut().insert("cache-control", HeaderValue::from_static("no-cache"));
+    resp.headers_mut().insert(
+        "content-type",
+        HeaderValue::from_static("text/event-stream"),
+    );
+    resp.headers_mut()
+        .insert("cache-control", HeaderValue::from_static("no-cache"));
     resp
 }

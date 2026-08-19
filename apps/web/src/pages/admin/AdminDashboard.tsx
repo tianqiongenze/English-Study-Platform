@@ -118,7 +118,8 @@ export default function AdminDashboard() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <h2>统一运维监测平台</h2>
-        <div style={{ fontSize: 12, color: "var(--esp-color-text-secondary, #777)" }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12, color: "var(--esp-color-text-secondary, #777)" }}>
+          <a href="/web/admin/debug" style={{ color: "var(--esp-primary, #2563eb)" }}>深度诊断面板 →</a>
           {checkedAt && `轮询: ${checkedAt} · `}
           Prometheus: {promAlive === null ? "检测中..." : promAlive ? <b style={{ color: "var(--esp-success, #16a34a)" }}>在线</b> : <b style={{ color: "var(--esp-danger, #dc2626)" }}>离线</b>}
           {firing.length > 0 && <span style={{ color: "var(--esp-danger, #dc2626)", fontWeight: 600 }}> · 告警 {firing.length} 条</span>}

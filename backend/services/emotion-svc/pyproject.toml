@@ -8,6 +8,8 @@ dependencies = [
     "pydantic>=2.7",
     # 多级缓存:公共包 esp-cache-py(L1 cachetools + L2 redis.asyncio)
     "esp-cache-py>=1.0.0",
+    # 全语言统一深度诊断面板 Python 侧(actuator 风格 env/loglevel/beans/mappings)
+    "esp-debug-py>=1.0.0",
     # 读写分离数据访问:公共包 esp-db-py(asyncpg,CRDB crdb-public:26257)+ 直连 psycopg(app_logs)
     "esp-db-py>=1.0.0",
     "psycopg[binary]>=3.1",

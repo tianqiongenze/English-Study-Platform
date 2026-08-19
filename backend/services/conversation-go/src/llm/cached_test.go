@@ -35,7 +35,16 @@ func newTestRedis(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
 	return client, mr
 }
 
+// disableL2L3 在 L1 专属测试中关闭 L2(Milvus)/L3(Neo4j)子构造,避免测试环境 DNS 解析 milvus/neo4j 慢,
+// 聚焦验证 L1 精确缓存语义(L2/L3 各有独立测试文件 semantic_test.go/knowledge_test.go)。
+func disableL2L3(t *testing.T) {
+	t.Helper()
+	t.Setenv("ESP_LLM_L2_ENABLED", "false")
+	t.Setenv("ESP_LLM_L3_ENABLED", "false")
+}
+
 func TestCachedProvider_HitAfterMissAndWriteback(t *testing.T) {
+	disableL2L3(t)
 	// arrange:inner 固定回复,miniredis 作 store
 	inner := &callCountingProvider{reply: "cached-reply"}
 	rdb, _ := newTestRedis(t)
@@ -73,6 +82,7 @@ func TestCachedProvider_HitAfterMissAndWriteback(t *testing.T) {
 }
 
 func TestCachedProvider_DifferentInputIsSeparateCacheEntry(t *testing.T) {
+	disableL2L3(t)
 	inner := &callCountingProvider{reply: "reply"}
 	rdb, _ := newTestRedis(t)
 	p := NewCached(inner, rdb, "m")
@@ -92,6 +102,7 @@ func TestCachedProvider_DifferentInputIsSeparateCacheEntry(t *testing.T) {
 }
 
 func TestCachedProvider_TTLExpiryCausesReMiss(t *testing.T) {
+	disableL2L3(t)
 	inner := &callCountingProvider{reply: "r"}
 	rdb, mr := newTestRedis(t)
 	p := NewCached(inner, rdb, "m")
@@ -109,6 +120,7 @@ func TestCachedProvider_TTLExpiryCausesReMiss(t *testing.T) {
 }
 
 func TestCachedProvider_CacheKeyCanonicalizationTrimsWhitespace(t *testing.T) {
+	disableL2L3(t)
 	inner := &callCountingProvider{reply: "r"}
 	rdb, _ := newTestRedis(t)
 	p := NewCached(inner, rdb, "m")
@@ -124,6 +136,7 @@ func TestCachedProvider_CacheKeyCanonicalizationTrimsWhitespace(t *testing.T) {
 }
 
 func TestCachedProvider_ModelIsolationSeparatesCache(t *testing.T) {
+	disableL2L3(t)
 	inner := &callCountingProvider{reply: "r"}
 	rdb, _ := newTestRedis(t)
 	pModelA := NewCached(inner, rdb, "model-a")
@@ -138,6 +151,7 @@ func TestCachedProvider_ModelIsolationSeparatesCache(t *testing.T) {
 }
 
 func TestCachedProvider_DisabledByEnvPassThroughAndStillCallsInner(t *testing.T) {
+	disableL2L3(t)
 	inner := &callCountingProvider{reply: "r"}
 	rdb, _ := newTestRedis(t)
 	t.Setenv("ESP_LLM_CACHE_ENABLED", "false")
@@ -159,6 +173,7 @@ func TestCachedProvider_DisabledByEnvPassThroughAndStillCallsInner(t *testing.T)
 }
 
 func TestCachedProvider_NilStorePassesThrough(t *testing.T) {
+	disableL2L3(t)
 	inner := &callCountingProvider{reply: "r"}
 	t.Setenv("ESP_LLM_CACHE_ENABLED", "true")
 	p := NewCached(inner, nil, "m") // store=nil
@@ -174,6 +189,7 @@ func TestCachedProvider_NilStorePassesThrough(t *testing.T) {
 }
 
 func TestCachedProvider_InnerErrorPropagatesAndNoWriteback(t *testing.T) {
+	disableL2L3(t)
 	// inner error 时不应回写(避免缓存错误),inner.calls 计数仍增加
 	wantErr := errors.New("upstream-down")
 	inner := &callCountingProvider{err: wantErr}
@@ -194,6 +210,7 @@ func TestCachedProvider_InnerErrorPropagatesAndNoWriteback(t *testing.T) {
 }
 
 func TestCachedProvider_CacheKeyFormat(t *testing.T) {
+	disableL2L3(t)
 	p := NewCached(&callCountingProvider{}, nil, "claude-sonnet-4")
 	k := p.cacheKey([]Message{{Role: "user", Content: "hi"}})
 	if !strings.HasPrefix(k, cacheKeyPrefix) {

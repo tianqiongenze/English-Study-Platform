@@ -113,12 +113,12 @@ export default function GovernanceDashboard() {
         )}
       </section>
 
-      {/* Grafana + Sentinel 控制台链接 */}
+      {/* Grafana + Sentinel 控制台链接(经 BFF 代理,2026-08-19 修复硬编码 VM IP) */}
       <section style={{ marginTop: 24 }}>
         <h3>基础设施监控</h3>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <a
-            href="http://192.168.5.15:30300/d/esp-overview"
+            href="/api/admin/middleware/grafana/d/esp-overview"
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -129,7 +129,7 @@ export default function GovernanceDashboard() {
             Grafana 业务大盘
           </a>
           <a
-            href="http://192.168.5.15:8858"
+            href="/api/admin/middleware/sentinel/"
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -138,6 +138,15 @@ export default function GovernanceDashboard() {
             }}
           >
             Sentinel 控制台
+          </a>
+          <a
+            href="/web/admin/middleware"
+            style={{
+              display: "inline-block", padding: "8px 16px", background: "var(--esp-color-text-muted, #6b7280)",
+              color: "var(--esp-color-text-on, #fff)", borderRadius: 6, textDecoration: "none",
+            }}
+          >
+            中间件统一访问面板 →
           </a>
         </div>
       </section>

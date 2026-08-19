@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: writing-py
-        image: esp/writing-py:1.6.0   # #140 CRDB 切库:esp-db-py asyncpg + 方言迁移(保留 execute_write/read API)
+        image: esp/writing-py:1.7.0   # Phase1 L1 LLM 缓存:统一 key esp:cache:llm:exact:{model}:{sha256前16} + 旧 key llm:cache 双写迁移
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8082}]
         securityContext:
@@ -21,6 +21,10 @@ spec:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
         env:
+        # Phase1 L1 LLM 缓存:ESP_LLM_CACHE_ENABLED 为权威开关(兼容历史 CACHE_ENABLED);REDIS_HOST 默认 redis-cluster
+        - {name: ESP_LLM_CACHE_ENABLED, value: "true"}
+        - {name: REDIS_HOST, value: "redis-cluster"}
+        - {name: REDIS_PORT, value: "6379"}
         # LLM 真实链路(上线达标 Phase0):取消 mock,走 AnthropicLlmProvider;经 CC Switch 代理(base_url/auth_token 注入)
         - {name: ANTHROPIC_API_KEY, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_API_KEY}}}
         - {name: ANTHROPIC_BASE_URL, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_BASE_URL}}}
@@ -204,6 +208,16 @@ spec:
         - {name: CRDB_PORT, value: "26257"}
         # Nacos 服务注册
         - {name: NACOS_ADDR, value: "nacos:8848"}
+        # LCO Phase2 L2 Milvus 语义缓存 + Phase3 L3 Neo4j 知识图谱(2026-08-19)
+        # L2:复用共享 collection esp_llm_semantic(384dim minilm,cosine≥0.92),embedding 调 host.lima.internal
+        - {name: L2_ENABLED, value: "true"}
+        - {name: MILVUS_ADDR, value: "milvus:19530"}
+        - {name: EMBEDDING_URL, value: "http://host.lima.internal:15730/embed"}
+        # L3:Neo4j Prompt→Response 图谱(ExternalName → neo4j.platform-infra)
+        - {name: L3_ENABLED, value: "true"}
+        - {name: NEO4J_URL, value: "bolt://neo4j:7687"}
+        - {name: NEO4J_USER, value: "neo4j"}
+        - {name: NEO4J_PASSWORD, valueFrom: {secretKeyRef: {name: esp-secrets, key: NEO4J_PASSWORD}}}
         - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
         startupProbe:   {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 24, timeoutSeconds: 3}   # 240s 慢启动保护(granian 冷启动 + pip 装公共包)
         readinessProbe: {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}

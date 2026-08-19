@@ -65,6 +65,9 @@ func main() {
 	api.POST("/attempts", submitAttempt)      // 答题提交(写 reading_attempts)
 	api.POST("/parse", parseSentence)         // 长难句解析(桩)
 
+	// 全语言统一深度诊断面板:debug 端点(actuator 等价),由 admin-go handleDebugProxy 代理 + RequireAdminDebug 守门。
+	r.Any("/debug/*path", gin.WrapH(middleware.GinDebugGroup(middleware.DebugRoutes())))
+
 	srv := &http.Server{Addr: ":" + port, Handler: r, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    deprecated.daemonset.template.generation: "2"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"DaemonSet","metadata":{"annotations":{},"labels":{"app":"fluent-bit"},"name":"fluent-bit","namespace":"esp-observability"},"spec":{"selector":{"matchLabels":{"app":"fluent-bit"}},"template":{"metadata":{"labels":{"app":"fluent-bit"}},"spec":{"containers":[{"image":"fluent/fluent-bit:3.1.7","name":"fluent-bit","resources":{"limits":{"cpu":"200m","memory":"256Mi"},"requests":{"cpu":"50m","memory":"64Mi"}},"volumeMounts":[{"mountPath":"/fluent-bit/etc/","name":"config"},{"mountPath":"/var/log","name":"varlog","readOnly":true},{"mountPath":"/var/lib/docker/containers","name":"varlibdockercontainers","readOnly":true},{"mountPath":"/fluent-bit/pos","name":"positions"}]}],"volumes":[{"configMap":{"name":"fluent-bit-config"},"name":"config"},{"hostPath":{"path":"/var/log"},"name":"varlog"},{"hostPath":{"path":"/var/lib/docker/containers"},"name":"varlibdockercontainers"},{"emptyDir":{},"name":"positions"}]}}}}
+  creationTimestamp: "2026-08-14T21:38:30Z"
+  generation: 2
+  labels:
+    app: fluent-bit
+  name: fluent-bit
+  namespace: esp-observability
+  resourceVersion: "1531104"
+  uid: de6c949d-52cc-40d9-a031-96c1c04aa371
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: fluent-bit
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+    spec:
+      containers:
+      - image: fluent/fluent-bit:3.1.7
+        imagePullPolicy: IfNotPresent
+        name: fluent-bit
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /fluent-bit/etc/
+          name: config
+        - mountPath: /var/log
+          name: varlog
+          readOnly: true
+        - mountPath: /var/lib/docker/containers
+          name: varlibdockercontainers
+          readOnly: true
+        - mountPath: /fluent-bit/pos
+          name: positions
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        esp-drain: "true"
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: fluent-bit-config
+        name: config
+      - hostPath:
+          path: /var/log
+          type: ""
+        name: varlog
+      - hostPath:
+          path: /var/lib/docker/containers
+          type: ""
+        name: varlibdockercontainers
+      - emptyDir: {}
+        name: positions
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+status:
+  currentNumberScheduled: 0
+  desiredNumberScheduled: 0
+  numberMisscheduled: 0
+  numberReady: 0
+  observedGeneration: 2

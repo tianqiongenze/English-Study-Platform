@@ -121,6 +121,12 @@ app = Litestar(
     plugins=[OpenTelemetryPlugin()],
     middleware=[RateLimitMiddleware()],
 )
+# 全语言统一深度诊断面板(Step2):注册 actuator 风格 debug 端点(env/loglevel/beans/mappings)。
+# threaddump/heapdump Python 无原生等价(标 NA,可扩展 faulthandler/tracemalloc)。
+# 鉴权:debug 端点仅经 admin-go 代理可达,admin-go 侧 requireAdmin(admin JWT)把关。
+from esp_debug import debug_controllers as _debug_ctrls  # noqa: E402
+for _ctrl in _debug_ctrls():
+    app.register(_ctrl)
 # 应用 Litestar 自动埋点
 instrument_app(app)
 

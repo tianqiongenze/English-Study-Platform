@@ -84,6 +84,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/assessment/sessions/:id/finalize", post(finalize_session))
         .route("/api/assessment/report/:user_id", get(diagnostic_report))
         .with_state(state)
+        // 全语言统一深度诊断面板(Step2):挂载 actuator 风格 debug 端点(env/loglevel/beans/mappings)。
+        // threaddump/heapdump Rust 无原生等价(标 NA,可扩展 backtrace/dhat)。
+        // 鉴权:debug 端点仅经 admin-go 代理可达,admin-go 侧 requireAdmin(admin JWT)把关。
+        .merge(esp_common::debug::debug_router())
         .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

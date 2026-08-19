@@ -82,6 +82,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/pronunciation/score", post(score))
         .route("/api/pronunciation/feedback", post(feedback))
         .with_state(state)
+        // 全语言统一深度诊断面板(Step2):挂载 actuator 风格 debug 端点(env/loglevel/beans/mappings)。
+        .merge(esp_common::debug::debug_router())
         .layer(middleware::from_fn(rate_limit_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

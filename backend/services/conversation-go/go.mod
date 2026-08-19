@@ -8,12 +8,15 @@ require (
 	github.com/apache/pulsar-client-go v0.21.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/neo4j/neo4j-go-driver/v5 v5.28.4
+	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.21.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
 )
 
 require (
+	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/AthenZ/athenz v1.12.13 // indirect
 	github.com/DataDog/zstd v1.5.0 // indirect
 	github.com/RoaringBitmap/roaring/v2 v2.8.0 // indirect
@@ -26,6 +29,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-sql-driver/mysql v1.10.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
@@ -43,7 +47,6 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect

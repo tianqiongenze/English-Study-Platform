@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: gateway-go
-        image: esp/gateway-go:1.12.0   # Phase1 L1 LLM 精确缓存接线:llm.NewWithCache() 装饰 gateway-go WS Engine(NewCached Redis L2 exact)
+        image: esp/gateway-go:1.13.0   # Phase2/3 L2 Milvus 语义缓存 + L3 Neo4j 知识图谱:cached.go L1miss→L2Search→inner→Store(L1+L2+L3)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8080}]
         securityContext:
@@ -28,6 +28,17 @@ spec:
         - {name: REDIS_HOST, value: "redis-cluster"}
         - {name: REDIS_PORT, value: "6379"}
         - {name: ESP_LLM_CACHE_ENABLED, value: "true"}
+        # Phase2 L2 Milvus 语义缓存(cosine≥0.92)+ Phase3 L3 Neo4j 知识图谱(LCO 铁律三层完整)。
+        # L2:endpoint host.lima.internal:15730/embed(minilm 384 维),pod 已验证可达;3s 超时降级不阻断。
+        # L3:bolt://neo4j:7687(ExternalName→platform-infra),凭据走 env(不硬编码进 git)。
+        #   注:Neo4j 密码从 esp-secrets 取(避免明文进 git;单节点 dev 默认见 knowledge.go l3DefaultPassword)。
+        - {name: ESP_LLM_L2_ENABLED, value: "true"}
+        - {name: ESP_LLM_L3_ENABLED, value: "true"}
+        - {name: MILVUS_ADDR, value: "milvus:19530"}
+        - {name: EMBEDDING_URL, value: "http://host.lima.internal:15730/embed"}
+        - {name: NEO4J_URL, value: "bolt://neo4j:7687"}
+        - {name: NEO4J_USER, value: "neo4j"}
+        - {name: NEO4J_PASSWORD, valueFrom: {secretKeyRef: {name: esp-secrets, key: NEO4J_PASSWORD}}}
         # LLM 真实链路(上线达标 Phase0):gateway 数字人对话走 AnthropicProvider;经 CC Switch 代理
         - {name: ANTHROPIC_API_KEY, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_API_KEY}}}
         - {name: ANTHROPIC_BASE_URL, valueFrom: {secretKeyRef: {name: esp-secrets, key: ANTHROPIC_BASE_URL}}}

@@ -95,6 +95,15 @@ spec:
           # 多节点 CPU 充裕后可调回 250m/1000m。DGO:live patch 已对齐。
           requests: {cpu: "200m", memory: 256Mi}
           limits:   {cpu: "500m", memory: 512Mi}
+        # RWP铁律(DGO回写,2026-08-21 补漏):readOnlyRootFilesystem:true 已开但无挂载=定时炸弹;
+        # Rust 经 nacos-register.sh + OTel/gRPC 可能写 /tmp,日志写 /app/log。对标 reading-go 已修模式。
+        # (P0-K4 漏修:审计列 5 服务时漏了 llm-orchestrator-rs,P1-D9 Workflow 纠正发现)
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service

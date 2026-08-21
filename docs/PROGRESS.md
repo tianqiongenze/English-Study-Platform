@@ -439,3 +439,40 @@ P1-D16前次修了3个body user_id端点,3个session越权端点(get_session/lis
 - bff-java 容量优化(代码债,DEFERRED):151s冷启动→GraalVM native/Spring AOT;1536Mi→3072Mi;Nacos gRPC 3s→5-10s(ASV查配置)
 - Sentinel bff-java-flow-rules 404 = Nacos 未推规则(配而未接,RWT 相关,代码债)
 - 多节点环境就绪后:恢复 bff-java maxReplicas=4 + 跑 P1-D10 验证水平扩展
+
+
+## 续十三 bff-java 4项容量优化(部分落地+graphql代码债阻断)(2026-08-21 22:45)
+
+### 4 scout 并行结论(全部收齐)
+1. **内存**:live/yaml 已 2Gi 非 1536Mi(HSA 修正我之前 k6 报告错误);MaxRAMPercentage=75% 容器感知;OOM 真因是堆外(direct buffer/Metaspace/线程)膨胀非堆超限
+2. **Nacos-gRPC**(ASV 扎实):property 真名 `nacos.remote.client.grpc.timeout`(DefaultGrpcClientConfig.java:213 默认3000ms),经 JVM -D 被 NacosClientProperties SourceType.JVM 层读取,SCA 不暴露此 key → -D 覆盖 8s 可根治 151s 冷启动大头
+3. **Sentinel**:仓库已有 bff flow+degrade 规则 JSON,Nacos 未推(全局未推 bff/learning/teacher 全 404),dataId=bff-java-flow-rules group=SENTINEL_GROUP
+4. **GraalVM/AOT**:native 不可行(Pulsar/Sentinel/Nacos 无官方 metadata)DEFERRED;AOT 收益有限(151s 主因是 gRPC 重试非类加载)+兼容风险(Dubbo/Sentinel 动态注册)推迟;轻量优化(G1GC+TieredStopAtLevel=1+Xshare:auto)3 Java 服务统一可做缩 15-30s
+
+### 落地(本轮)
+- ✅ **3 Java Dockerfile 冷启动优化**(bff/learning/teacher JAVA_OPTS:UseZGC→UseG1GC + TieredStopAtLevel=1 + Xshare:auto + -Dnacos.remote.client.grpc.timeout=8000 + server.check.timeout=8000)— 已改 Dockerfile,但**未生效**(见下 graphql 阻断)
+- ✅ **bff-java limits 2Gi→3Gi**(15-bff-java.yaml:64)— 已 apply 生效(live=3Gi),给堆外膨胀余量
+- ✅ **Sentinel 规则推 Nacos**(scripts/publish-sentinel-rules.sh)— 执行成功,bff flow+degrade HTTP 200 入库,解决配而未接(404→生效)
+- ✅ **bff-java HPA maxReplicas=1 止血态** DGO 回写(15-bff-java.yaml:97)
+
+### 阻断 + DEFERRED(代码债,会话23-28/29 留)
+- ❌ **bff-java 1.16.2 重建部署失败**:package 新 jar 含会话23-28/29 加的 spring-boot-starter-graphql 依赖,启动报 `MissingSchemaException: No GraphQL schema definition was configured`(GraphQlAutoConfiguration.graphQlSource)。但 schema.graphqls 文件**在 jar 里**(BOOT-INF/classes/graphql/schema.graphqls 22:37 产物含 11:42 schema),yml 也配了 spring.graphql.schema.locations: classpath:graphql/schema.graphqls。根因待 ASV 核实:GraphQlProperties Schema.locations 字段是 List<String>,yml 写单 String 可能绑定失败致空。
+- 1.16.1 旧镜像 jar 不含 graphql 依赖可跑 → rollout undo 回 1.16.1(DGO:yaml 也回写 1.16.1)
+- **冷启动优化 Dockerfile 改了但未生效**:需先修 graphql schema bug → 重建 1.16.2(含 schema fix + 冷启动 opts)→ 部署。此为下一步单独会话。
+
+### 关键洞察(feature-stale-image-blindspot 反例)
+- 会话23-28/29 加了 spring-boot-starter-graphql 依赖 + schema + resolver + ingress /graphql,但**1.16.1 镜像(08-15 产物)是加 graphql 前打的,不含 graphql 自动配置,所以旧镜像跑得欢**
+- 一旦重建(package 拉入 graphql 依赖)→ jar 含 graphql → 启动崩(MissingSchemaException)
+- 这是 stale-image-blindspot 的反例:代码改了长期不重建镜像,旧镜像掩盖了真实 bug;重建才暴露
+
+### DEFERRED 完整清单(下一步单独会话)
+1. graphql MissingSchemaException:ASV 核实 spring.graphql.schema.locations 绑定(List<String>),改 yml 用 list 语法 `- classpath:graphql/schema.graphqls` 或删 locations 用默认 `classpath:graphql/**/*.graphqls`
+2. 修好 graphql bug 后:重建 3 Java 服务镜像(bff 1.16.2 含 schema fix+冷启动opts;learning/teacher 含冷启动opts),部署,验证冷启动真降(151s→~120s)+ gRPC 8s 生效
+3. learning/teacher Sentinel degrade 规则:ASV 核实 SCA WebMvc resource 名格式后补推(当前只推 bff)
+4. GraalVM native(Pulsar/Sentinel/Nacos 无官方 metadata,大工程)
+5. Spring AOT(Dubbo/Sentinel 动态注册兼容风险,收益有限)
+
+### 数据资产
+- scripts/publish-sentinel-rules.sh(Sentinel 规则推送脚本)
+- backend/services/{bff,learning,teacher}-java/Dockerfile(冷启动优化,待重建生效)
+- deploy/k8s/15-bff-java.yaml(limits 3Gi + HPA max=1 + image 1.16.1)

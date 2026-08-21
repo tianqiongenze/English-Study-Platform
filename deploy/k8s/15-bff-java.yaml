@@ -17,7 +17,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: bff-java
-        image: esp/bff-java:1.16.1   # 1.16.1 = RouteTable Nacos 动态版(14 路由含 community/gamification/content/vocab/admin-middleware,fallback DEFAULT_ROUTES + Nacos listener 动态刷新,实测 listener 收到推送 Routes refreshed 12 entries)+ initRouteTable 监听器(namespace 默认 public);补 JwtValidator @Component bean(extends BaseJwtValidator,修 AuthFilter 注入 BaseJwtValidator 找不到致 CrashLoop);JDK26+ZGC 基底 esp/jdk26-jre:debian-slim
+        image: esp/bff-java:1.16.1   # 1.16.1(暂留,未升1.16.2):1.16.2 build 含会话23-28/29加的spring-boot-starter-graphql依赖,但启动报MissingSchemaException(spring.graphql.schema.locations yml配String可能需List格式ASV核实)→1.16.2崩;1.16.1旧镜像jar不含graphql依赖可跑。冷启动优化(G1GC+TieredStopAtLevel+gRPC8s)Dockerfile已改但需先修graphql schema bug才能rebuild 1.16.2部署。graphql bug+冷启动优化rebuild=下一步单独会话。1.16.1=RouteTable Nacos动态版+JwtValidator;JDK26+ZGC基底
         imagePullPolicy: IfNotPresent
         ports:
         - {containerPort: 8090,  name: mvc}
@@ -61,7 +61,7 @@ spec:
         livenessProbe:  {httpGet: {path: /actuator/health/liveness, port: 8090}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
         resources:
           requests: {cpu: "200m", memory: 512Mi}   # BFF 作为边缘接入层需要更高 CPU 分配以处理 Netty I/O + Spring MVC + Dubbo Triple
-          limits:   {cpu: "2",     memory: 2Gi}   # 1536Mi 偏紧导致 OOMKill;2Gi 给 Netty+Dubbo+Seata+Spring WebMVC 足够余量
+          limits:   {cpu: "2",     memory: 3Gi}   # P1-D21(2026-08-21 k6 OOM根治):k6压测pbbm7内存1850Mi<2Gi仍OOMKilled,根因是Java进程RSS=堆(MaxRAMPercentage75%→~2.3Gi)+Netty direct buffer+Metaspace+线程栈+code cache高并发下堆外膨胀超cgroup memory.max;3Gi给堆外留余量。多节点生产可再评估(单节点资源紧)
         # RWP铁律(防御性挂载):未开readOnlyRootFilesystem当前不崩,防将来开readOnly再踩;Dubbo3.3.6写/.dubbo + Nacos SDK硬编码/logs/nacos
         volumeMounts:
         - {name: nacos-logs, mountPath: /logs}

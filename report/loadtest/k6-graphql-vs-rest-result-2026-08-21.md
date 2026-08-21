@@ -28,8 +28,10 @@ Started BffApplication in 151.414 seconds (process running for 158.565)
   - Nacos gRPC 超时 3s,VM load 18 时 gRPC 慢超 3s 反复重试
 
 ### 发现2: bff-java OOMKilled(P0)
-- 活 pod pbbm7 exitCode 137(SIGKILL,内核 OOM kill)
-- limits memory 1536Mi 在 k6 并发下不够
+- 活 pod pbbm7 exitCode 137(SIGKILL,内核 cgroup OOM kill)
+- **HSA 修正(2026-08-21 复核)**:live 与 yaml limits 实为 **2Gi(2048Mi)** 非 1536Mi(此前报告 1536Mi 有误)
+- pbbm7 内存爬升 1850Mi < 2048Mi,但仍 OOMKilled → 根因非"超堆 limits"
+- 真因:Java 进程 RSS = 堆(MaxRAMPercentage=75%→~1.5Gi)+ Netty direct buffer + Metaspace + 线程栈 + code cache,k6 高并发下**非堆开销膨胀**(direct buffer/线程数激增)致进程总 RSS 超 2Gi cgroup memory.max 被杀
 - pbbm7 OOM 后重启,又进 151s 启动期 → deploy 0 AVAILABLE 持续
 
 ### 发现3: HPA 扩容的 3 新 pod 没到 ready 就被缩容

@@ -77,9 +77,21 @@ public class LearningService {
             return disruptor.publish(userId, eventType, payload, messageId);
         }
         // P2-2: 入口无 Disruptor Bean,走 Pulsar 跨进程投递。
-        eventPublisher.publish(EventTopics.LEARNING_EVENT_REPORT,
-                new LearningEventReport(messageId, userId, eventType, payload));
-        log.debug("learning event forwarded to pulsar (worker mode): user={} type={}", userId, eventType);
+        // P1-D21 EER 铁律(2026-08-21):关键学情事件禁止 fire-and-forget。原 publish(sendAsync+
+        // blockIfQueueFull(false)+失败仅 warn)队列满静默丢致学情事件永久丢失(掌握度评分缺数据)。
+        // 改 publishReliable(同步阻塞+blockIfQueueFull(true)+失败抛 EventPublishException),
+        // message_id 透传作幂等键(消费侧 ON CONFLICT 去重)。sendTimeout=10s 对 worker-split 入口可接受。
+        try {
+            eventPublisher.publishReliable(EventTopics.LEARNING_EVENT_REPORT,
+                    new LearningEventReport(messageId, userId, eventType, payload), messageId);
+        } catch (com.esp.cache.event.EventPublishException ex) {
+            // 投递失败:入口返 false 让调用方感知(不静默吞),可由上层重试/补偿/记 outbox。
+            log.error("learning event publishReliable failed user={} type={} msgId={} err={}",
+                    userId, eventType, messageId, ex.toString());
+            return false;
+        }
+        log.debug("learning event forwarded to pulsar reliably (worker mode): user={} type={} msgId={}",
+                userId, eventType, messageId);
         return true;
     }
 

@@ -53,7 +53,7 @@ spec:
         - {name: NACOS_ADDR, value: "nacos:8848"}
         - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
         startupProbe:   {httpGet: {path: /healthz, port: 8082}, periodSeconds: 10, failureThreshold: 18, timeoutSeconds: 3}   # 180s 慢启动保护(granian 冷启动 + OTel 连 collector)
-        readinessProbe: {httpGet: {path: /healthz, port: 8082}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
+        readinessProbe: {httpGet: {path: /healthz, port: 8082}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 5}   # 探针 timeout 3→5s(P1-D10 压测前调优,AI 推理 8-34s + GC 抖动防误杀,esp-loadtest-probe-pitfalls)
         livenessProbe:  {httpGet: {path: /healthz, port: 8082}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
         resources: {requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "1", memory: "1Gi"}}
 ---
@@ -168,7 +168,7 @@ spec:
         - {name: NACOS_ADDR, value: "nacos:8848"}
         - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
         startupProbe:   {httpGet: {path: /healthz, port: 8084}, periodSeconds: 10, failureThreshold: 60, timeoutSeconds: 3}   # 600s 慢启动保护(AI 推理冷启动)
-        readinessProbe: {httpGet: {path: /healthz, port: 8084}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
+        readinessProbe: {httpGet: {path: /healthz, port: 8084}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 5}   # 探针 timeout 3→5s(P1-D10 压测前调优,AI 推理 8-34s + GC 抖动防误杀,esp-loadtest-probe-pitfalls)
         livenessProbe:  {httpGet: {path: /healthz, port: 8084}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
         resources: {requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "500m", memory: "512Mi"}}
 ---
@@ -245,7 +245,7 @@ spec:
         - {name: NEO4J_PASSWORD, valueFrom: {secretKeyRef: {name: esp-secrets, key: NEO4J_PASSWORD}}}
         - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
         startupProbe:   {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 24, timeoutSeconds: 3}   # 240s 慢启动保护(granian 冷启动 + pip 装公共包)
-        readinessProbe: {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 3}
+        readinessProbe: {httpGet: {path: /healthz, port: 8085}, periodSeconds: 10, failureThreshold: 3, timeoutSeconds: 5}   # 探针 timeout 3→5s(P1-D10 压测前调优,AI 推理 8-34s + GC 抖动防误杀,esp-loadtest-probe-pitfalls)
         livenessProbe:  {httpGet: {path: /healthz, port: 8085}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 3}
         resources: {requests: {cpu: "100m", memory: "128Mi"}, limits: {cpu: "1", memory: "1Gi"}}
 ---

@@ -26,6 +26,12 @@ spec:
       - path: /api/auth
         pathType: Prefix
         backend: {service: {name: bff-java, port: {number: 8090}}}
+      # /graphql 路由到 bff-java spring-graphql(GraphQL Phase1,spring-graphql 2.0.4),
+      # 供 k6 GraphQL 压测宿主可达(bff-java 是 ClusterIP 无 NodePort,/graphql 只能经 traefik ingress 暴露)。
+      # bff-java spring-graphql 端点 http.path:/graphql 在 8090(与 /api/** 同 backend)。
+      - path: /graphql
+        pathType: Prefix
+        backend: {service: {name: bff-java, port: {number: 8090}}}
       # WS 旁路 bff:gateway-go 用 ?token= 自鉴权(防越权连他人会话)
       - path: /ws/
         pathType: Prefix

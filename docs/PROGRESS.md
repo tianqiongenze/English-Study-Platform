@@ -317,3 +317,13 @@ P1-D16前次修了3个body user_id端点,3个session越权端点(get_session/lis
 - gap3(gamification-go projector 生产镜像跑 stub):仍为配而未接+stale-image-blindspot 双违规(Dockerfile 无 pulsar_eda tags),这是真问题但属构建配置非 IT 范畴。
 
 **下一步决策**:P1-D21 IT 代码不强制现在补(WriteIT 失败,主线程核实后 gap1 降级)。转向执行阶段——串行跑 P1-D10 HPA 压测 + k6 GraphQL 对比(先探针 timeout 调优防误杀),收容量数据。IT 代码补全标 DEFERRED 待 WriteIT 重试或主线程择机手写。
+## 续九(2026-08-21)gap2 EER 修复 + 前置补全并行
+
+**gap2 核实(主线程 ASV)**:learning-java deploy ESP_DISRUPTOR_ENABLED=false(worker-split 入口 publish-only)。LearningService.reportEvent 第75-84行:disruptor 不注入=null 时走第80行 eventPublisher.publish(sendAsync+blockIfQueueFull(false)+失败仅warn)发 LEARNING_EVENT_REPORT,队列满静默丢,违反 EER。学情事件是关键业务事件(驱动掌握度评分)。
+
+**修复(本仓库)**:第80行 publish 改 publishReliable(topic,payload,messageId),同步阻塞+blockIfQueueFull(true)+失败抛 EventPublishException,catch 返 false 让调用方感知。ASV核实 EventPublishException 反编译确认 extends Exception,publishReliable 签名存在。编译 BUILD SUCCESS。待重建镜像+BVV+rollout(feature-stale-image-blindspot)。
+
+**前置补全 3 agent 并行**:
+1. ingress /graphql(af72411):完成。40-ingress.yaml 加 /graphql path 指向 bff-java:8090,apply RC=0,路由生效(DGO 回写)。
+2. AI 服务探针 timeout 3 转 5s(af612ee):完成。30-other-services.yaml(writing-py/emotion-svc/writing-coach)+15-bff-java.yaml(bff-java)readiness timeout 3 转 5s,4 deploy 串行 rollout 全 Ready(esp-singlenode-host-cluster-contention),liveness 未动。
+3. gamification-go projector Dockerfile 加 pulsar_eda tags(acf757f):进行中。修生产镜像跑 stub(gap3),含 go.mod pulsar 依赖核实+BVV binary 校验。

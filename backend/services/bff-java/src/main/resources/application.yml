@@ -22,8 +22,11 @@ spring:
     graphiql:
       path: /graphiql           # GraphiQL 调试 UI(仅开发诊断,经 AuthFilter 鉴权)
       enabled: true
-    schema:
-      locations: classpath:graphql/schema.graphqls   # ASV 核实:Schema.getLocations()(String[])
+    # schema.locations 故意不配:用默认 classpath:graphql/**/ (GraphQlProperties$Schema.java:94 默认值)。
+    # ASV 查证(aed94e71,2026-08-21):Schema.locations 是 String[] 但语义=目录前缀,setLocations 调
+    # appendSlashIfNecessary 给非/结尾值强补/再拼 *.graphqls 通配。若配 classpath:graphql/schema.graphqls
+    # (文件全路径)会被补成 classpath:graphql/schema.graphqls/ 当目录扫其下文件→空集→MissingSchemaException
+    # (1.16.2 启动崩根因)。默认 classpath:graphql/**/ 拼后 classpath:graphql/**/*.graphqls 能匹配 jar 内文件。
     # 深度/复杂度护栏不在 properties 里,经 GraphQLConfig 的 GraphQlSourceBuilderCustomizer bean
     # 注册 MaxQueryDepthInstrumentation/MaxQueryComplexityInstrumentation(见 GraphQLConfig)。
   cloud:

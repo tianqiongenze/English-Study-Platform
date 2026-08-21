@@ -476,3 +476,40 @@ P1-D16前次修了3个body user_id端点,3个session越权端点(get_session/lis
 - scripts/publish-sentinel-rules.sh(Sentinel 规则推送脚本)
 - backend/services/{bff,learning,teacher}-java/Dockerfile(冷启动优化,待重建生效)
 - deploy/k8s/15-bff-java.yaml(limits 3Gi + HPA max=1 + image 1.16.1)
+
+
+## 续十四 graphql根治+3Java冷启动优化全部生效(2026-08-21 23:09)
+
+### graphql MissingSchemaException 根治(DEFERRED #1 完成)
+3 ASV scout 并行核实:
+- aed94e71(根因):GraphQlProperties Schema.locations 是 String[] 但语义=目录前缀,setLocations 调 appendSlashIfNecessary 给非/结尾值强补/再拼 *.graphqls 通配。配 classpath:graphql/schema.graphqls(文件全路径)被补成 classpath:graphql/schema.graphqls/ 当目录扫其下文件→空集→MissingSchemaException
+- af2c4403(排除):schema 语法正确,directive @auth wiring 已注册(GraphQLConfig.java:103),jar 内文件确实在。坐实是 locations 解析问题非语法
+- 修复(application.yml):删 spring.graphql.schema.locations 行用默认 classpath:graphql/**/(拼后 classpath:graphql/**/*.graphqls 能匹配 jar 内文件)
+
+### bff-java 1.16.2 部署成功(DEFERRED #2 完成)
+重建(package 拉新 yml + docker build)+ 部署 + delete pod 强制拉新 digest(re-tag 陷阱):
+- BVV:镜像内 yml 无 schema.locations 配置行 + JAVA_OPTS 4flag 到位 + digest 58c360b
+- 启动日志验证三重通过:
+  1 graphql fix:DefaultSchemaResourceGraphQlSourceBuilder "Loaded 1 resource(s) in the GraphQL schema" + "GraphQL schema inspection" + "GraphQL endpoint HTTP POST /graphql"(MissingSchemaException 消除)
+  2 **冷启动 151.414s → 23.474s(降 127.94s,-84%)!** G1GC+TieredStopAtLevel=1+Xshare:auto+gRPC8s 联合生效
+  3 Nacos 注册成功 + RouteTable listener 注册
+- graphql 端点验证:GET /graphql 返 HTTP 401(端点活着需鉴权,非 404,证明端点正确注册)
+- bff-java 1/1 稳定 AVAILABLE
+
+### Sentinel learning/teacher degrade 规则(DEFERRED #3 完成)
+ASV a11b5692 核实:SCA SentinelWebInterceptor resource 名 = Spring BEST_MATCHING_PATTERN(完整模板如/api/learning/review,含{id}字面量,contextPath默认空=纯pattern,非类级非原始URI)。learning/teacher 无 RateLimitFilter 走 SCA 默认。
+- 写 learning-java-degrade-rules.json(3条:placement/difficulty/recommend RT慢调用熔断 grade=0)
+- 写 teacher-java-degrade-rules.json(3条:lesson-plan/auto-grade count=30s因LLM慢/finalize RT熔断)
+- 推 Nacos 4 dataId 全 HTTP 200 入库(bff flow+degrade + learning degrade + teacher degrade),解决全局配而未接(404→生效)
+
+### 冷启动优化 JAVA_OPTS(3 Java 服务统一)
+bff/learning/teacher Dockerfile JAVA_OPTS 改:UseZGC→UseG1GC + TieredStopAtLevel=1(C1-only) + Xshare:auto(默认CDS) + -Dnacos.remote.client.grpc.timeout=8000 + server.check.timeout=8000(ASV aed94e71 证实 property 经 JVM -D 被 NacosClientProperties SourceType.JVM 层读取)
+- bff 实测 151s→23s(-84%)
+- learning/teacher 镜像重建中(esp-builder a1f0ba9a 串行)
+
+### feature-stale-image-blindspot 反例实证
+会话23-28/29 加 spring-boot-starter-graphql 依赖+schema+resolver+ingress /graphql,但 1.16.1 旧镜像(08-15产物)是加 graphql 前打的不含 graphql 自动配置跑得欢;重建(1.16.2)才暴露 MissingSchemaException。修复后 1.16.2 含 graphql 正常启动。代码改了长期不重建镜像=旧镜像掩盖真实 bug。
+
+### DEFERRED #4/#5 待重评
+- #4 GraalVM native:scout4 已证不可行(Pulsar/Sentinel/Nacos 无官方 metadata),bff 23s 冷启动已够优,native 投入产出比更低,建议不推进
+- #5 Spring AOT:scout4 已证收益有限+兼容风险(Dubbo/Sentinel 动态注册),bff 23s 冷启动已达标,AOT 边际收益小,建议不推进

@@ -1,0 +1,32 @@
+[
+  {
+    "resource": "/api/teacher/lesson-plan",
+    "limitApp": "default",
+    "grade": 0,
+    "count": 30000,
+    "slowRatioThreshold": 0.6,
+    "timeWindow": 30,
+    "minRequestAmount": 3,
+    "statIntervalMs": 1000
+  },
+  {
+    "resource": "/api/teacher/assignments/{id}/auto-grade",
+    "limitApp": "default",
+    "grade": 0,
+    "count": 30000,
+    "slowRatioThreshold": 0.6,
+    "timeWindow": 30,
+    "minRequestAmount": 3,
+    "statIntervalMs": 1000
+  },
+  {
+    "resource": "/api/teacher/submissions/{id}/finalize",
+    "limitApp": "default",
+    "grade": 0,
+    "count": 10000,
+    "slowRatioThreshold": 0.6,
+    "timeWindow": 15,
+    "minRequestAmount": 5,
+    "statIntervalMs": 1000
+  }
+]

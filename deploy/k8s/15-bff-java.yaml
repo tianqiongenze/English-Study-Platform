@@ -17,7 +17,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: bff-java
-        image: esp/bff-java:1.16.1   # 1.16.1(暂留,未升1.16.2):1.16.2 build 含会话23-28/29加的spring-boot-starter-graphql依赖,但启动报MissingSchemaException(spring.graphql.schema.locations yml配String可能需List格式ASV核实)→1.16.2崩;1.16.1旧镜像jar不含graphql依赖可跑。冷启动优化(G1GC+TieredStopAtLevel+gRPC8s)Dockerfile已改但需先修graphql schema bug才能rebuild 1.16.2部署。graphql bug+冷启动优化rebuild=下一步单独会话。1.16.1=RouteTable Nacos动态版+JwtValidator;JDK26+ZGC基底
+        image: esp/bff-java:1.16.2   # 1.16.2 = P1-D21(2026-08-21)冷启动+OOM+graphql根治:①Dockerfile JAVA_OPTS G1GC(替ZGC)+TieredStopAtLevel=1(C1-only)+Xshare:auto(CDS)+Nacos gRPC超时3s→8s(ASV aed94e71:property nacos.remote.client.grpc.timeout默认3000ms经JVM -D读取,根治151s冷启动大头gRPC重试)②application.yml 删 spring.graphql.schema.locations 用默认 classpath:graphql/**/(ASV:locations是String[]目录前缀语义,appendSlashIfNecessary给非/结尾补/致配文件全路径被当目录扫空集→MissingSchemaException,1.16.2首版崩根因)③limits 2Gi→3Gi(堆外膨胀余量);BVV:镜像内yml无locations配置行+JAVA_OPTS4flag到位+digest 58c360b;1.16.1=RouteTable+JwtValidator旧镜像不含graphql可跑;JDK26基底
         imagePullPolicy: IfNotPresent
         ports:
         - {containerPort: 8090,  name: mvc}

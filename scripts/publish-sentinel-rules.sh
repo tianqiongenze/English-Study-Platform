@@ -12,9 +12,10 @@
 #
 # 范围(诚实,不臆造):
 #   - bff-java: flow(3条,resource=api-default/api-learning-event/api-writing-grade,经RateLimitFilter明确映射) + degrade(2条)
-#   - learning-java / teacher-java: 暂不推(无RateLimitFilter resource名映射,SCA WebMvc拦截的resource名格式
-#     需ASV核实SentinelWebInterceptor生成规则,臆造URL path会致规则不匹配=仍配而未接违反RWT;
-#     且Sentinel 404时服务用默认无限流运行不崩,非阻断;待ASV核实resource名格式后再补)
+#   - learning-java / teacher-java: degrade(SCA WebMvc拦截器 resource名=Spring BEST_MATCHING_PATTERN 完整模板如/api/learning/review,
+#     ASV核实a11b5692:contextPath默认空→resource=纯pattern;grade=0 RT慢调用熔断对齐bff degrade格式,
+#     count=慢响应阈值ms+slowRatioThreshold+timeWindow;配LLM慢调用接口lesson-plan/auto-grade count=30s因LLM推理慢)
+#     flow规则暂不推(无RateLimitFilter自定义映射,SCA默认WebMvc已对每个URL过FlowSlot,如需限流另配)
 #
 # 用法: bash scripts/publish-sentinel-rules.sh
 set -euo pipefail
@@ -53,9 +54,15 @@ echo "--- bff-java (flow + degrade, 有 RateLimitFilter resource 映射) ---"
 publish "bff-java-flow-rules"    "${SENTINEL_DIR}/bff-java-flow-rules.json"
 publish "bff-java-degrade-rules" "${SENTINEL_DIR}/bff-java-degrade-rules.json"
 
+echo "--- learning-java (degrade, SCA WebMvc pattern resource 名,RT慢调用熔断) ---"
+publish "learning-java-degrade-rules" "${SENTINEL_DIR}/learning-java-degrade-rules.json"
+
+echo "--- teacher-java (degrade, SCA WebMvc pattern resource 名,LLM慢调用熔断) ---"
+publish "teacher-java-degrade-rules" "${SENTINEL_DIR}/teacher-java-degrade-rules.json"
+
 echo ""
 echo "=== 验证(GET config 确认入库) ==="
-for did in bff-java-flow-rules bff-java-degrade-rules; do
+for did in bff-java-flow-rules bff-java-degrade-rules learning-java-degrade-rules teacher-java-degrade-rules; do
   val=$(curl -s "${NACOS}/nacos/v1/cs/configs?dataId=${did}&group=${GROUP}&tenant=${NAMESPACE}" 2>/dev/null | head -c 80)
   if [ -n "$val" ] && [ "$val" != "null" ]; then
     echo "VERIFY $did => $(echo "$val" | head -c 60)..."
@@ -64,5 +71,3 @@ for did in bff-java-flow-rules bff-java-degrade-rules; do
   fi
 done
 echo "=== done ==="
-echo ""
-echo "(learning/teacher degrade 规则待 ASV 核实 SCA WebMvc resource 名格式后再补推)"

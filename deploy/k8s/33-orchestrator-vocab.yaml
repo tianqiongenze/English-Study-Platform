@@ -53,8 +53,10 @@ spec:
         - {name: PORT, value: "8086"}
         # Phase1 L1 LLM 缓存开关(默认 true,仅显式标注对齐三服务统一)
         - {name: ESP_LLM_CACHE_ENABLED, value: "true"}
-        # Redis Cluster seed:FQDN(对齐 31/32,避免短名跨 ns 解析偶发坑㉓)
-        - {name: REDIS_ADDR, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        # Redis Cluster seed:ExternalName 短名 redis-cluster(P1-D8,2026-08-21:改回短名走 Service
+        # 负载均衡+Cluster MOVED 重定向,原 Pod FQDN 直连绕过 LB 且 Pod 重建连接断;坑㉓是
+        # nodes.conf 公告短名问题非 ExternalName 解析问题,gateway-go 用 redis-cluster 已验证)
+        - {name: REDIS_ADDR, value: "redis://redis-cluster:6379"}
         # CRDB esp_llm(#140 全服务切 CRDB;env key 由 TIDB_DSN 改为 LLM_DB_URL 对齐代码 main.rs)
         - {name: LLM_DB_URL, value: "postgres://root@crdb-public:26257/esp_llm?sslmode=disable"}
         - {name: LLM_DEFAULT_MODEL, value: "claude-sonnet-4-6"}

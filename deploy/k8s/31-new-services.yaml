@@ -31,7 +31,7 @@ spec:
           allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8093"}
-        - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: REDIS_CLUSTER, value: "redis-cluster:6379"}
         - {name: OTEL_SERVICE_NAME, value: "course-path-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         - {name: NACOS_ADDR, value: "nacos:8848"}
@@ -93,7 +93,7 @@ spec:
           allowPrivilegeEscalation: false
         env:
         - {name: PORT, value: "8094"}
-        - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: REDIS_CLUSTER, value: "redis-cluster:6379"}
         - {name: NACOS_ADDR, value: "nacos:8848"}
         - {name: OTEL_SERVICE_NAME, value: "live-tutor-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}

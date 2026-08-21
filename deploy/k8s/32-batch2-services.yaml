@@ -36,7 +36,7 @@ spec:
         - {name: TIDB_DB, value: "esp_pronunciation"}
         - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_pronunciation?sslmode=disable"}
         - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_pronunciation?sslmode=disable"}
-        - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: REDIS_CLUSTER, value: "redis://redis-cluster:6379"}
         - {name: OTEL_SERVICE_NAME, value: "pronunciation-rs"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         # Nacos 服务注册(entrypoint 脚本 nacos-register.sh)
@@ -167,7 +167,7 @@ spec:
         - {name: TIDB_DB, value: "esp_assessment"}
         - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_assessment?sslmode=disable"}
         - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_assessment?sslmode=disable"}
-        - {name: REDIS_CLUSTER, value: "redis://redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: REDIS_CLUSTER, value: "redis://redis-cluster:6379"}
         - {name: OTEL_SERVICE_NAME, value: "assessment-rs"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         # Nacos 服务注册(entrypoint 脚本 nacos-register.sh)
@@ -298,7 +298,7 @@ spec:
         - {name: PORT, value: "8092"}
         - {name: READ_DB_URL, value: "postgres://root@crdb-public:26257/esp_gamification?sslmode=disable"}
         - {name: WRITE_DB_URL, value: "postgres://root@crdb-public:26257/esp_gamification?sslmode=disable"}
-        - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: REDIS_CLUSTER, value: "redis-cluster:6379"}
         - {name: OTEL_SERVICE_NAME, value: "gamification-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         - {name: NACOS_ADDR, value: "nacos:8848"}

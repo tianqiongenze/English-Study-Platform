@@ -411,19 +411,32 @@ func (s *Server) pollLoop() {
 			if cerr != nil {
 				log.Printf("[%s] memberCircleMap err: %v", serviceName, cerr)
 			}
+			// P1-D1(2026-08-21 EER):hwm 推进策略修正,防事件计分永久丢失。
+			// 原:processedMark 未命中或 userCache 未命中时 continue 跳过,但 hwm=newHwm 无条件推进
+			// → 被跳过事件计分永久丢失。现分两类:
+			// ① processedMark 已处理(重复消费/重放)→ 跳过合理(幂等去重,已处理过不丢),允许 hwm 推进;
+			// ② userCache 未命中(loadUsers 成功但该 user 不在 cache)→ 真 Gap,不推进 hwm 整批重试,
+			//    避免丢失该事件计分(下个 tick 重新 fetch 同批重新 loadUsers,多数为 loadUsers 暂态抖动自愈)。
+			missingUser := false // 本批是否有 userCache 未命中事件(真 Gap)
 			for _, e := range events {
-				// 偏差⑤:逐事件 message_id SETNX 去重,重复事件不重复计分(hwm 推进不依赖此)。
 				msgID := message_idFromPayload(e.ID, e.Payload)
 				if !s.processedMark(ctx, msgID) {
-					continue // 已处理过,跳过(重复消费/重放)
+					continue // 已处理过(幂等去重),跳过合理,hwm 可推进
 				}
 				userCacheMu.RLock()
 				info, ok := userCache[e.UserID]
 				userCacheMu.RUnlock()
 				if !ok {
-					continue
+					missingUser = true
+					log.Printf("[%s] pollLoop userCache miss uid=%d eid=%d — skip hwm advance, retry batch", serviceName, e.UserID, e.ID)
+					continue // 未命中:不推进 hwm,整批下个 tick 重试(防计分丢失)
 				}
 				s.fanout(ctx, e, info, circles[e.UserID])
+			}
+			if missingUser {
+				// 有未命中事件:不推进 hwm,释放锁,下个 tick 重试本批(已 fanout 的事件由 processedMark 幂等防重复)
+				_ = s.rdb.Del(ctx, feedLockKey).Err()
+				continue
 			}
 			hwm = newHwm
 			_ = s.rdb.Set(ctx, feedHwmKey, strconv.FormatInt(hwm, 10), 0).Err()

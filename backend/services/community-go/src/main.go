@@ -642,13 +642,23 @@ func filterBlocked(body string) (string, bool) {
 // genInviteCode:6 位大写字母数字(crypto/rand 安全随机)。
 func genInviteCode() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // 去掉易混淆 O/I/0/1
+	// P1-D18(2026-08-21,SCS):消除模偏差。原 int(idx)%len(chars) 因 256%31=8 致前 8 字符
+	// 多一个被选概率。改拒绝法(rejection sampling):只接受落在 [0, maxBiasFree) 的随机字节,
+	// maxBiasFree = 256 - 256%len(chars),保证每个字符等概率(无偏);超出则丢弃重取。
+	maxBiasFree := 256 - 256%len(chars)
 	b := make([]byte, inviteCodeLen)
-	idx := make([]byte, inviteCodeLen)
-	if _, err := rand.Read(idx); err != nil {
-		return strconv.FormatInt(time.Now().UnixNano(), 10)[:inviteCodeLen]
-	}
-	for i := range idx {
-		b[i] = chars[int(idx[i])%len(chars)]
+	for i := 0; i < inviteCodeLen; i++ {
+		var rb [1]byte
+		for {
+			if _, err := rand.Read(rb[:]); err != nil {
+				// crypto/rand 失败(极罕见):降级时间戳,不阻塞建圈主流程
+				return strconv.FormatInt(time.Now().UnixNano(), 10)[:inviteCodeLen]
+			}
+			if int(rb[0]) < maxBiasFree {
+				b[i] = chars[int(rb[0])%len(chars)]
+				break
+			}
+		}
 	}
 	return string(b)
 }

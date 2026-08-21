@@ -673,3 +673,22 @@ gateway-go 1.15.1→1.15.2(Sentinel 接入+RWP)/esp-admin 1.3.4→1.3.7(SetRateL
 **静态验证(主线程,已过)**:① esp-rsa-jwt-verify secret 存在含 JWT_RSA_PUBLIC_KEY_PEM(真 PEM);② schema.sql submissions version 列在(行122);③ crdb-schema.sql submissions version 列在(行171);④ 非测试代码零残留 X-User-Id 头读取(grep 空);⑤ 三服务 envFrom 与 gateway-go 同款对齐。
 
 **待**:esp-builder 全量 Go build+vet+test 验证(community-go 是 P1-D19+P1-30 叠加重点)→ 统一 commit → push。
+
+
+### 会话23-29续四(2026-08-21):纵深IDOR + P1-D20测试补 并行派发
+
+接 P1 L/M级闭环后,按用户"工业级标准并行"指示推进两类:
+
+**① 纵深IDOR加固(Rust,llm-orchestrator-rs)—— agent a8678c2312640a4e1**
+P1-D16前次修了3个body user_id端点,3个session越权端点(get_session/list_turns/chat_sse)仍可按session_id越权读他人会话。修:加HeaderMap+require_user_id取权威uid,查到session后校验session.user_id==header_uid不符返403。agent a8678c2312640a4e1。
+
+**② P1-D20 4服务零测试补(TCG铁律)—— 3 agent并行**
+- admin-go(agent a66089411c86b9198):零测试,补单测(限流/熔断/metrics注册/debug_proxy/HPA等核心逻辑,≥5测)。
+- listening-go+reading-go(agent a7bb7c45d03a315f5):双服务零测试,补判分/校验/查询逻辑测试(每服务≥4测)。
+- live-tutor-go(agent ac5d49db5d80d2df0):零测试,补排期/状态机/权限/匹配逻辑测试(≥4测)。
+
+**互不冲突**:Rust端 vs 3个独立Go服务目录,无文件交叉。
+
+**侦察已确认**:dialogue/mod.rs get_session(165行,SELECT含user_id=r.1但未校验)/list_turns(188)/chat_sse(220)三handler当前纯Path查询无归属校验;4服务find _test.go全0个。
+
+**待4 agent返回**:收结论→统一全量验证(Rust cargo build + 4 Go服务go test)→commit→push。之后P1-D21契约IT(XL,真实Pulsar broker)→P1-D10 HPA多节点Locust→k6压测。

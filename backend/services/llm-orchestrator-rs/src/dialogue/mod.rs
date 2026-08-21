@@ -162,7 +162,16 @@ pub async fn create_session(
     }
 }
 
-pub async fn get_session(State(h): State<AppHandle>, Path(id): Path<i64>) -> Response {
+pub async fn get_session(
+    State(h): State<AppHandle>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Response {
+    // P1-D16 纵深 IDOR:取权威 X-User-Id;session 不存在→404,不属于调用者→403(防越权读他人会话)
+    let uid = match crate::require_user_id(&headers) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
     let res: Result<(i64, i64, Option<i64>, Option<i64>, Option<String>, String), _> =
         sqlx::query_as(
             "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
@@ -172,20 +181,37 @@ pub async fn get_session(State(h): State<AppHandle>, Path(id): Path<i64>) -> Res
         .fetch_one(&h.0.pg)
         .await;
     match res {
-        Ok(r) => Json(json!(SessionDto {
-            id: r.0,
-            user_id: r.1,
-            scenario_id: r.2,
-            persona_id: r.3,
-            cefr_level: r.4,
-            status: r.5
-        }))
-        .into_response(),
+        Ok(r) => {
+            if r.1 != uid {
+                return err_response(403, "session does not belong to caller (forbidden)");
+            }
+            Json(json!(SessionDto {
+                id: r.0,
+                user_id: r.1,
+                scenario_id: r.2,
+                persona_id: r.3,
+                cefr_level: r.4,
+                status: r.5
+            }))
+            .into_response()
+        }
         Err(e) => err_response(404, &e.to_string()),
     }
 }
 
-pub async fn list_turns(State(h): State<AppHandle>, Path(session_id): Path<i64>) -> Response {
+pub async fn list_turns(
+    State(h): State<AppHandle>,
+    headers: HeaderMap,
+    Path(session_id): Path<i64>,
+) -> Response {
+    // P1-D16 纵深 IDOR:取权威 X-User-Id;session 不存在→404,不属于调用者→403(防越权读他人轮次)
+    let uid = match crate::require_user_id(&headers) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(r) = verify_session_owner(&h.0.pg, session_id, uid).await {
+        return r;
+    }
     let rows: Result<Vec<(i64, i64, String, String, i32, i32, i32)>, _> = sqlx::query_as(
         "SELECT id, session_id, role, content, tokens_in, tokens_out, latency_ms \
          FROM dialogue_turns WHERE session_id = $1 ORDER BY created_at ASC",
@@ -222,6 +248,14 @@ pub async fn chat_sse(
     headers: HeaderMap,
     Json(req): Json<ChatReq>,
 ) -> Response {
+    // P1-D16 纵深 IDOR:取权威 X-User-Id;写 turn 前先校验 session 归属,不属于调用者→403(防越权写他人会话)
+    let uid = match crate::require_user_id(&headers) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    if let Err(r) = verify_session_owner(&h.0.pg, req.session_id, uid).await {
+        return r;
+    }
     let trace_id = headers
         .get("x-trace-id")
         .and_then(|v| v.to_str().ok())
@@ -348,6 +382,25 @@ pub async fn create_persona(
 }
 
 // ---------------- helpers ----------------
+
+/// 校验 session 归属:session 不存在→404 Err,不属于 caller→403 Err,属于→Ok(())。
+/// 供 list_turns / chat_sse 复用,避免每个端点重复写归属校验(DRY)。
+async fn verify_session_owner(pg: &PgPool, session_id: i64, uid: i64) -> Result<(), Response> {
+    let row: Option<(i64,)> =
+        sqlx::query_as("SELECT user_id FROM dialogue_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(pg)
+            .await
+            .map_err(|e| err_response(500, &e.to_string()))?;
+    match row {
+        None => Err(err_response(404, "session not found")),
+        Some((owner_uid,)) if owner_uid != uid => Err(err_response(
+            403,
+            "session does not belong to caller (forbidden)",
+        )),
+        Some(_) => Ok(()),
+    }
+}
 
 fn err_response(status: u16, msg: &str) -> Response {
     (

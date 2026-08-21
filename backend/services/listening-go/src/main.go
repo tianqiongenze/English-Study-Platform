@@ -90,6 +90,11 @@ func main() {
 }
 
 func readyz(c *gin.Context) {
+	// CLC(nil-safe):readDB 未初始化(测试/降级启动)时不解引用 nil,显式 503。
+	if readDB == nil {
+		c.JSON(503, gin.H{"status": "DOWN", "db_read": "read pool not initialized"})
+		return
+	}
 	if err := readDB.PingContext(c.Request.Context()); err != nil {
 		c.JSON(503, gin.H{"status": "DOWN", "db_read": err.Error()})
 		return

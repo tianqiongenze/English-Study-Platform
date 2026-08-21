@@ -123,14 +123,14 @@ func (s *Server) startRankingsProjector() {
 			time.Sleep(2 * time.Second)
 			continue
 		}
-		processProjectorMessage(ctx, msg)
+		s.processProjectorMessage(ctx, msg)
 		con.Ack(msg)
 	}
 }
 
 // processProjectorMessage 把单条 Pulsar 事件投影到排行榜(复用 fanout 路径)。
 // 幂等(偏差⑤):message_id SETNX,与轮询侧互斥 —— 先到者处理,后到者跳过。
-func processProjectorMessage(ctx context.Context, msg pulsar.Message) {
+func (s *Server) processProjectorMessage(ctx context.Context, msg pulsar.Message) {
 	var ev LearningEventReport
 	if err := json.Unmarshal(msg.Payload(), &ev); err != nil {
 		log.Printf("[%s] rankings projector unmarshal err: %v (skip)", serviceName, err)

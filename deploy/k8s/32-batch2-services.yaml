@@ -286,7 +286,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: gamification-go
-        image: esp/gamification-go:0.4.3   # #220 #226 数字人 persona:GET/PUT /me/digital-human 写 esp_auth.users.digital_human(跨 schema)
+        image: esp/gamification-go:1.2.0   # 1.2.0: -tags pulsar_eda 编入真实 rankings_projector(修 gap3 配而未接+stale-image-blindspot,0.4.3 跑 stub 无投影);#220 #226 数字人 persona 写 esp_auth.users.digital_human
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8092}]
         securityContext:
@@ -302,6 +302,12 @@ spec:
         - {name: OTEL_SERVICE_NAME, value: "gamification-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         - {name: NACOS_ADDR, value: "nacos:8848"}
+        # P1-D21 gap3(2026-08-21):启用 Pulsar CQRS 投影器(rankings_projector.go 订阅
+        # learning.event.report,Redis SETNX 幂等)。1.2.0 镜像已 -tags pulsar_eda 编入真实
+        # projector(非 stub),但运行期 PULSAR_ENABLED 需显式 true 才启动(否则走 pollLoop 轮询)。
+        # Pulsar broker: pulsar-broker:6650(ekb-m2 ns,3 broker Running,ESP ns ExternalName 可达)。
+        - {name: PULSAR_ENABLED, value: "true"}
+        - {name: PULSAR_URL, value: "pulsar-broker:6650"}   # 代码自动拼 pulsar:// 前缀(rankings_projector.go:75),勿带 pulsar://
         # P1-30 零信任:JWT 公钥(esp-rsa-jwt-verify)注入,供 middleware.MustInitJWTFromEnv
         # 校验 BFF 签发的 RS256 JWT;缺失则 MustInitJWTFromEnv os.Exit(1)(对齐 gateway-go)。
         envFrom:

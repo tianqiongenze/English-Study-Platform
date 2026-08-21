@@ -327,3 +327,17 @@ P1-D16前次修了3个body user_id端点,3个session越权端点(get_session/lis
 1. ingress /graphql(af72411):完成。40-ingress.yaml 加 /graphql path 指向 bff-java:8090,apply RC=0,路由生效(DGO 回写)。
 2. AI 服务探针 timeout 3 转 5s(af612ee):完成。30-other-services.yaml(writing-py/emotion-svc/writing-coach)+15-bff-java.yaml(bff-java)readiness timeout 3 转 5s,4 deploy 串行 rollout 全 Ready(esp-singlenode-host-cluster-contention),liveness 未动。
 3. gamification-go projector Dockerfile 加 pulsar_eda tags(acf757f):进行中。修生产镜像跑 stub(gap3),含 go.mod pulsar 依赖核实+BVV binary 校验。
+## 续十(2026-08-21)gap2/gap3 镜像重建+部署闭环(BVV全链)
+
+**gap3 gamification-go projector 三层根治**:
+1. 编译层:Dockerfile go build 加 -tags pulsar_eda(BVV binary size 0.4.3=53.5MB→1.2.0=63.7MB +10.2MB pulsar SDK 编入;strings pulsar refs 0→5592;startRankingsProjector 符号 2→11;learning.event.report topic 0→1;processedMark SETNX 0→3)。go.mod 有 pulsar-client-go v0.21.0 无需新依赖。
+2. 源码层:rankings_projector.go 第133行 processProjectorMessage 裸函数→(s *Server) 方法(receiver 缺失,加 tag 编译暴露 undefined s,CLC 铁律③实证:stub 模式不编译故 bug 隐蔽)。第126行调用改 s.processProjectorMessage。
+3. 运行期层:32-batch2-services.yaml 加 PULSAR_ENABLED=true + PULSAR_URL=pulsar-broker:6650(ASV 核实代码 getenvProj PULSAR_URL 默认 pulsar-broker:6650,第75行自动拼 pulsar:// 前缀,勿带 pulsar:// 否则双重前缀 DNS 失败)。
+4. 部署:rollout 成功,pod 连上 broker(ExternalName pulsar-broker→pulsar.platform-infra→ekb-m2 pulsar-broker-0:6650 跨 ns 转发),consumer ready subscription=esp-gamif-rankings-projector topic=learning.event.report,loop started。三层全闭合。
+
+**gap2 learning-java publishReliable 镜像重建闭环**:
+1. mvn package 产新 jar(含 publishReliable 改动,BVV 字节码第49行 invokevirtual EventPublisher.publishReliable(String,Object,String) + 第86行 catch EventPublishException.toString)。
+2. docker build esp/learning-java:1.13.3(BVV 镜像内 jar grep publishReliable=2,旧 1.13.2=0 对比证实修复生效)。
+3. 20-learning-java.yaml 回写 1.13.3(DGO)。apply+rollout 成功,pod imageID 匹配 build manifest,Spring Started in 50.6s 正常。learning-worker 用旧 1.11.3 不同 tag(worker 只消费不发 Pulsar,不需 publishReliable)。
+
+**4 前置全完成**:ingress /graphql + 探针 timeout 3→5s + gap3 projector + gap2 publishReliable。压测环境就绪,可串行跑 P1-D10 HPA + k6 GraphQL 对比(VM 雪崩防护:串行非并行)。

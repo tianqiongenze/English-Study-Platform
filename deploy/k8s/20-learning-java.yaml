@@ -16,7 +16,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: learning-java
-        image: esp/learning-java:1.13.2   # 1.13.2 = 409兜底:LearningConflictAdvice(独立bean名+@Order最高优先级,防web-common同名覆盖)+ UserMastery构造器version=null(新实体走INSERT)修定级500;1.13.1 同义保留
+        image: esp/learning-java:1.13.3   # 1.13.3 = P1-D21 gap2 EER:reportEvent publish→publishReliable(同步阻塞+blockIfQueueFull(true)+失败抛EventPublishException,worker-split入口学情事件不再fire-and-forget静默丢);1.13.2=409兜底LearningConflictAdvice+UserMastery version=null
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8081}, {containerPort: 50091}]
         securityContext:

@@ -10,7 +10,11 @@ ENV GOTOOLCHAIN=auto
 RUN sed -i 's|replace esp/common-go => ../../shared/esp-common-go|replace esp/common-go => ./esp-common-go|' go.mod
 RUN go mod download
 COPY services/gamification-go/src ./src
-RUN go mod tidy && CGO_ENABLED=0 go build -o /out/gamification-go ./src
+# -tags pulsar_eda 启用 rankings_projector.go 真实 Pulsar CQRS 投影器(订阅 learning.event.report,
+# Redis SETNX 幂等投影 ZSET);不加 tag 则 rankings_projector_stub.go(!pulsar_eda)参与编译,
+# startRankingsProjector no-op——P1-D21 gap3 修复:配而未接 + stale-image-blindspot 双违规根治。
+# go.mod 已声明 apache/pulsar-client-go v0.21.0 且第11行 go mod download 已拉取,加 tag 无额外网络依赖。
+RUN go mod tidy && CGO_ENABLED=0 go build -tags pulsar_eda -o /out/gamification-go ./src
 
 FROM esp/alpine-runtime:3.22
 RUN apk add --no-cache ca-certificates

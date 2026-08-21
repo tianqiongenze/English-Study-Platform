@@ -116,4 +116,4 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
-replace esp/common-go => ../../shared/esp-common-go
+replace esp/common-go => /app/shared/esp-common-go

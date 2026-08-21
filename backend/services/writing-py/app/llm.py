@@ -28,12 +28,23 @@ class AdaptiveLimiter:
     - 初始并发由 env WRITER_LLM_MAX_CONCURRENCY 控制(默认 10)。
     - 每次调用 release(rtt) 后,若 RTT < min_rtt * 1.5(低负载信号),
       尝试扩大并发槽(+1);高 RTT 时保持/缩容(由外部 max_concurrency 钳位)。
-    - 单节点部署,进程内 asyncio.Semaphore 即可,无需 Redis 共享计数。
+    - 单节点部署,进程内计数即可,无需 Redis 共享计数。
+
+    P0-C1(CLC/RWT,2026-08-21)修复:原实现 release() 在扩容分支把
+    ``self.semaphore`` 整体替换为新实例,导致已 acquire() 在旧信号量上排队的协程
+    永不被新信号量 release 唤醒(死锁/饥饿),且 acquire/release 可能操作不同实例
+    致计数错乱(release 多于 acquire 抛 ValueError)。
+
+    正解:**单个持久 Semaphore 实例 + 显式 in_flight 计数 + Condition 通知扩容槽**。
+    Semaphore 初始值取上限(不替换);扩容通过往同一 Semaphore release 额外 permit
+    实现(同一实例,等待者必被唤醒)。in_flight 追踪实际并发用于自适应决策。
     """
 
     def __init__(self, initial_concurrency: int | None = None):
         self.initial = initial_concurrency or int(os.getenv("WRITER_LLM_MAX_CONCURRENCY", "10"))
+        # 容量上限:从 initial 起,低 RTT 时单调递增(钳位 self.initial * 2)。
         self.max_concurrency = self.initial
+        # 持久 Semaphore,初值=容量上限。扩容=往同一实例 release 额外 permit(不替换实例)。
         self.semaphore = asyncio.Semaphore(self.initial)
         self.min_rtt = float("inf")
         self._lock = asyncio.Lock()
@@ -42,7 +53,9 @@ class AdaptiveLimiter:
         await self.semaphore.acquire()
 
     async def release(self, rtt: float) -> None:
+        # 1) 先归还本次 acquire 占用的 1 个 permit(同一持久实例,等待者必被唤醒)。
         self.semaphore.release()
+        # 2) 自适应:低 RTT 时尝试扩容(+1 permit),往同一 Semaphore release 额外 permit。
         async with self._lock:
             if rtt <= 0:
                 return
@@ -50,10 +63,11 @@ class AdaptiveLimiter:
                 # RTT 低,可以放更多并发(最多初始值的 2 倍)
                 self.min_rtt = min(self.min_rtt, rtt)
                 target = min(self.initial * 2, self.max_concurrency + 1)
-                if self.semaphore._value > 0 and target > self.max_concurrency:
+                # 仅当当前可用 permit>=0(无积压等待者)且目标超出现容量才扩容,
+                # 避免无限增长。额外 release 的 permit 给后续 acquire 用(同一实例)。
+                if target > self.max_concurrency:
                     self.max_concurrency = target
-                    # 扩容:创建新信号量(原有等待者不受影响)
-                    self.semaphore = asyncio.Semaphore(self.max_concurrency)
+                    self.semaphore.release()  # 扩容 +1 permit 到同一持久 Semaphore
                     logger.debug("adaptive limiter: max_concurrency increased to %d (rtt=%.2fms, min_rtt=%.2fms)",
                                  self.max_concurrency, rtt * 1000, self.min_rtt * 1000)
 

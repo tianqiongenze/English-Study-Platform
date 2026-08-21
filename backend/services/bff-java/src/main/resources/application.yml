@@ -14,6 +14,18 @@ spring:
   main:
     web-application-type: servlet   # 强制 Web MVC,避免 WebFlux 双 server
     allow-bean-definition-overriding: true   # SCA seata starter 传递 spring-boot-webclient:4.0.0,其 CodecsAutoConfiguration 与 SB3.5.16 defaultCodecCustomizer bean 重名,允许覆盖消解
+  graphql:
+    # Phase1 Task C(2026-08-21):schema-first 试点,与 REST(/api/** ProxyController)共存。
+    # /graphql 端点复用 8090(MVC 端口),经 AuthFilter 校验 JWT 注入 X-User-Id(同 REST 链路)。
+    http:
+      path: /graphql   # ASV 核实:path 在 http: 下(GraphQlProperties$Http.getPath)
+    graphiql:
+      path: /graphiql           # GraphiQL 调试 UI(仅开发诊断,经 AuthFilter 鉴权)
+      enabled: true
+    schema:
+      locations: classpath:graphql/schema.graphqls   # ASV 核实:Schema.getLocations()(String[])
+    # 深度/复杂度护栏不在 properties 里,经 GraphQLConfig 的 GraphQlSourceBuilderCustomizer bean
+    # 注册 MaxQueryDepthInstrumentation/MaxQueryComplexityInstrumentation(见 GraphQLConfig)。
   cloud:
     nacos:
       # Nacos 服务注册 + 配置中心(ADR-08)。已部署 nacos:8848(见 deploy/k8s/06-sca-middleware.yaml)。

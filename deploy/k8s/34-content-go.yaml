@@ -7,11 +7,15 @@ spec:
   replicas: 1
   selector: {matchLabels: {app: content-go}}
   template:
-    metadata: {labels: {app: content-go}}
+    metadata: {labels: {app: content-go}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8096", prometheus.io/path: "/metrics"}}
     spec:
+      securityContext:              # Phase1 1.6 + RWP铁律:pod 级 fsGroup 与 runAsUser:1000 一致,emptyDir 属主正确
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: content-go
-        image: esp/content-go:1.0.5   # 1.0.5 坑㉙:CRDB outbox 自投 relay(补 gamification 排行榜喂数断链)
+        image: esp/content-go:1.0.6   # 1.0.6: 补 RegisterNacos + rate_limit_total 指标(SetRateLimitService)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8096}]
         securityContext:
@@ -35,7 +39,15 @@ spec:
         # 单节点 DEFERRED(2026-08-16):CPU request 100m→50m。
         # 原因:单节点请求总量 9130m/9000m 超配(metrics-server 缺失致 HPA 盲),100m 无法调度。
         # 多节点步骤:扩容后恢复 100m;依赖 metrics-server 到位后 HPA 生效。
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go 默认写 ./log=/app/log(对标 reading-go 已修模式),OTel/gRPC 可能写 /tmp。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
         resources: {requests: {cpu: "50m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1

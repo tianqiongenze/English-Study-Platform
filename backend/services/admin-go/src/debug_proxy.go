@@ -46,17 +46,17 @@ var debugEndpointMap = map[string]map[string]string{
 		"mappings":   "/debug/mappings",
 	},
 	"Python": {
-		"env":        "/debug/env",
-		"loggers":    "/debug/loglevel",
-		"beans":      "/debug/beans",
-		"mappings":   "/debug/mappings",
+		"env":      "/debug/env",
+		"loggers":  "/debug/loglevel",
+		"beans":    "/debug/beans",
+		"mappings": "/debug/mappings",
 		// threaddump/heapdump: NA
 	},
 	"Rust": {
-		"env":        "/debug/env",
-		"loggers":    "/debug/loglevel",
-		"beans":      "/debug/beans",
-		"mappings":   "/debug/mappings",
+		"env":      "/debug/env",
+		"loggers":  "/debug/loglevel",
+		"beans":    "/debug/beans",
+		"mappings": "/debug/mappings",
 		// threaddump/heapdump: NA
 	},
 }
@@ -147,6 +147,14 @@ func (s *Server) handleDebugProxy(w http.ResponseWriter, r *http.Request) {
 
 	// 透传响应(heapdump=二进制流,env/loggers/beans/mappings=JSON)。
 	// heapdump 含 Content-Disposition: attachment;透传让浏览器下载。
+	// 降级(3a,2026-08-21):下游 404(服务声明支持该 endpoint 但实际路径未实现,如早期 Go 服务未加 /debug/beans)
+	// 不再原样透传 404 触发前端报错,而是返回统一 {"status":"NA","msg":"..."} 200,前端展示 NA 徽章。
+	if resp.StatusCode == http.StatusNotFound {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"NA","msg":"endpoint not implemented on %s (%s %s returned 404)","service":"%s","endpoint":"%s"}`, svcName, target.Lang, path, svcName, endpoint)
+		return
+	}
 	for _, h := range []string{"Content-Type", "Content-Disposition", "Content-Length"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
@@ -164,8 +172,8 @@ func (s *Server) handleDebugCapabilities(w http.ResponseWriter, _ *http.Request)
 	}
 	writeJSON(w, map[string]any{
 		"capabilities": caps,
-		"endpoints":     []string{"env", "loggers", "threaddump", "heapdump", "beans", "mappings"},
-		"note":          "threaddump/heapdump: Java actuator 原生;Go pprof 等价;Python/Rust NA(无原生等价,标 NA)",
+		"endpoints":    []string{"env", "loggers", "threaddump", "heapdump", "beans", "mappings"},
+		"note":         "threaddump/heapdump: Java actuator 原生;Go pprof 等价;Python/Rust NA(无原生等价,标 NA)",
 	})
 }
 

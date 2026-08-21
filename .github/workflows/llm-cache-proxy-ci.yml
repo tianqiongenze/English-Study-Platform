@@ -1,0 +1,105 @@
+name: llm-cache-proxy CI
+
+on:
+  push:
+    paths:
+      - 'tools/llm-cache-proxy/**'
+  pull_request:
+    paths:
+      - 'tools/llm-cache-proxy/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/llm-cache-proxy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: tools/llm-cache-proxy/go.sum
+      - name: Set Go proxy (China mirror for CI speed)
+        run: go env -w GOPROXY=https://goproxy.cn,direct
+      - name: go vet (CLC 铁律门禁)
+        run: go vet ./...
+      - name: go build
+        run: go build ./cmd/lco-proxy/
+      - name: go test with coverage (落盘 coverage.out)
+        run: go test -coverprofile=coverage.out -cover ./...
+      - name: Upload coverage artifact (SCS/CI 铁律:覆盖率可追溯)
+        uses: actions/upload-artifact@v4
+        with:
+          name: lco-proxy-coverage
+          path: tools/llm-cache-proxy/coverage.out
+          if-no-files-found: error
+          retention-days: 30
+      - name: govulncheck (SCS 铁律:依赖漏洞前置阻断)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+      - name: golangci-lint (代码质量门禁,含 nilnesserr/nilerr/gosec)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: tools/llm-cache-proxy
+
+  # ───────── SCS 铁律:SBOM 产出(syft, cyclonedx)─────────
+  # 关联: SCS 第⑤条 SBOM 产出;新 CVE 爆发时快速查 lco-proxy 受影响范围。
+  sbom:
+    name: SBOM (syft)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 syft
+        uses: anchore/sbom-action/download@v0
+      - name: 产 SBOM(cyclonedx-json,扫 tools/lco-proxy 目录)
+        working-directory: tools/llm-cache-proxy
+        run: |
+          syft dir:. -o cyclonedx-json --output sbom.cdx.json
+          test -s sbom.cdx.json && echo "SBOM 产出 $(wc -c < sbom.cdx.json) bytes"
+      - name: 上传 SBOM artifact(保留 30 天,SCS 可追溯)
+        uses: actions/upload-artifact@v4
+        with:
+          name: lco-proxy-sbom-cdx
+          path: tools/llm-cache-proxy/sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # ───────── SCS 铁律:镜像签名(cosign)─────────
+  # 关联: SCS 第⑥条 镜像来源校验;cosign sign 镜像,部署侧 cosign verify。
+  # graceful skip:无 COSIGN_KEY/COSIGN_PASSWORD 注入时跳过(不造伪密钥,MPB/SCS)。
+  # 密钥注入后生效(本地无 COSIGN_KEY,DEFERRED 本地验证,见 report)。
+  sign:
+    name: cosign sign
+    runs-on: ubuntu-latest
+    needs: [test, sbom]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    env:
+      COSIGN_EXPERIMENTAL: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: 构建镜像(本地 load,不推 registry)
+        uses: docker/build-push-action@v6
+        with:
+          context: tools/lco-proxy
+          file: tools/llm-cache-proxy/Dockerfile
+          tags: esp/lco-proxy:${{ github.sha }}
+          load: true
+      - name: 安装 cosign
+        uses: sigstore/cosign-installer@v3
+      - name: cosign sign(graceful skip 无密钥)
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          if [ -z "${COSIGN_KEY}" ]; then
+            echo "::notice::SCS cosign:未注入 COSIGN_KEY 密钥,跳过镜像签名(graceful skip)。密钥注入后生效。"
+            exit 0
+          fi
+          echo "${COSIGN_KEY}" > /tmp/cosign.key
+          cosign sign --key /tmp/cosign.key --yes esp/lco-proxy:${{ github.sha }}
+          cosign verify --key /tmp/cosign.key --yes esp/lco-proxy:${{ github.sha }}
+          echo "SCS cosign:镜像签名+验证通过"

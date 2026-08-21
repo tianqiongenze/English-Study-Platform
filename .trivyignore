@@ -31,3 +31,14 @@ CVE-2026-42496  # perl-base 5.36.0-7+deb12u3;理由:上游无补丁fix_deferred,
 CVE-2026-57433  # perl-base 5.36.0-7+deb12u3;理由:上游无补丁,dpkg硬依赖不可purge;复审:2026-09-08
 CVE-2026-8376   # perl-base 5.36.0-7+deb12u3;理由:上游无补丁,dpkg硬依赖不可purge;复审:2026-09-08
 CVE-2023-45853  # zlib1g 1:1.2.13.dfsg-1;理由:上游will_not_fix,被dpkg/util-linux依赖不可purge;复审:2026-09-08
+
+# ===== whisper:base-cpu-ct2 CRITICAL 豁免(2026-08-20 会话23-19)=====
+# 关联:report/security/trivy-image-whisper-base-cpu-ct2.json
+# 根因:Debian 13 bookworm OS 层系统库,上游 fix=无修复版本待发版。
+# 可利用性评估:whisper 是内部 ASR 服务(仅 asr-adapter-go ClusterIP 调用,无 ingress 暴露),
+#   不解析 XML/不暴露 D-Bus/不做 TLS 服务端 → 上述 4 CVE 均不可利用。
+# 复审:Debian 发版后重扫,有 fix 版本即升级重建镜像。
+CVE-2026-58016  # libglib2.0 整数下溢;whisper 不暴露 D-Bus,不可利用;复审:上游发版后
+CVE-2026-34873  # mbedtls TLS1.3 客户端冒充;whisper HTTP 内部不做 TLS 服务端,不可利用;复审:上游发版后
+CVE-2026-34875  # mbedtls 任意代码执行;同上需 TLS 握手,不可利用;复审:上游发版后
+CVE-2026-6653   # libxml2 DoS;whisper 不解析 XML,不可利用;复审:上游发版后

@@ -2,6 +2,9 @@
 FROM esp/golang-builder:1.25 AS builder
 WORKDIR /app
 ENV GOPROXY=https://goproxy.cn,direct
+# GOTOOLCHAIN=auto:go.mod 声明 go 1.26.0,基础镜像 esp/golang-builder:1.25 内 go1.25.13 不够;
+# auto 经 GOPROXY(goproxy.cn 可达)自动下载 1.26 toolchain(mirror 挂不影响)。
+ENV GOTOOLCHAIN=auto
 COPY shared/esp-common-go ./esp-common-go
 COPY services/vocab-srs-go/go.mod ./
 RUN sed -i 's|replace esp/common-go => ../../shared/esp-common-go|replace esp/common-go => ./esp-common-go|' go.mod

@@ -87,7 +87,8 @@ public abstract class BaseJwtAuthFilter extends OncePerRequestFilter {
         private final String uid;
         private final String role;
 
-        AuthHeaderWrapper(HttpServletRequest req, String uid, String role) {
+        // public: 共享包子类跨包可 new(如 bff-java AuthFilter);构造器可见性放宽,向后兼容
+        public AuthHeaderWrapper(HttpServletRequest req, String uid, String role) {
             super(req);
             this.uid = uid;
             this.role = role;

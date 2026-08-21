@@ -1,0 +1,18 @@
+# frontend-react 派生构建(预构建版)—— 绕开容器内 npm ci + workspace 链接 + 镜像源 403。
+# 流程:宿主 pnpm build 产出 dist → 本 Dockerfile 从既有镜像派生,COPY dist 覆盖。
+# 基础层:esp/frontend-react:1.2.1(已含干净 nginx + 业务 nginx.conf,dist 目录结构已就绪)。
+# 适用:antd5/recharts 等大依赖在容器内 npm ci 超时/403 时,改用宿主构建 + 派生 COPY。
+# 用法:
+#   pnpm --filter @esp/web build
+#   docker build -t esp/frontend-react:1.5.0 -f apps/web/Dockerfile.prebuilt apps/web/
+#   kubectl -n esp-prod set image deploy/frontend-react frontend-react=esp/frontend-react:1.5.0
+
+FROM esp/frontend-react:1.2.1
+
+# 宿主构建产物覆盖(dist 内含 vite base='/web/' 产出的 /web/ 资源结构)
+COPY dist/ /usr/share/nginx/html/web/
+
+# nginx.conf 覆盖基础镜像旧配置:新增 /docs /swagger-ui /v3/api-docs 反代 bff-java:8090(Swagger UI iframe)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80

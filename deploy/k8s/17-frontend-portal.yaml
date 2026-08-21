@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: frontend-portal
-        image: esp/frontend-portal:1.2.2
+        image: esp/frontend-portal:1.3.8   # 1.3.8 = nginx 加 /api/llm/ → gateway_backend 直连(90s 超时,不经 bff,gateway 自验 RS256 JWT);1.3.7 = BFF 收敛修 401/404:所有 /api/**(除 /api/admin/)经 bff-java:8090 单一鉴权入口(bff EdgeAuthHandler 注入 X-User-Id/X-Role + RouteTable 按前缀转发下游);删 6 直连 upstream,只留 bff/gateway(WS)/admin/react/h5;proxy_read_timeout 120s 兼容 AI 推理
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 80}]
         securityContext:

@@ -39,7 +39,7 @@ public class BffApplication {
     public void initRouteTable(ApplicationReadyEvent event) {
         Environment env = event.getApplicationContext().getEnvironment();
         String serverAddr = env.getProperty("spring.cloud.nacos.config.server-addr", "nacos:8848");
-        String namespace = env.getProperty("spring.cloud.nacos.config.namespace", "");
+        String namespace = env.getProperty("spring.cloud.nacos.config.namespace", "public");
         log.info("[BffApplication] Initializing RouteTable from Nacos: addr={}, ns={}", serverAddr, namespace);
         RouteTable.init(serverAddr, namespace);
     }

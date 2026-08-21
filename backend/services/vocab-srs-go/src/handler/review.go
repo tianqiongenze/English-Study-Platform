@@ -31,6 +31,7 @@ type Handler struct {
 // Logger 最小日志接口(由 main 注入 *zap.SugaredLogger 或 slog 适配)。
 type Logger interface {
 	Infof(template string, args ...any)
+	Warnf(template string, args ...any)
 	Errorf(template string, args ...any)
 }
 
@@ -71,62 +72,100 @@ func (h *Handler) Review(c *gin.Context) {
 	}
 
 	now := time.Now()
-	cur, err := h.DAO.GetUserVocab(ctx, req.UserID, req.WordID)
-	if err != nil {
-		h.Log.Errorf("GetUserVocab uid=%d wid=%d err=%v", req.UserID, req.WordID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+	// P0-D2(2026-08-21 乐观锁重试):read-modify-write 在并发复习同一(user,word)时有 lost update。
+	// GetUserVocab 读 follower 可能读到旧 version;UpsertUserVocab 的 ON CONFLICT WHERE version=$old
+	// 在 version 冲突时返 0 行,此处退避重读重算(上限 3 次)防覆盖。RWT:指数退避+jitter。
+	const maxRetry = 3
+	var cur *dao.UserVocabRow
+	var affected int64
+	for attempt := 0; attempt < maxRetry; attempt++ {
+		var err error
+		cur, err = h.DAO.GetUserVocab(ctx, req.UserID, req.WordID)
+		if err != nil {
+			h.Log.Errorf("GetUserVocab uid=%d wid=%d err=%v", req.UserID, req.WordID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+
+		var in srs.Input
+		if cur != nil {
+			in = srs.Input{
+				Quality:      req.Quality,
+				IntervalDays: cur.IntervalDays,
+				EaseFactor:   cur.EaseFactor,
+				ReviewCount:  cur.ReviewCount,
+				LapseCount:   cur.LapseCount,
+				Status:       cur.Status,
+			}
+		} else {
+			in = srs.Input{
+				Quality:      req.Quality,
+				IntervalDays: 1,
+				EaseFactor:   srs.DefaultEase,
+				ReviewCount:  0,
+				LapseCount:   0,
+				Status:       srs.StatusLearning,
+			}
+		}
+
+		res := srs.Compute(in, now)
+
+		upsert := &dao.UserVocabRow{
+			UserID:        req.UserID,
+			WordID:        req.WordID,
+			SrsStage:      0,
+			IntervalDays:  res.IntervalDays,
+			EaseFactor:    res.EaseFactor,
+			DueAt:         res.DueAt,
+			ReviewCount:   res.ReviewCount,
+			LapseCount:    res.LapseCount,
+			Status:        res.Status,
+			LastReviewed:  sqlNullTime(now),
+		}
+		if cur != nil {
+			upsert.Version = cur.Version // 乐观锁:带读到的 version 进 WHERE
+		}
+		affected, err = h.DAO.UpsertUserVocab(ctx, upsert)
+		if err != nil {
+			h.Log.Errorf("UpsertUserVocab uid=%d wid=%d err=%v", req.UserID, req.WordID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+		if affected > 0 {
+			break // 写入成功(或首次新建),退出重试
+		}
+		// affected==0:版本冲突(并发复习改了同一行),退避重读重算。
+		h.Log.Warnf("UpsertUserVocab version conflict uid=%d wid=%d attempt=%d, retry", req.UserID, req.WordID, attempt+1)
+		// 短退避(2/4/8ms + jitter),不阻塞主链太久;第 3 次仍冲突则放弃返 409。
+		backoff := time.Duration(2<<(attempt)) * time.Millisecond
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "retry timeout"})
+			return
+		}
+	}
+	if affected == 0 {
+		// 3 次重试仍冲突:高并发热点,返 409 让客户端稍后重试,不静默丢更新。
+		c.JSON(http.StatusConflict, gin.H{"error": "concurrent review conflict, retry later"})
 		return
 	}
-
-	var in srs.Input
-	if cur != nil {
-		in = srs.Input{
-			Quality:      req.Quality,
-			IntervalDays: cur.IntervalDays,
-			EaseFactor:   cur.EaseFactor,
-			ReviewCount:  cur.ReviewCount,
-			LapseCount:   cur.LapseCount,
-			Status:       cur.Status,
-		}
-	} else {
-		in = srs.Input{
-			Quality:      req.Quality,
-			IntervalDays: 1,
-			EaseFactor:   srs.DefaultEase,
-			ReviewCount:  0,
-			LapseCount:   0,
-			Status:       srs.StatusLearning,
-		}
-	}
-
-	res := srs.Compute(in, now)
-
-	upsert := &dao.UserVocabRow{
-		UserID:        req.UserID,
-		WordID:        req.WordID,
-		SrsStage:      0,
-		IntervalDays:  res.IntervalDays,
-		EaseFactor:    res.EaseFactor,
-		DueAt:         res.DueAt,
-		ReviewCount:   res.ReviewCount,
-		LapseCount:    res.LapseCount,
-		Status:        res.Status,
-		LastReviewed:  sqlNullTime(now),
-	}
-	if err := h.DAO.UpsertUserVocab(ctx, upsert); err != nil {
-		h.Log.Errorf("UpsertUserVocab uid=%d wid=%d err=%v", req.UserID, req.WordID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+	// 重新读一次拿到最终状态用于响应(避免返回基于旧值的 res)
+	final, _ := h.DAO.GetUserVocab(ctx, req.UserID, req.WordID)
+	if final != nil {
+		c.JSON(http.StatusOK, ReviewResp{
+			WordID:       req.WordID,
+			IntervalDays: final.IntervalDays,
+			EaseFactor:   final.EaseFactor,
+			DueAt:        final.DueAt.Format(time.RFC3339),
+			ReviewCount:  final.ReviewCount,
+			LapseCount:   final.LapseCount,
+			Status:       final.Status,
+		})
 		return
 	}
-	c.JSON(http.StatusOK, ReviewResp{
-		WordID:       req.WordID,
-		IntervalDays: res.IntervalDays,
-		EaseFactor:   res.EaseFactor,
-		DueAt:        res.DueAt.Format(time.RFC3339),
-		ReviewCount:  res.ReviewCount,
-		LapseCount:   res.LapseCount,
-		Status:       res.Status,
-	})
+	// final==nil 不应发生(刚 upsert 成功);兜底返最小信息。
+	c.JSON(http.StatusOK, ReviewResp{WordID: req.WordID})
 }
 
 // Due 查询某用户到期词列表。

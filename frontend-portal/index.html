@@ -180,7 +180,7 @@
     /* ---- 后端连通性探测 ---- */
     async function probe(url) {
       try { const t0 = performance.now(); const r = await fetch(url, { cache:'no-store', signal: AbortSignal.timeout(4000) });
-        return { ok: r.ok, status: r.status, ms: Math.round(performance.now()-t0) };
+        return { ok: r.ok || r.status === 401 || r.status === 403, status: r.status, ms: Math.round(performance.now()-t0) };
       } catch (e) { return { ok:false, status:0, ms:0, err:String(e).slice(0,40) }; }
     }
     async function probeAll() {

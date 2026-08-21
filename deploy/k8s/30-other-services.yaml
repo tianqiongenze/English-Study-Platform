@@ -238,8 +238,9 @@ spec:
         - {name: MILVUS_ADDR, value: "milvus:19530"}
         - {name: EMBEDDING_URL, value: "http://host.lima.internal:15730/embed"}
         # L3:Neo4j Prompt→Response 图谱(ExternalName → neo4j.platform-infra)
+        # L3:Neo4j Prompt→Response 图谱(Neo4j 下沉宿主 brew services 2026-08-20,直连 host.lima.internal:7687)
         - {name: L3_ENABLED, value: "true"}
-        - {name: NEO4J_URL, value: "bolt://neo4j:7687"}
+        - {name: NEO4J_URL, value: "bolt://host.lima.internal:7687"}
         - {name: NEO4J_USER, value: "neo4j"}
         - {name: NEO4J_PASSWORD, valueFrom: {secretKeyRef: {name: esp-secrets, key: NEO4J_PASSWORD}}}
         - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}

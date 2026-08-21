@@ -18,5 +18,5 @@ use (
 	./backend/services/tts-adapter-go
 	./backend/services/vocab-srs-go
 	./backend/shared/esp-common-go
-	./tools/lco-proxy
+	./tools/llm-cache-proxy
 )

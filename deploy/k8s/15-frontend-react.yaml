@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: frontend-react
-        image: esp/frontend-react:1.2.1   # 1.2.1 = 30090 白屏修复:dist→/usr/share/nginx/html/web + location /web/ alias + 根路径302(registry 403,派生镜像 runtime-only)
+        image: esp/frontend-react:1.7.0   # 1.7.0 = AI 助手浮层(AIAssistant.tsx FloatButton+对话面板,App.tsx 全局挂载)+ i18n 9 语言(zh/en/ar/fr/ru/es/de/he/el + RTL,AntdProvider 9 locale)+ 9 美化页;1.6.0 = 深度美化(framer-motion 动效 + antd 重构核心页 + OpsPanel 3 新 Tab);派生构建 FROM 1.2.1 COPY dist+nginx.conf
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 80}]
         securityContext:

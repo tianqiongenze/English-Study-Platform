@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: nacos
+  namespace: ekb-m2-aws-us-east-1
+  annotations:
+    esp.esp.io/managed: "host-sink"
+    esp.esp.io/sink-target: "192.168.5.2"
+    esp.esp.io/note: "nacos 下沉宿主机手动 Endpoints,对标 milvus-minio 既定模式。宿主 nacos 由 com.esp.nacos-host launchd 常驻(KeepAlive+RunAtLoad),CRDB 持久化。2026-08-20 会话23-17"
+subsets:
+- addresses:
+  - ip: 192.168.5.2
+  ports:
+  - name: http
+    port: 8848
+    protocol: TCP
+  - name: grpc
+    port: 9848
+    protocol: TCP
+  - name: raft
+    port: 9849
+    protocol: TCP

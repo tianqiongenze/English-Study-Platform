@@ -56,6 +56,13 @@
             <artifactId>spring-boot-starter-jetty</artifactId>
         </dependency>
 
+        <!-- Spring for GraphQL(schema-first 渐进式试点,Phase1 Task C):与 REST 共存。
+             spring-boot-starter-graphql 由 SB 4.0.7 BOM 管理 spring-graphql 2.0.4 + graphql-java 25.0。
+             默认 HTTP 端点 /graphql,默认 schema 位置 classpath:graphql/**/.graphqls。
+             ASV(2026-08-21 WebFetch 核实):@QueryMapping/@MutationMapping/@SchemaMapping/@Argument/@BatchMapping
+             位于 @Controller(由 AnnotatedControllerConfigurer 自动检测);WebGraphQlInterceptor bean
+             被 GraphQlWebMvcAutoConfiguration 的 ObjectProvider 自动收集注入。 -->
+
         <!-- Netty:边缘接入层核心 -->
         <dependency>
             <groupId>io.netty</groupId>
@@ -248,6 +255,13 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- spring-graphql-test:GraphQlTester / HttpGraphQlTester 切片测试(BOM-managed)。
+             Phase1 暂不写 GraphQL 切片测试(避免拉起 ApplicationContext 与 VM 争用),引入以备 Phase2。 -->
+        <dependency>
+            <groupId>org.springframework.graphql</groupId>
+            <artifactId>spring-graphql-test</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- byte-buddy:运行期 Seata/Hibernate 需要 ElementMatcher 等;同时 Mockito inline mock 复用 -->
         <!-- OpenTelemetry API:边缘层 traceparent 透传(P1-5),javaagent 运行时注入,编译期需 API jar。
              版本由 Spring Boot 4.0.7 BOM 管理(opentelemetry.version=1.55.0)。 -->
@@ -284,6 +298,13 @@
             <groupId>net.bytebuddy</groupId>
             <artifactId>byte-buddy-agent</artifactId>
             <version>${byte-buddy.version}</version>
+        </dependency>
+
+        <!-- Spring for GraphQL starter(BOM-managed,Phase1 Task C schema-first 试点)。
+             与 REST ProxyController 共存,/graphql 端点复用 8090(MVC 端口,已暴露)。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-graphql</artifactId>
         </dependency>
     </dependencies>
 

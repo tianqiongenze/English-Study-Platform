@@ -21,16 +21,14 @@ COPY services/assessment-rs/Cargo.toml Cargo.lock* ./
 COPY services/assessment-rs/src ./src
 RUN cargo build --release
 
-# 运行阶段:debian:bookworm-slim(nonroot)
-FROM docker.1ms.run/library/debian:bookworm-slim
-RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g; s|security.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd -u 65532 -r -s /usr/sbin/nologin nonroot
+# 运行阶段:esp/rust-runtime:debian-slim-derived(已含 ca-certificates/libgcc-s1/curl + nonroot 65532)
+# 基础镜像 Dockerfile: deploy/base-images/rust-runtime.Dockerfile
+FROM esp/rust-runtime:debian-slim-derived
+USER root
 WORKDIR /app
 COPY --from=builder /workspace/assessment-rs/target/release/assessment-rs /app/assessment-rs
 COPY scripts/nacos-register.sh /app/nacos-register.sh
-RUN chmod +x /app/nacos-register.sh
+RUN chmod +x /app/nacos-register.sh /app/assessment-rs
 EXPOSE 8090
 ENV PORT=8090
 ENV SERVICE_NAME=assessment-rs

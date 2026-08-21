@@ -71,4 +71,21 @@ export const api = {
   setDigitalHuman: (persona_id: string) => client.setDigitalHuman(persona_id),
   // 中间件统一访问面板(BFF 代理,2026-08-19):聚合各中间件在线状态
   adminMiddlewareHealth: () => client.adminMiddlewareHealth(),
+  // 运维操作面板(Phase3 · 2026-08-21):资源监控 + 实时日志 + 可管理操作(scale/restart)
+  adminOpsResources: () => client.adminOpsResources(),
+  adminLogs: (service: string, tail = 200) => client.adminLogs(service, tail),
+  adminScale: (service: string, replicas: number) => client.adminScale(service, replicas),
+  adminRestart: (service: string) => client.adminRestart(service),
+  // 各级缓存监控 + Pulsar MQ(Phase4 · 2026-08-21)
+  adminCacheStats: () => client.adminCacheStats(),
+  adminCacheMilvus: () => client.adminCacheMilvus(),
+  adminCacheNeo4j: () => client.adminCacheNeo4j(),
+  adminPulsarTopics: (ns?: string) => client.adminPulsarTopics(ns),
+  adminPulsarMessages: (topic: string, sub: string, limit?: number) => client.adminPulsarMessages(topic, sub, limit),
+  // 服务运行时健康(Phase4 · 2026-08-21):HPA + 熔断/限流 + API 错误率
+  adminRuntimeHPA: () => client.adminRuntimeHPA(),
+  adminRuntimeResilience: () => client.adminRuntimeResilience(),
+  adminRuntimeApis: () => client.adminRuntimeApis(),
+  // AI 助手(经 gateway LCO 三层缓存)
+  llmChat: (message: string, role?: string) => client.llmChat(message, role),
 };

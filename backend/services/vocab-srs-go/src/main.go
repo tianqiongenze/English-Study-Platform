@@ -42,6 +42,7 @@ import (
 const serviceName = "vocab-srs-go"
 
 func main() {
+	middleware.SetRateLimitService(serviceName)
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 	sugar := logger.Sugar()

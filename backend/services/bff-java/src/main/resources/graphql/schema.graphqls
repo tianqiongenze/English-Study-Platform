@@ -1,0 +1,83 @@
+# ESP BFF GraphQL 试点 schema(Phase1 Task C,2026-08-21)
+#
+# 设计目标:渐进式 schema-first,与现有 REST(/api/** ProxyController)共存。
+# 聚合价值示例:
+#   - 排行榜 = rankings + rankingGap + rankingRegions(3 串行 REST → 1 GraphQL,减少 RTT)
+#   - 学情聚合 = reviewList + weakPoints(2 串行 REST → 1 GraphQL,前端一次拿全仪表盘)
+#
+# 鉴权:/graphql 端点复用 BFF AuthFilter(JWT 边缘校验),未认证请求 401,认证后 X-User-Id/X-Role
+# 由 AuthHeaderWrapper 注入 HTTP header,@auth directive 在运行期校验 GraphQLContext 中存在 userId。
+# userId 取自 JWT subject(非客户端参数),防越权伪造。
+#
+# 下游返回形状(已核实源码,见 fetcher 映射):
+#   - gamification-go /api/gamification/rankings → {list:[{rank,user_id,name,score}], as_of, mine:{user_id,rank,score,gap_to_top}}
+#   - gamification-go /api/gamification/rankings/gap → {my_rank,my_score,total,gap_to_top,gap_to_prev,percentile,opted_out?}
+#   - gamification-go /api/gamification/rankings/regions → [{code,label}]
+#   - learning-java /api/learning/review → UserMastery[] {userId,kpId,masteryScore,nextReviewAt}
+#   - learning-java /api/learning/mastery/weak → UserMastery[](同上)
+#
+# ASV(2026-08-21 WebFetch 核实):spring-graphql 2.0.4 + graphql-java 25.0;
+# directive wiring 走 graphql.schema.idl.SchemaDirectiveWiring + RuntimeWiringConfigurer#configure 注册 directiveWiring。
+
+# @auth directive:标记需要登录用户(Query 字段级)。运行期由 AuthDirectiveWiring 校验
+# DataFetchingEnvironment.getGraphQlContext().get("userId") 非空,否则抛 GraphqlErrorException。
+directive @auth on FIELD_DEFINITION
+
+type Query {
+    # ===== 排行榜聚合(3 REST → 1 GraphQL)=====
+    # 主榜:type=xp|prog, scope=global|region|circle|category, scopeId 按 scope 语义, period=daily|weekly|monthly, limit
+    rankings(type: String!, scope: String!, scopeId: String, period: String!, limit: Int): RankingResult @auth
+    # 我与榜首/前一名的差距(percentile)
+    rankingGap(type: String!, scope: String!, scopeId: String, period: String!): RankingGap @auth
+    # 可用地域清单(给 scope=region 前端下拉)
+    rankingRegions: [RegionOption!] @auth
+
+    # ===== 学情聚合(2 REST → 1 GraphQL,前端学情仪表盘一次取全)=====
+    # 今日复习清单(Ebbinghaus 调度)
+    reviewList: [MasteryItem!] @auth
+    # 薄弱知识点(按 masteryScore 升序)
+    weakPoints: [MasteryItem!] @auth
+}
+
+# ===== 排行榜类型(对齐 gamification-go 返回)=====
+type RankingResult {
+    entries: [RankingEntry!]
+    mine: RankingMine
+    asOf: String
+}
+type RankingEntry {
+    rank: Int!
+    userId: ID!
+    name: String
+    score: Float!
+    # 关联用户头像(批加载防 N+1:RankingDataLoader 按 userId 批量取 avatar)
+    # 试点 N+1 演示字段 —— 子字段解析走 @SchemaMapping + BatchLoaderRegistry。
+    avatar: String
+}
+type RankingMine {
+    userId: ID!
+    rank: Int!
+    score: Float!
+    gapToTop: Float!
+}
+type RankingGap {
+    myRank: Int!
+    myScore: Float!
+    total: Int!
+    gapToTop: Float!
+    gapToPrev: Float!
+    percentile: Float!
+    optedOut: Boolean
+}
+type RegionOption {
+    code: String!
+    label: String!
+}
+
+# ===== 学情类型(对齐 learning-java UserMastery)=====
+type MasteryItem {
+    kpId: ID!
+    masteryScore: Float!
+    masteryInt: Int
+    nextReviewAt: String
+}

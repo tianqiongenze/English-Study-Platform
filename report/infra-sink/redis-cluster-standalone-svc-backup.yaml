@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"redis-cluster","namespace":"ekb-m2-aws-us-east-1"},"spec":{"ports":[{"port":6379,"targetPort":6379}],"selector":{"app":"redis-cluster"}}}
+  creationTimestamp: "2026-04-12T11:13:52Z"
+  name: redis-cluster
+  namespace: ekb-m2-aws-us-east-1
+  resourceVersion: "155341"
+  uid: 0413ec50-3486-4b04-b931-c87ad86f3cd7
+spec:
+  clusterIP: 10.43.244.222
+  clusterIPs:
+  - 10.43.244.222
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - port: 6379
+    protocol: TCP
+    targetPort: 6379
+  selector:
+    app: redis-cluster
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}

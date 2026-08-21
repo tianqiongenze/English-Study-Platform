@@ -1,3 +1,6 @@
+# ESP P0-K2(2026-08-21 DGO 回写):TiDB 3 区域已下电止血(live 全 scale=0),
+# 仓库 yaml 原 replicas:1 与 live 漂移。回写 replicas:0 对齐。
+# 多节点恢复时改回 1(届时需先修 mirror pingcap 镜像源 403)。关联 esp-tidb-decommissioned-scale0-2026-08-20。
 # ESP TiDB 多区域 TiKV 分布式栈(方案B:真多副本 Raft)
 # 目标:验证多区域方案可行性,后续可直接移植到多节点服务器
 # 拓扑(3 逻辑区域 ns,单物理节点模拟):
@@ -116,7 +119,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: pd-aws, namespace: ekb-m2-aws-us-east-1}
 spec:
-  replicas: 1
+  replicas: 0
   selector: {matchLabels: {app: pd-aws}}
   template:
     metadata: {labels: {app: pd-aws, region: aws}}
@@ -163,7 +166,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: pd-azure, namespace: ekb-m2-azure-eastasia}
 spec:
-  replicas: 1
+  replicas: 0
   selector: {matchLabels: {app: pd-azure}}
   template:
     metadata: {labels: {app: pd-azure, region: azure}}
@@ -210,7 +213,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: pd-gcp, namespace: ekb-m2-gcp-europe-west1}
 spec:
-  replicas: 1
+  replicas: 0
   selector: {matchLabels: {app: pd-gcp}}
   template:
     metadata: {labels: {app: pd-gcp, region: gcp}}
@@ -339,7 +342,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: tikv-aws, namespace: ekb-m2-aws-us-east-1}
 spec:
-  replicas: 1
+  replicas: 0
   strategy: {type: Recreate}
   selector: {matchLabels: {app: tikv-aws}}
   template:
@@ -388,7 +391,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: tikv-azure, namespace: ekb-m2-azure-eastasia}
 spec:
-  replicas: 1
+  replicas: 0
   strategy: {type: Recreate}
   selector: {matchLabels: {app: tikv-azure}}
   template:
@@ -437,7 +440,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: tikv-gcp, namespace: ekb-m2-gcp-europe-west1}
 spec:
-  replicas: 1
+  replicas: 0
   strategy: {type: Recreate}
   selector: {matchLabels: {app: tikv-gcp}}
   template:
@@ -515,7 +518,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: tidb-cluster-tidb, namespace: ekb-m2-aws-us-east-1}
 spec:
-  replicas: 1
+  replicas: 0
   selector: {matchLabels: {app: tidb-cluster-tidb}}
   template:
     metadata: {labels: {app: tidb-cluster-tidb, region: aws, role: primary}}
@@ -559,7 +562,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: tidb-cluster-tidb, namespace: ekb-m2-azure-eastasia}
 spec:
-  replicas: 1
+  replicas: 0
   selector: {matchLabels: {app: tidb-cluster-tidb}}
   template:
     metadata: {labels: {app: tidb-cluster-tidb, region: azure, role: follower}}
@@ -603,7 +606,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: tidb-cluster-tidb, namespace: ekb-m2-gcp-europe-west1}
 spec:
-  replicas: 1
+  replicas: 0
   selector: {matchLabels: {app: tidb-cluster-tidb}}
   template:
     metadata: {labels: {app: tidb-cluster-tidb, region: gcp, role: follower}}
@@ -680,7 +683,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: {name: tiflash, namespace: ekb-m2-aws-us-east-1}
 spec:
-  replicas: 1
+  replicas: 0
   selector: {matchLabels: {app: tiflash}}
   template:
     metadata: {labels: {app: tiflash, region: aws}}

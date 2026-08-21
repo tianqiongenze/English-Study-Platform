@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: esp-platform:/Service:ekb-m2-aws-us-east-1/nacos
+  creationTimestamp: "2026-08-19T15:48:31Z"
+  labels:
+    app: nacos
+  name: nacos
+  namespace: ekb-m2-aws-us-east-1
+  resourceVersion: "1892293"
+  uid: 9516bccd-8d3a-4eb0-a922-a95dd130b2f0
+spec:
+  clusterIP: 10.43.142.178
+  clusterIPs:
+  - 10.43.142.178
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http
+    port: 8848
+    protocol: TCP
+    targetPort: 8848
+  - name: grpc
+    port: 9848
+    protocol: TCP
+    targetPort: 9848
+  - name: raft
+    port: 9849
+    protocol: TCP
+    targetPort: 9849
+  selector:
+    app: nacos
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}

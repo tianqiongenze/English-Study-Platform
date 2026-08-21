@@ -85,3 +85,5 @@
 ## 6. 一句话结论
 
 **Milvus 和 Neo4j 基础设施已在集群 Running(可用),但当前 ESP 无任何真实功能需要向量检索或图遍历,两者均暂不引入;待产品出现"相似召回"或"知识点 DAG 路径推荐"需求时再接入,零基建成本。**
+
+> **2026-08-19/20 更新(结论反转)**:LCO 铁律(三层语义缓存)确立后,Milvus/Neo4j 已接入——L2 Milvus 语义缓存(业务 `esp_llm_semantic` 384维 minilm + llm-cache-proxy `lco_prompts` 2560维 Qwen)+ L3 Neo4j 知识图谱(conversation-go/orchestrator-rs/writing-coach/llm-cache-proxy)。Neo4j 于 2026-08-20 从集群下沉宿主。本调研"暂不引入"为 2026-07-31 基线快照;实现现状见 `docs/design/llm-cache-architecture.md` 与 `docs/design/llm-cache-proxy-sdd.md`。

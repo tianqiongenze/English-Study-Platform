@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: esp-platform:/Service:esp-prod/nacos
+  creationTimestamp: "2026-08-17T11:34:00Z"
+  name: nacos
+  namespace: esp-prod
+  resourceVersion: "1892333"
+  uid: a7d8f29d-1346-4139-944a-672fdc0d188e
+spec:
+  externalName: nacos.platform-infra.svc.cluster.local
+  sessionAffinity: None
+  type: ExternalName
+status:
+  loadBalancer: {}

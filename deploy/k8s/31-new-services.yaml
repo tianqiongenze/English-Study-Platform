@@ -13,7 +13,7 @@ spec:
   replicas: 1
   selector: {matchLabels: {app: course-path-go}}
   template:
-    metadata: {labels: {app: course-path-go}}
+    metadata: {labels: {app: course-path-go}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8093", prometheus.io/path: "/metrics"}}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -21,7 +21,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: course-path-go
-        image: esp/course-path-go:0.2.0
+        image: esp/course-path-go:0.2.1
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8093}]
         securityContext:
@@ -41,7 +41,15 @@ spec:
         lifecycle:
           preStop:
             exec: {command: ["sh","-c","sleep 5"]}
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go 默认写 ./log=/app/log(对标 reading-go 已修模式),OTel/gRPC 可能写 /tmp。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1
@@ -67,7 +75,7 @@ spec:
   replicas: 1              # Phase2 修复:HPA minReplicas=1 与 deploy replicas 必须一致,否则 HPA 不接管导致 Pod 永不启动
   selector: {matchLabels: {app: live-tutor-go}}
   template:
-    metadata: {labels: {app: live-tutor-go}}
+    metadata: {labels: {app: live-tutor-go}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8094", prometheus.io/path: "/metrics"}}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -75,7 +83,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: live-tutor-go
-        image: esp/live-tutor-go:0.2.0
+        image: esp/live-tutor-go:0.2.1
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8094}]
         securityContext:
@@ -86,6 +94,7 @@ spec:
         env:
         - {name: PORT, value: "8094"}
         - {name: REDIS_CLUSTER, value: "redis-cluster-new-0.redis-cluster-new.ekb-m2-aws-us-east-1.svc.cluster.local:6379"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}
         - {name: OTEL_SERVICE_NAME, value: "live-tutor-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         startupProbe:   {httpGet: {path: /actuator/health/liveness, port: 8094}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
@@ -94,7 +103,15 @@ spec:
         lifecycle:
           preStop:
             exec: {command: ["sh","-c","sleep 5"]}
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go 默认写 ./log=/app/log(对标 reading-go 已修模式),OTel/gRPC 可能写 /tmp。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1
@@ -120,7 +137,7 @@ spec:
   replicas: 1              # Phase2 修复:HPA minReplicas=1 与 deploy replicas 必须一致,否则 HPA 不接管导致 Pod 永不启动
   selector: {matchLabels: {app: media-learn-rs}}
   template:
-    metadata: {labels: {app: media-learn-rs}}
+    metadata: {labels: {app: media-learn-rs}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8095", prometheus.io/path: "/metrics"}}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -149,7 +166,15 @@ spec:
         lifecycle:
           preStop:
             exec: {command: ["sh","-c","sleep 5"]}
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go 默认写 ./log=/app/log(对标 reading-go 已修模式),OTel/gRPC 可能写 /tmp。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1

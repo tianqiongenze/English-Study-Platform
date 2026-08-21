@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS esp_vocab.user_vocabulary (
   status        VARCHAR(16)  NOT NULL DEFAULT 'learning' COMMENT 'learning/review/mastered',
   last_reviewed DATETIME     NULL,
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  version       INT          NOT NULL DEFAULT 0 COMMENT 'P0-D2 乐观锁版本列(2026-08-21)',
   UNIQUE KEY uk_user_word (user_id, word_id),
   KEY idx_due (user_id, due_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin COMMENT='用户词汇 SRS 状态';

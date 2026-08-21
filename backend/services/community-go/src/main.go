@@ -52,6 +52,7 @@ var blockedWords = strings.Fields(config.Getenv("BLOCKED_WORDS",
 	"赌博 诈骗 广告 加V 加微信 代考 包过 作弊 嫖娼 毒品 政治敏感"))
 
 func main() {
+	middleware.SetRateLimitService(serviceName)
 	port := config.Getenv("PORT", "8097")
 	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 	log.Printf("[%s] starting on :%s", serviceName, port)

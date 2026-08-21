@@ -27,6 +27,7 @@ import (
 const serviceName = "course-path-go"
 
 func main() {
+	middleware.SetRateLimitService(serviceName)
 	port := config.Getenv("PORT", "8093")
 	log.Printf("[%s] starting on :%s", serviceName, port)
 

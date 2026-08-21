@@ -122,7 +122,7 @@ flowchart TD
 
 ### 2.2 L2 语义命中
 
-- **embedding 模型**:优先 `text-embedding-3-small`(OpenAI,1536 维,便宜);本地兜底 `bge-small-zh-v1.5`(384 维,离线)。**选型见 §3**。
+- **embedding 模型**:固定 `all-MiniLM-L6-v2`(384 维,离线,`sentence-transformers`)。conversation-go `semantic.go:44` 固定 `l2EmbeddingModel="minilm"`,orchestrator-rs `mod.rs:147` 显式传 `model=minilm`,共用 collection `esp_llm_semantic`(384 维,cosine≥0.92)。**(2026-08-20 修正:原文写 `text-embedding-3-small`/1536 维 + bge 兜底,是早期选型草案;实际落地统一 minilm 384 维,避免 zh/en 维度不一致 + 离线零外部依赖。见 §6.2 实际 schema。)**
 - **查询**:`user_prompt`(不含 system_prompt,因 system 多为模板硬编码,会稀释语义)→ embed → Milvus `search(top_k=1, metric="COSINE", params={"radius":0.92})`。
 - **命中校验**:cosine > 0.92 且 `model_version` 一致且 `created_at` 未过 TTL(L2 不设独立 TTL,靠 L1 TTL 兜底;L1 过期后即使 L2 命中也不返回,强制刷新)。
 - **防污染**:L2 只缓存 `knowledge_query`/`writing_polish` 场景;`conversation` 场景 **不写 L2**(对话上下文强依赖历史,相似 prompt 可能需不同回答)。
@@ -347,8 +347,10 @@ esp:cache:llm:meta:stats:{service}:{scene}       → hash{hits,misses,cost_saved
 
 ### 6.2 Milvus collection schema
 
+> **2026-08-20 修正**:以下是早期选型草案(`esp_llm_sem_cache`,dim=1536 text-embedding-3-small)。**实际落地与此不同**——业务 LCO 统一用 `all-MiniLM-L6-v2`(384 维),collection 名 `esp_llm_semantic`(conversation-go `semantic.go:44` + orchestrator-rs `mod.rs:147` 共用),字段 `prompt_sha16/response/model/scene/ts/embedding(384维)`。下方原草案保留作选型决策溯源,实现以 `llm-cache-proxy-sdd.md` §4.2 + 代码为准。
+
 ```python
-# Collection: esp_llm_sem_cache
+# Collection: esp_llm_sem_cache  (草案,未落地;实际见上注 esp_llm_semantic/384维)
 fields = [
     FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=64, is_primary=True),  # ulid
     FieldSchema(name="prompt_text", dtype=DataType.VARCHAR, max_length=8192),
@@ -364,6 +366,8 @@ fields = [
 ```
 
 **注**:dim=1536(text-embedding-3-small);若用 bge-small-zh 则 dim=384,需建独立 collection 或统一用 1536(推荐统一 1536,本地兜底时 zero-pad 或用投影矩阵——Phase2 选型时定)。
+
+> **实际落地(2026-08-20)**:业务统一 `esp_llm_semantic` 384 维 minilm(不分 zh/en,避免维度不一致),与宿主 llm-cache-proxy 的 `lco_prompts` 2560 维 Qwen 独立——两个 LCO 各自 collection 维度自洽,互不干扰。
 
 ### 6.3 Neo4j node/edge 模型
 

@@ -33,6 +33,7 @@ spec:
   template:
     metadata:
       labels: {app: llm-orchestrator-rs, tier: new-service, lang: rust}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8086", prometheus.io/path: "/metrics"}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -80,7 +81,7 @@ spec:
         # L3 Neo4j:Prompt→Response 知识图谱(reqwest HTTP API /db/neo4j/tx/commit,basic auth)。
         # 密码从 secret neo4j-creds 注入(铁律:不在 git 硬编码生产密码);optional 防 secret 缺失致启动失败(降级为默认占位)。
         - {name: L3_ENABLED, value: "true"}
-        - {name: NEO4J_URL, value: "http://neo4j:7474"}
+        - {name: NEO4J_URL, value: "http://host.lima.internal:7474"}
         - {name: NEO4J_USER, value: "neo4j"}
         - {name: NEO4J_PASSWORD, valueFrom: {secretKeyRef: {name: neo4j-creds, key: password, optional: true}}}
         # Nacos 服务注册(entrypoint 脚本 nacos-register.sh)
@@ -136,6 +137,7 @@ spec:
   template:
     metadata:
       labels: {app: vocab-srs-go, tier: new-service, lang: go}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8087", prometheus.io/path: "/metrics"}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -143,7 +145,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: vocab-srs-go
-        image: esp/vocab-srs-go:1.1.0   # #140 CRDB 切库:esp-common-go pgx + DAO 方言迁移(ON CONFLICT/RETURNING)
+        image: esp/vocab-srs-go:1.1.1   # #140 CRDB 切库:esp-common-go pgx + DAO 方言迁移(ON CONFLICT/RETURNING)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8087, name: http}]
         env:

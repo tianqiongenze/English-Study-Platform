@@ -17,7 +17,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: gateway-go
-        image: esp/gateway-go:1.12.0   # gateway 网关(L2/L3 语义缓存在 conversation-go 共享库 semantic.go,非 gateway 本体;1.13.0 注释误导,1.12.0 已含全部能力)
+        image: esp/gateway-go:1.15.2   # 1.15.2 = Task B-pilot:接 Sentinel-golang v1.0.4 动态限流(规则经 Nacos dataId=gateway-go-flow-rules 热加载,无需重启)+ AllowOrLimit 包裹 /api/llm/chat+/api/scenarios(限流返 429)+ Sentinel LogDir=/tmp+console logger(避 readOnly mkdir 失败)+ 空 content→ClearRules(删配置即解限)+ RWP emptyDir(/app/log+/tmp)+ Dockerfile ENV HOME=/home/app;1.15.1=console logger;1.15.0=初版;1.14.0=AI 助手链路
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8080}]
         securityContext:
@@ -34,13 +34,13 @@ spec:
         - {name: ESP_LLM_CACHE_ENABLED, value: "true"}
         # Phase2 L2 Milvus 语义缓存(cosine≥0.92)+ Phase3 L3 Neo4j 知识图谱(LCO 铁律三层完整)。
         # L2:endpoint host.lima.internal:15730/embed(minilm 384 维),pod 已验证可达;3s 超时降级不阻断。
-        # L3:bolt://neo4j:7687(ExternalName→platform-infra),凭据走 env(不硬编码进 git)。
+        # L3:bolt://host.lima.internal:7687(Neo4j 下沉宿主 brew services,2026-08-20),凭据走 env(不硬编码进 git)。
         #   注:Neo4j 密码从 esp-secrets 取(避免明文进 git;单节点 dev 默认见 knowledge.go l3DefaultPassword)。
         - {name: ESP_LLM_L2_ENABLED, value: "true"}
         - {name: ESP_LLM_L3_ENABLED, value: "true"}
         - {name: MILVUS_ADDR, value: "milvus:19530"}
         - {name: EMBEDDING_URL, value: "http://host.lima.internal:15730/embed"}
-        - {name: NEO4J_URL, value: "bolt://neo4j:7687"}
+        - {name: NEO4J_URL, value: "bolt://host.lima.internal:7687"}
         - {name: NEO4J_USER, value: "neo4j"}
         - {name: NEO4J_PASSWORD, valueFrom: {secretKeyRef: {name: esp-secrets, key: NEO4J_PASSWORD}}}
         # LLM 真实链路(上线达标 Phase0):gateway 数字人对话走 AnthropicProvider;经 CC Switch 代理
@@ -80,6 +80,14 @@ spec:
         resources:
           requests: {cpu: "100m", memory: "128Mi"}
           limits: {cpu: "1", memory: "512Mi"}
+        # RWP(铁律②):readOnlyRootFilesystem=true 容器的 SDK/业务写路径必挂 emptyDir,
+        # 否则写 /app/log、/tmp 失败(2026-08-21 与 reading-go 同构修)。镜像回写 yaml(DGO)。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 45
 ---
 apiVersion: v1

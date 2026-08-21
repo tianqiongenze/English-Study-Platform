@@ -1,5 +1,7 @@
-# ASR 真实引擎栈(去 mock,2026-08-19):
-#   whisper        —— 社区 OpenAI Whisper 兼容镜像,CPU base 模型(单节点 88% CPU 下轻量)
+# ASR 真实引擎栈(去 mock,2026-08-19;镜像自建 2026-08-20 会话23-19):
+#   whisper        —— 自建 esp/whisper:base-cpu-ct2(faster-whisper CTranslate2 int8 CPU,从 esp/python-runtime:3.13 派生)
+#                    根因:onerahmet/openai-whisper-api:latest 在 docker mirror 404 拉不下来(PROGRESS 23-15)。
+#                    Dockerfile:deploy/docker/whisper-cpu/{Dockerfile,server.py,requirements.txt}
 #   asr-adapter-go —— ESP 契约适配:{chunks:[base64...]} → Whisper multipart → {text}
 # conversation-go(provider.go case "http")经 ASR_ENDPOINT=http://asr-adapter:80/transcribe 调用。
 ---
@@ -21,7 +23,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: whisper
-        image: onerahmet/openai-whisper-api:latest   # CPU base 模型,~1-3s/句
+        image: esp/whisper:base-cpu-ct2   # 自建 faster-whisper CPU(CTranslate2 int8),~1-3s/句
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8000}]
         env:
@@ -38,8 +40,14 @@ spec:
         resources:
           requests: {cpu: "500m", memory: "512Mi"}
           limits: {cpu: "2", memory: "2Gi"}
+        # HF_HOME 模型缓存卷(RWP:Dockerfile ENV HF_HOME=/home/esp/.cache/huggingface,runAsUser 1000 下需可写)
+        volumeMounts:
+        - {name: hf-cache, mountPath: /home/esp/.cache/huggingface}
         readinessProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 5}
         livenessProbe:  {httpGet: {path: /health, port: 8000}, periodSeconds: 20, timeoutSeconds: 5, failureThreshold: 6}
+      volumes:
+      - name: hf-cache              # emptyDir:faster-whisper 首次启动下载 base 模型(~145MB)到 HF_HOME
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -86,9 +94,15 @@ spec:
           allowPrivilegeEscalation: false
         readinessProbe: {httpGet: {path: /readyz, port: 8097}, periodSeconds: 15, timeoutSeconds: 3, failureThreshold: 3}
         livenessProbe:  {httpGet: {path: /livez, port: 8097}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 5}
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # Go SDK/OTel 可能写 /tmp,挂 emptyDir 兜底(对标 reading-go 已修模式)。
+        volumeMounts:
+        - {name: tmp, mountPath: /tmp}
         resources:
           requests: {cpu: "100m", memory: "128Mi"}
           limits: {cpu: "1", memory: "512Mi"}
+      volumes:
+      - {name: tmp, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service

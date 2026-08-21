@@ -30,6 +30,7 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
+	middleware.SetRateLimitService(serviceName)
 	port := config.Getenv("PORT", "8094")
 	log.Printf("[%s] starting on :%s", serviceName, port)
 	tracing.InitPropagator()

@@ -124,39 +124,79 @@ export function AccentPicker({ compact = false }: { compact?: boolean }) {
   );
 }
 
+// 9 语言短码与原生名称(用于 LangSwitcher 展示,不随 i18n 切换而变)。
+const LOCALE_LABELS: Record<Locale, string> = {
+  zh: "中文",
+  en: "EN",
+  ar: "العربية",
+  fr: "FR",
+  ru: "RU",
+  es: "ES",
+  de: "DE",
+  he: "עברית",
+  el: "ΕΛ",
+};
+
+// compact 循环顺序(覆盖全部 9 语言)。
+const LOCALE_ORDER: Locale[] = ["zh", "en", "ar", "fr", "ru", "es", "de", "he", "el"];
+
 export function LangSwitcher({ compact = false }: { compact?: boolean }) {
   const { locale, setLocale } = useI18n();
-  const langs: Locale[] = ["zh", "en"];
+  const i18n = useI18n();
   if (compact) {
-    const next: Locale = locale === "zh" ? "en" : "zh";
+    const idx = LOCALE_ORDER.indexOf(locale);
+    const next: Locale = LOCALE_ORDER[(idx + 1) % LOCALE_ORDER.length] ?? "en";
     return (
       <button
         style={btnStyle(false) as React.CSSProperties}
-        title={i18nCompat().t("lang.switch")}
-        aria-label="Language"
+        title={i18n.t("lang.switch")}
+        aria-label={i18n.t("lang.switch")}
         onClick={() => setLocale(next)}
       >
         <GlobeIcon size={16} />
-        <span style={{ fontSize: "var(--esp-font-size-xs)" }}>{next.toUpperCase()}</span>
+        <span style={{ fontSize: "var(--esp-font-size-xs)" }}>
+          {LOCALE_LABELS[locale]}
+        </span>
       </button>
     );
   }
+  // 非紧凑:原生 <select> 下拉(9 语言用 chip 行过宽),零依赖、可访问性好。
   return (
-    <div style={swStyle} role="group" aria-label="Language">
-      {langs.map((l) => (
-        <button
-          key={l}
-          style={btnStyle(l === locale)}
-          onClick={() => setLocale(l)}
-        >
-          {l === "zh" ? "中文" : "EN"}
-        </button>
-      ))}
-    </div>
+    <label
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        background: "var(--esp-color-bg-subtle)",
+        border: "1px solid var(--esp-color-border)",
+        borderRadius: "var(--esp-radius-round)",
+        padding: "4px 10px",
+        fontSize: "var(--esp-font-size-sm)",
+        color: "var(--esp-color-text-secondary)",
+        cursor: "pointer",
+      }}
+    >
+      <GlobeIcon size={14} />
+      <span style={{ whiteSpace: "nowrap" }}>{i18n.t("lang.switch")}</span>
+      <select
+        value={locale}
+        onChange={(e) => setLocale(e.target.value as Locale)}
+        style={{
+          border: "none",
+          background: "transparent",
+          color: "var(--esp-color-text)",
+          fontSize: "var(--esp-font-size-sm)",
+          cursor: "pointer",
+          outline: "none",
+        }}
+        aria-label={i18n.t("lang.switch")}
+      >
+        {LOCALE_ORDER.map((l) => (
+          <option key={l} value={l}>
+            {LOCALE_LABELS[l]}
+          </option>
+        ))}
+      </select>
+    </label>
   );
-}
-
-// compact 形态不依赖 useI18n 覆写文案,取当前语言近似(t 在模块内不可用)
-function i18nCompat() {
-  return { t: (k: string) => (k === "lang.switch" ? "" : "") };
 }

@@ -6,7 +6,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
+
+// httpClient 外部 LLM 调用专用 client(RWT 铁律:外部 LLM 超时分级 60s)。
+// 替代 http.DefaultClient(无 Timeout,裸调可永久挂起致主链阻塞)。
+// 超时分级:外部 LLM 30-60s;此处取 60s 上限,覆盖 CSDN GLM 长尾(实测 14-22s)。
+var httpClient = &http.Client{
+	Timeout: 60 * time.Second,
+	Transport: &http.Transport{
+		ResponseHeaderTimeout: 30 * time.Second, // 首字节超时(上游多久开始吐响应头)
+		IdleConnTimeout:       90 * time.Second,
+	},
+}
 
 // AnthropicProvider 调用 Anthropic Claude Messages API。
 type AnthropicProvider struct {
@@ -59,7 +71,9 @@ func (p *AnthropicProvider) Chat(ctx context.Context, messages []Message) (strin
 	}
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("content-type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	// P0-R1(RWT 铁律,2026-08-21):改用包级带超时 httpClient(60s Timeout + 30s ResponseHeaderTimeout),
+	// 替代 http.DefaultClient.Do(无 Timeout,LLM 推理 8-34s+长尾时上游 hang 致 goroutine 永久挂起耗尽 worker)。
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}

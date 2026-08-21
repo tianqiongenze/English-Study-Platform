@@ -48,6 +48,7 @@ func NewServer(w, r *sql.DB) *Server {
 }
 
 func main() {
+	middleware.SetRateLimitService(serviceName)
 	port := config.Getenv("PORT", "8096")
 	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 	log.Printf("[%s] starting on :%s", serviceName, port)
@@ -278,16 +279,44 @@ func (s *Server) submitAnswer(c *gin.Context) {
 	correct, score := grade(itemType, body.Answers, answerB)
 
 	answersJSON, _ := json.Marshal(body.Answers)
-	_, err = s.writeDB.ExecContext(c.Request.Context(),
-		"INSERT INTO content_attempts (user_id, item_id, answers_json, score, correct, duration_ms) VALUES ($1,$2,$3::jsonb,$4,$5,$6)",
-		uid, itemID, string(answersJSON), score, correct, body.DurationMs)
+	itemIDN, _ := strconv.ParseInt(itemID, 10, 64)
+	// P0-D3(2026-08-21):content_attempts INSERT 与 learning_event_outbox INSERT 原先为两次独立
+	// ExecContext,attempts 写成功但 outbox 失败(仅 warn)→ 作答已记但 XP/掌握度事件丢失,gamification
+	// 排行榜喂数漏。现用 s.writeDB.BeginTx 包裹两次 INSERT 原子提交;任一失败整体回滚(宁可不记录作答
+	// 也不丢事件,审计 P0-D3)。跨库写经 outbox_relay.go 证实 CRDB user 有跨 esp_learning schema 权限。
+	tx, err := s.writeDB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
+		c.JSON(500, gin.H{"error": "tx begin: " + err.Error()})
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // 幂等:Commit 后 Rollback 是 no-op
+	if _, err := tx.ExecContext(c.Request.Context(),
+		"INSERT INTO content_attempts (user_id, item_id, answers_json, score, correct, duration_ms) VALUES ($1,$2,$3::jsonb,$4,$5,$6)",
+		uid, itemID, string(answersJSON), score, correct, body.DurationMs); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-
-	itemIDN, _ := strconv.ParseInt(itemID, 10, 64)
-	s.emitContentEvent(uid, itemIDN, itemType, correct, score)
+	outboxPayload, _ := json.Marshal(gin.H{
+		"user_id":     uid,
+		"item_id":     itemIDN,
+		"item_type":   itemType,
+		"category":    itemType,
+		"correct":     correct,
+		"score":       score,
+		"source":      "content-library",
+		"occurred_at": time.Now().UTC().Format(time.RFC3339),
+	})
+	if _, err := tx.ExecContext(c.Request.Context(),
+		`INSERT INTO esp_learning.learning_event_outbox (message_id, user_id, event_type, payload)
+		 VALUES ($1,$2,$3,$4::jsonb)`,
+		randID(), uid, "content.item_answered", string(outboxPayload)); err != nil {
+		c.JSON(500, gin.H{"error": "outbox write (tx rollback): " + err.Error()})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		c.JSON(500, gin.H{"error": "tx commit: " + err.Error()})
+		return
+	}
 
 	c.JSON(200, gin.H{"correct": correct, "score": score, "explanation": explanation.String})
 }

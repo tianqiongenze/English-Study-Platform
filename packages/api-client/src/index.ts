@@ -82,6 +82,150 @@ export interface AdminDebugLoggers {
   error?: string;
 }
 
+// 运维操作面板类型(Phase3 · 2026-08-21):资源监控 + 日志 + scale/restart。
+export interface AdminOpsMetric {
+  query: string;
+  value: string;
+  status: string;
+}
+export interface AdminOpsResources {
+  kind: string;
+  checked_at: string;
+  metrics: Record<string, AdminOpsMetric>;
+  note?: string;
+}
+export interface AdminOpsResult {
+  action: string;
+  service: string;
+  replicas?: string;
+  status: string;
+  code: number;
+  response?: string;
+}
+
+// 各级缓存监控类型(Phase4 · 2026-08-21):L1 Redis + L2 Milvus + L3 Neo4j。
+export interface AdminCacheLayerStat {
+  layer: string;
+  name: string;
+  hits: string;
+  misses: string;
+  errors: string;
+  hit_rate: string;
+  status: string;
+  extra?: Record<string, string>;
+  msg?: string;
+}
+export interface AdminCacheStatsResponse {
+  kind: string;
+  checked_at: string;
+  layers: AdminCacheLayerStat[];
+  lco_stats?: unknown;
+  note?: string;
+}
+export interface AdminMilvusResponse {
+  kind: string;
+  checked_at: string;
+  collection: string;
+  num_entities: string;
+  status: string;
+  msg?: string;
+}
+export interface AdminNeo4jResponse {
+  kind: string;
+  checked_at: string;
+  nodes: Record<string, string>;
+  relationships: Record<string, string>;
+  status: string;
+  msg?: string;
+}
+
+// Pulsar MQ 消息查看类型(Phase4 · 2026-08-21)。
+export interface AdminPulsarSubscription {
+  name: string;
+  msg_backlog: number;
+  msg_rate_out: string;
+  msg_rate_redeliver: string;
+  type: string;
+}
+export interface AdminPulsarTopic {
+  topic: string;
+  fqn: string;
+  subscriptions?: AdminPulsarSubscription[];
+  backlog: number;
+  producers: number;
+  msg_rate_in: string;
+  msg_rate_out: string;
+  status: string;
+}
+export interface AdminPulsarTopicsResponse {
+  kind: string;
+  checked_at: string;
+  namespace: string;
+  topics: AdminPulsarTopic[];
+  note?: string;
+}
+export interface AdminPulsarMessage {
+  message_id: string;
+  publish_time: string;
+  producer: string;
+  payload: unknown;
+  payload_raw: string;
+}
+export interface AdminPulsarMessagesResponse {
+  kind: string;
+  topic: string;
+  subscription: string;
+  messages: AdminPulsarMessage[];
+  note?: string;
+}
+
+// 服务运行时健康类型(Phase4 · 2026-08-21):HPA + 熔断 + 限流 + API 错误率。
+export interface AdminHPAStatus {
+  name: string;
+  minReplicas: number;
+  maxReplicas: number;
+  currentReplicas: number;
+  desiredReplicas: number;
+  targetCpu: string;
+  currentCpu: string;
+  scaling: boolean;
+  status: string;
+}
+export interface AdminHPAResponse {
+  kind: string;
+  checked_at: string;
+  items: AdminHPAStatus[];
+  note?: string;
+  error?: string;
+}
+export interface AdminResilienceStatus {
+  service: string;
+  cb_state: string;
+  cb_trips: string;
+  rl_allowed: string;
+  rl_rejected: string;
+  status: string;
+}
+export interface AdminResilienceResponse {
+  kind: string;
+  checked_at: string;
+  items: AdminResilienceStatus[];
+  note?: string;
+}
+export interface AdminApiStatus {
+  service: string;
+  status: string;
+  req_count: string;
+  err_5xx: string;
+  err_rate: string;
+}
+export interface AdminApisResponse {
+  kind: string;
+  checked_at: string;
+  items: AdminApiStatus[];
+  note?: string;
+}
+
 // 简版 traceparent 生成(00-<32hex>-<16hex>-01),与三端原 trace.ts 行为一致
 function traceparent(): string {
   const hex = (n: number) =>
@@ -321,6 +465,68 @@ export class ApiClient {
     return this.request("POST", `/api/admin/debug/${service}/loggers?level=${encodeURIComponent(level)}`);
   }
 
+  // ---- admin:运维操作面板(Phase3 · 2026-08-21) ----
+  // 资源监控 + 实时日志 + 可管理操作(scale/restart)。
+  // 资源监控走 Prometheus 查询(admin-go 聚合);日志/scale/restart 走 K8s API(需 esp-admin-sa RBAC)。
+  /** 资源监控快照:节点 CPU/内存/磁盘/负载 + 容器级聚合 + pod 就绪(5s 刷新)。 */
+  adminOpsResources(): Promise<AdminOpsResources> {
+    return this.request("GET", "/api/admin/ops/resources");
+  }
+  /** 实时日志(tail=N,默认 200 行,kubectl logs 等价)。 */
+  adminLogs(service: string, tail = 200): Promise<string> {
+    return this.request("GET", `/api/admin/logs/${service}?tail=${tail}`, undefined, { timeoutMs: 30000 }) as Promise<string>;
+  }
+  /** scale deploy(L2 不可逆,前端需二次确认)。 */
+  adminScale(service: string, replicas: number): Promise<AdminOpsResult> {
+    return this.request("POST", `/api/admin/scale/${service}?replicas=${replicas}`);
+  }
+  /** rollout restart(L2 不可逆,前端需二次确认)。 */
+  adminRestart(service: string): Promise<AdminOpsResult> {
+    return this.request("POST", `/api/admin/restart/${service}`);
+  }
+
+  // ---- admin:各级缓存监控(Phase4 · 2026-08-21) ----
+  // L1 Redis + L2 Milvus + L3 Neo4j 命中率 + 结构数据;三源独立超时降级(RWT)。
+  /** 三层缓存命中率聚合(LCO /stats + Milvus collection + Neo4j Cypher,5s 刷新)。 */
+  adminCacheStats(): Promise<AdminCacheStatsResponse> {
+    return this.request("GET", "/api/admin/cache/stats");
+  }
+  /** Milvus collection 记录数(llm_cache_prompts)。 */
+  adminCacheMilvus(): Promise<AdminMilvusResponse> {
+    return this.request("GET", "/api/admin/cache/milvus");
+  }
+  /** Neo4j 节点/关系数(Cypher 聚合)。 */
+  adminCacheNeo4j(): Promise<AdminNeo4jResponse> {
+    return this.request("GET", "/api/admin/cache/neo4j");
+  }
+
+  // ---- admin:Pulsar MQ 消息查看(Phase4 · 2026-08-21) ----
+  // Admin REST 8080 代理(无认证)+ 白名单 tenant=esp/ns=esp{business,cache};peek 只读不 ack(BRR)。
+  /** Pulsar topic 列表 + 积压/订阅(esp/business ns)。 */
+  adminPulsarTopics(namespace = "esp/business"): Promise<AdminPulsarTopicsResponse> {
+    return this.request("GET", `/api/admin/pulsar/topics?namespace=${encodeURIComponent(namespace)}`);
+  }
+  /** Pulsar peek 消息(只读,不 ack)。 */
+  adminPulsarMessages(topic: string, subscription: string, limit = 10): Promise<AdminPulsarMessagesResponse> {
+    const q = new URLSearchParams({ topic, subscription, limit: String(limit) });
+    return this.request("GET", `/api/admin/pulsar/messages?${q.toString()}`);
+  }
+
+  // ---- admin:服务运行时健康(Phase4 · 2026-08-21) ----
+  // HPA(K8s API 直查)+ 熔断/限流(admin-go 直抓各服务 /metrics)+ API 错误率(Java actuator)。
+  /** HPA 状态(min/max/current/desired/CPU%,19 个全量)。 */
+  adminRuntimeHPA(): Promise<AdminHPAResponse> {
+    return this.request("GET", "/api/admin/runtime/hpa");
+  }
+  /** 熔断状态 + 限流计数(各 Go 服务 circuit_breaker_state + rate_limit_total)。 */
+  adminRuntimeResilience(): Promise<AdminResilienceResponse> {
+    return this.request("GET", "/api/admin/runtime/resilience");
+  }
+  /** API 错误率(Java http.server.requests 计数 + 服务级 probeAll)。 */
+  adminRuntimeApis(): Promise<AdminApisResponse> {
+    return this.request("GET", "/api/admin/runtime/apis");
+  }
+
   // ---- community:圈子社区(功能拓展阶段2) ----
   createCircle(body: { name: string; description?: string; member_limit?: number }): Promise<CommunityCreateResult> {
     return this.request("POST", "/api/community/circles", body);
@@ -402,8 +608,9 @@ export class ApiClient {
   }
 
   // ---- writing(统一完整签名:prompt/essay/exam 全显式,消灭 H5/小程序硬编码) ----
+  // AI 推理 8-34s(writing-py LangGraph),默认 15s timeout 不够致 AbortError,统一 90s。
   grade(prompt: string, essay: string, exam: string): Promise<GradeResult> {
-    return this.request("POST", "/api/writing/grade", { prompt, essay, exam });
+    return this.request("POST", "/api/writing/grade", { prompt, essay, exam }, { timeoutMs: 90000 });
   }
   writingRun(
     prompt: string,
@@ -417,14 +624,14 @@ export class ApiClient {
     polished?: string;
     notes?: string;
   }> {
-    return this.request("POST", "/api/writing/run", { prompt, essay, exam, human });
+    return this.request("POST", "/api/writing/run", { prompt, essay, exam, human }, { timeoutMs: 90000 });
   }
   writingReview(thread_id: string, teacher_feedback: string): Promise<{
     thread_id: string;
     status: string;
     notes?: string;
   }> {
-    return this.request("POST", "/api/writing/review", { thread_id, teacher_feedback });
+    return this.request("POST", "/api/writing/review", { thread_id, teacher_feedback }, { timeoutMs: 90000 });
   }
   writingState(thread_id: string): Promise<{
     status: string;
@@ -436,15 +643,15 @@ export class ApiClient {
     return this.request("GET", `/api/writing/state/${thread_id}`);
   }
   polish(text: string): Promise<PolishResult> {
-    return this.request("POST", "/api/writing/polish", { text });
+    return this.request("POST", "/api/writing/polish", { text }, { timeoutMs: 90000 });
   }
   translate(text: string): Promise<TranslateResult> {
-    return this.request("POST", "/api/writing/translate", { text });
+    return this.request("POST", "/api/writing/translate", { text }, { timeoutMs: 90000 });
   }
 
   // ---- teacher(仅 Web 消费) ----
   lessonPlan(topic: string, level: string): Promise<LessonPlan> {
-    return this.request("POST", "/api/teacher/lesson-plan", { topic, level });
+    return this.request("POST", "/api/teacher/lesson-plan", { topic, level }, { timeoutMs: 90000 });
   }
   classAnalytics(id: number): Promise<ClassAnalytics[]> {
     return this.request("GET", `/api/teacher/classes/${id}/analytics`);
@@ -483,6 +690,21 @@ export class ApiClient {
     const token = this.storage.getToken();
     return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   }
+
+  // ---- AI 助手(全前端 AI 驱动,经 gateway LCO 三层缓存) ----
+  // POST /api/llm/chat → gateway-go(srv.engine.LLM = llm.NewWithCache,L1 Redis + L2 Milvus + L3 Neo4j)。
+  // 90s 超时(AI 推理 8-34s + 缓存命中 ~10ms)。
+  llmChat(message: string, role?: string): Promise<LlmChatResult> {
+    return this.request("POST", "/api/llm/chat", { message, role }, { timeoutMs: 90000 });
+  }
 }
 
 export type { WsFrame };
+
+// AI 助手对话结果(经 gateway LCO 三层缓存)。
+export interface LlmChatResult {
+  reply: string;
+  cache_hit?: boolean;
+  cache_layer?: string;
+  error?: string;
+}

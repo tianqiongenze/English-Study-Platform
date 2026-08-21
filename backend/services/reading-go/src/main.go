@@ -39,6 +39,7 @@ var (
 )
 
 func main() {
+	middleware.SetRateLimitService(serviceName)
 	port := config.Getenv("PORT", "8091")
 	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 	log.Printf("[%s] starting on :%s", serviceName, port)

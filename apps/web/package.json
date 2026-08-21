@@ -14,15 +14,19 @@
     "clean": "rm -rf dist build .taro coverage"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-router-dom": "^7.9.0",
-    "swr": "^2.4.0",
-    "zustand": "^5.0.0",
+    "@ant-design/icons": "^6.3.2",
     "@esp/api-client": "workspace:*",
     "@esp/types": "workspace:*",
     "@esp/ui-tokens": "workspace:*",
-    "@esp/ws-client": "workspace:*"
+    "@esp/ws-client": "workspace:*",
+    "antd": "^6.6.1",
+    "framer-motion": "^13.1.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.0",
+    "recharts": "^3.10.1",
+    "swr": "^2.4.0",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",

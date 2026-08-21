@@ -37,6 +37,9 @@ type UserVocabRow struct {
 	Status        string
 	LastReviewed  sql.NullTime
 	CreatedAt     time.Time
+	// P0-D2(2026-08-21):乐观锁版本列。并发 review 同一(user,word)时,UpsertUserVocab 的
+	// ON CONFLICT DO UPDATE 加 WHERE version=$old,旧版本冲突返 0 行让上层重读重算,防 lost update。
+	Version int
 }
 
 // VocabDAO 持有 esp-common-go/db 读写双池(读写分离)。
@@ -105,15 +108,17 @@ func (d *VocabDAO) CreateVocab(ctx context.Context, word, phonetic, pos, definit
 }
 
 // GetUserVocab 取某用户某词的 SRS 状态;不存在返回 nil。
+// P0-D2(2026-08-21):读 follower(ReadDB)有复制延迟,Review 流程的 read-modify-write
+// 读旧值算 SM-2 基线错误。Review 调用方在并发场景需用 WriteDB 强一致读或乐观重试兜底。
 func (d *VocabDAO) GetUserVocab(ctx context.Context, userID, wordID int64) (*UserVocabRow, error) {
 	row := d.pool.ReadDB().QueryRowContext(ctx,
 		`SELECT id, user_id, word_id, srs_stage, interval_days, ease_factor, due_at,
-		        review_count, lapse_count, status, last_reviewed, created_at
+		        review_count, lapse_count, status, last_reviewed, created_at, version
 		 FROM user_vocabulary WHERE user_id = $1 AND word_id = $2`, userID, wordID)
 	u := &UserVocabRow{}
 	if err := row.Scan(&u.ID, &u.UserID, &u.WordID, &u.SrsStage, &u.IntervalDays,
 		&u.EaseFactor, &u.DueAt, &u.ReviewCount, &u.LapseCount, &u.Status,
-		&u.LastReviewed, &u.CreatedAt); err != nil {
+		&u.LastReviewed, &u.CreatedAt, &u.Version); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -123,12 +128,15 @@ func (d *VocabDAO) GetUserVocab(ctx context.Context, userID, wordID int64) (*Use
 }
 
 // UpsertUserVocab 新建或更新某用户某词的 SRS 状态(CRDB ON CONFLICT upsert)。
-func (d *VocabDAO) UpsertUserVocab(ctx context.Context, u *UserVocabRow) error {
-	_, err := d.pool.WriteDB().ExecContext(ctx,
+// P0-D2(2026-08-21 乐观锁):ON CONFLICT DO UPDATE 加 WHERE user_vocabulary.version=$old,
+// 旧版本冲突(并发 review)返 affected=0 行,调用方据此重读重算防 lost update。
+// 返回 affected rows(0=版本冲突需重试,1=成功)。
+func (d *VocabDAO) UpsertUserVocab(ctx context.Context, u *UserVocabRow) (int64, error) {
+	res, err := d.pool.WriteDB().ExecContext(ctx,
 		`INSERT INTO user_vocabulary
 		   (user_id, word_id, srs_stage, interval_days, ease_factor, due_at,
-		    review_count, lapse_count, status, last_reviewed)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		    review_count, lapse_count, status, last_reviewed, version)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
 		 ON CONFLICT (user_id, word_id) DO UPDATE SET
 		   srs_stage=EXCLUDED.srs_stage,
 		   interval_days=EXCLUDED.interval_days,
@@ -137,10 +145,15 @@ func (d *VocabDAO) UpsertUserVocab(ctx context.Context, u *UserVocabRow) error {
 		   review_count=EXCLUDED.review_count,
 		   lapse_count=EXCLUDED.lapse_count,
 		   status=EXCLUDED.status,
-		   last_reviewed=EXCLUDED.last_reviewed`,
+		   last_reviewed=EXCLUDED.last_reviewed,
+		   version=user_vocabulary.version+1
+		 WHERE user_vocabulary.version = $11`,
 		u.UserID, u.WordID, u.SrsStage, u.IntervalDays, u.EaseFactor, u.DueAt,
-		u.ReviewCount, u.LapseCount, u.Status, u.LastReviewed)
-	return err
+		u.ReviewCount, u.LapseCount, u.Status, u.LastReviewed, u.Version)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // ListDueWords 查询某用户当前到期的词列表(连表 vocabulary 取词面信息),limit 控制数量。

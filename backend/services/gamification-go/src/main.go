@@ -43,6 +43,7 @@ func NewServer(readDB, writeDB *sql.DB, rdb *redis.ClusterClient) *Server {
 }
 
 func main() {
+	middleware.SetRateLimitService(serviceName)
 	port := config.Getenv("PORT", "8092")
 	gin.SetMode(config.Getenv("GIN_MODE", "release"))
 	portInt, _ := strconv.Atoi(port)

@@ -109,6 +109,8 @@ CREATE TABLE IF NOT EXISTS esp_vocab.user_vocabulary (
   status        STRING(16)    NOT NULL DEFAULT 'learning',
   last_reviewed TIMESTAMPTZ   NULL,
   created_at    TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- P0-D2(2026-08-21):乐观锁版本列,防并发 review read-modify-write lost update。
+  version       INT           NOT NULL DEFAULT 0,
   UNIQUE (user_id, word_id),
   INDEX idx_due (user_id, due_at)
 );

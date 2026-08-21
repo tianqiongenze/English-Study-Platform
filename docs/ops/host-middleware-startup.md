@@ -54,6 +54,8 @@ kubectl -n esp-prod rollout restart deploy/bff-java deploy/learning-java deploy/
 │  Nacos:8848  Prometheus:9090  Loki:3100  Alertmanager:9093  │
 │  OTel Collector:4317/4318/8889  Grafana:3000                │
 │  Tempo:3200 (二进制损坏，待修复)                              │
+│  Neo4j:7474(http)/7687(bolt)  ← 2026-08-20 从集群下沉宿主    │
+│  (Milvus 下沉 Phase2 待定,当前仍集群 port-forward :19531)   │
 └──────────┬───────────────────────────────────────────────────┘
            │
            │  K8s DNS: ExternalName → host.lima.internal:port

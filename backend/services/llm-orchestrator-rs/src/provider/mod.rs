@@ -7,6 +7,20 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::time::Duration;
+
+/// P0-R1(RWT 铁律,2026-08-21):LLM provider 调用专用 reqwest::Client,60s 超时。
+///
+/// 禁止用 `Client::new()`(无 timeout,LLM 推理 8-34s+长尾时上游 hang 致线程永久挂起);
+/// 也禁止复用 `cache::http_client()`(超时 3s,是 L2 Milvus/L3 Neo4j/embedding 的缓存层降级超时,
+/// 量级错会误杀 LLM 调用)。RWT 超时分级:外部 LLM 30-60s,此处取 60s 上限。
+fn llm_client() -> Client {
+    Client::builder()
+        .timeout(Duration::from_secs(60))
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| Client::new())
+}
 
 /// 单次调用结果
 pub struct CallResult {
@@ -56,7 +70,7 @@ impl ProviderRegistry {
                 name: "openai".into(),
                 base_url: base,
                 api_key: key,
-                client: Client::new(),
+                client: llm_client(),
             }));
         }
         // 通义
@@ -66,7 +80,7 @@ impl ProviderRegistry {
                 name: "qwen".into(),
                 base_url: base,
                 api_key: key,
-                client: Client::new(),
+                client: llm_client(),
             }));
         }
         // Claude
@@ -76,7 +90,7 @@ impl ProviderRegistry {
                 name: "claude".into(),
                 base_url: base,
                 api_key: key,
-                client: Client::new(),
+                client: llm_client(),
             }));
         }
 

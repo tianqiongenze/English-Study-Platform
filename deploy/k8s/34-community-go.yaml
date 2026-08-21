@@ -7,7 +7,7 @@ spec:
   replicas: 1
   selector: {matchLabels: {app: community-go}}
   template:
-    metadata: {labels: {app: community-go}}
+    metadata: {labels: {app: community-go}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8097", prometheus.io/path: "/metrics"}}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -15,7 +15,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: community-go
-        image: esp/community-go:1.0.0
+        image: esp/community-go:1.0.1
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8097}]
         securityContext:
@@ -39,7 +39,15 @@ spec:
         # 单节点 DEFERRED(2026-08-17):CPU request 100m→50m。
         # 原因:单节点请求总量近饱和(metrics-server 缺失致 HPA 盲),100m 可能无法调度。
         # 多节点步骤:扩容后恢复 100m;依赖 metrics-server 到位后 HPA 生效。
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go 默认写 ./log=/app/log(对标 reading-go 已修模式),OTel/gRPC 可能写 /tmp。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
         resources: {requests: {cpu: "50m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1

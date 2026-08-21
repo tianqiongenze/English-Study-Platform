@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "3"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"name":"neo4j","namespace":"ekb-m2-aws-us-east-1"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"neo4j"}},"template":{"metadata":{"labels":{"app":"neo4j"}},"spec":{"containers":[{"env":[{"name":"NEO4J_AUTH","value":"neo4j/neo4j-password-1"},{"name":"NEO4J_server_config_strict__validation_enabled","value":"false"}],"image":"docker.io/neo4j:5.25.1-community-bullseye","name":"neo4j","ports":[{"containerPort":7474},{"containerPort":7687}],"readinessProbe":{"initialDelaySeconds":20,"periodSeconds":10,"tcpSocket":{"port":7687}}}],"enableServiceLinks":false}}}}
+  creationTimestamp: "2026-04-12T11:13:52Z"
+  generation: 7
+  name: neo4j
+  namespace: ekb-m2-aws-us-east-1
+  resourceVersion: "1882912"
+  uid: 273b3741-e029-49eb-a4a9-53fd81e684f5
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: neo4j
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: neo4j
+    spec:
+      containers:
+      - env:
+        - name: NEO4J_AUTH
+          value: neo4j/neo4j-password-1
+        - name: NEO4J_server_config_strict__validation_enabled
+          value: "false"
+        - name: NEO4J_server_memory_heap_max__size
+          value: 512m
+        - name: NEO4J_server_memory_heap_initial__size
+          value: 512m
+        - name: NEO4J_server_memory_pagecache_size
+          value: 256m
+        image: docker.io/neo4j:5.25.1-community-bullseye
+        imagePullPolicy: IfNotPresent
+        name: neo4j
+        ports:
+        - containerPort: 7474
+          protocol: TCP
+        - containerPort: 7687
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: 7687
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1280Mi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: false
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir: {}
+        name: data
+status:
+  availableReplicas: 1
+  conditions:
+  - lastTransitionTime: "2026-04-12T11:13:52Z"
+    lastUpdateTime: "2026-08-13T09:34:46Z"
+    message: ReplicaSet "neo4j-78d864c657" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+  - lastTransitionTime: "2026-08-19T14:03:45Z"
+    lastUpdateTime: "2026-08-19T14:03:45Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  observedGeneration: 7
+  readyReplicas: 1
+  replicas: 1
+  updatedReplicas: 1

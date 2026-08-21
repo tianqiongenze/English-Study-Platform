@@ -1,0 +1,18 @@
+# llm-cache-embedding 依赖锁文件(从 app.py import 推导,SCS 铁律:锁版本)
+# Python 3.11+ venv
+#
+# ── SCS 供应链铁律(2026-08-20)─────────────────────────────────────────
+# 本文件为"直接依赖声明"。完整 transitive 依赖 + hash 见 requirements.lock
+# (pip-compile 产出,SCS 第④条"锁文件优先",pip install -r requirements.lock 部署)。
+#
+# torch==2.5.1 / sentence-transformers==3.3.1 为"运行期重依赖"(MPS/CPU 推理,
+# 本地构建镜像不装,部署期在目标机器 venv 装;pip-compile 不纳入锁以避免拉取
+# 数 GB wheel 压 VM——SCS 锁文件聚焦可校验的轻量 API 依赖)。
+# 部署安装顺序:pip install -r requirements.lock && pip install torch==2.5.1 sentence-transformers==3.3.1
+# ────────────────────────────────────────────────────────────────────
+fastapi==0.115.6
+uvicorn==0.34.0
+pydantic==2.10.4
+sentence-transformers==3.3.1   # 运行期依赖,部署时装(不进 requirements.lock)
+torch==2.5.1                   # 运行期依赖,部署时装(不进 requirements.lock)
+requests==2.32.3

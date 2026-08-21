@@ -5,6 +5,9 @@ WORKDIR /app
 COPY shared/esp-common-go ./esp-common-go
 COPY services/asr-adapter-go/go.mod ./
 ENV GOPROXY=https://goproxy.cn,direct
+# GOTOOLCHAIN=auto:go.mod 声明 go 1.26.0,基础镜像 esp/golang-builder:1.25 内 go1.25.13 不够;
+# auto 经 GOPROXY(goproxy.cn 可达)自动下载 1.26 toolchain(mirror 挂不影响)。
+ENV GOTOOLCHAIN=auto
 RUN sed -i 's|replace esp/common-go => ../../shared/esp-common-go|replace esp/common-go => ./esp-common-go|' go.mod
 RUN go mod download
 COPY services/asr-adapter-go/src ./src

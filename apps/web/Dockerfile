@@ -7,9 +7,12 @@ RUN npm config set registry https://registry.npmmirror.com && npm ci --no-audit 
 COPY . .
 RUN npm run build
 
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/nginx:1.27-alpine
+# 运行期基础镜像:esp/nginx-runtime:alpine-derived(派生自 esp/frontend-react:1.2.1,基础层 nginx:1.27-alpine)
+# 基础镜像已含干净 nginx + 默认 SPA server 块;此处用业务 nginx.conf + dist 覆盖。
+FROM esp/nginx-runtime:alpine-derived
 # nginx 配置:静态托管 dist + /api 反代到集群内服务(运行时由 K8s Service DNS 解析)
 # vite base='/web/' → dist 落到 /web/ 子目录,与 BrowserRouter basename="/web" 对齐(修 30090 白屏)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html/web
 EXPOSE 80
+

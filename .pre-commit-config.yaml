@@ -1,0 +1,41 @@
+# ESP pre-commit hooks(SCS 铁律:秘密永不入库的源头防线)
+#
+# 安装:在仓库根 `brew install pre-commit && pre-commit install`
+# 或 `pip install pre-commit && pre-commit install`
+# 本地 `git commit` 时自动跑,CI 层 Trivy fs/Semgrep 是兜底。
+#
+# 缺口评估见 tools/lco-proxy/SCS-GAP-ASSESSMENT.md(P0 本轮补)。
+repos:
+  # ───────── 秘密扫描(SCS 第①条:秘密永不入库)─────────
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: gitleaks(扫 sk-/AKIA+/BEGIN PRIVATE KEY 等秘密)
+
+  # ───────── Go 静态检查(CLC 铁律:语言惯用法+nil 防御)─────────
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.62.2
+    hooks:
+      - id: golangci-lint
+        args: [--config=tools/lco-proxy/.golangci.yml]
+        files: ^tools/lco-proxy/.*\.go$
+
+  # ───────── 通用:大文件/换行符/合并冲突标记 ─────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: end-of-file-fixer
+        exclude: ^docs/.*\.md$
+      - id: trailing-whitespace
+        exclude: ^docs/.*\.md$
+
+# ───────── Go 原生格式化(不依赖 golangci-lint)─────────
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+        files: ^tools/lco-proxy/.*\.go$

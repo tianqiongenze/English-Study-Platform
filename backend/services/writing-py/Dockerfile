@@ -1,10 +1,12 @@
 # writing-py: Litestar + Granian (ADR-09)。Granian(Rust ASGI)替代 uvicorn 提升吞吐/尾延迟。
 # build context = 项目根目录(esp-cache-py 在 services/esp-cache-py,作为公共多级缓存包安装)
-FROM python:3.13-slim-bookworm
-# 安全基线升级:Debian12 bookworm perl-base 已修(对比 trixie 5.40.1-6 的 4 CRIT)。apt upgrade 补 util-linux/ncurses 等
-# 注:deb.debian.org 在本环境不可达,改用 USTC 镜像
-RUN sed -i 's|http://deb.debian.org/debian|http://mirrors.ustc.edu.cn/debian|g; s|http://deb.debian.org/debian-security|http://mirrors.ustc.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null \
-    || sed -i 's|http://deb.debian.org/debian|http://mirrors.ustc.edu.cn/debian|g; s|http://deb.debian.org/debian-security|http://mirrors.ustc.edu.cn/debian-security|g' /etc/apt/sources.list \
+# 运行期基础镜像:esp/python-runtime:3.13(本地派生自 python:3.13-slim,Python 3.12.13 / Debian trixie)
+# 注:requires-python>=3.11,3.12.13 满足。tag 名 3.13 系历史命名,实际 3.12.13(诚实记录,见 deploy/base-images/README.md 待办)
+FROM esp/python-runtime:3.13
+# 安全基线升级:apt upgrade 补 util-linux/ncurses 等(USTC 镜像,deb.debian.org 不可达)
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g; s|security.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null \
+    || sed -i 's|http://deb.debian.org/debian|http://mirrors.ustc.edu.cn/debian|g' /etc/apt/sources.list 2>/dev/null \
+    || true \
     ; apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # 提前设置 pip 镜像源(单节点环境 PyPI 直连慢/不稳,统一走清华源)
@@ -15,6 +17,9 @@ RUN pip install --no-cache-dir ./esp-cache-py
 # 装公共读写分离数据访问包 esp-db-py(主写 tidb-primary / 从读 tidb-follower)
 COPY shared/esp-db-py ./esp-db-py
 RUN pip install --no-cache-dir ./esp-db-py
+# 装公共调试包 esp-debug-py(pyproject 依赖,本地包不在 pypi)
+COPY shared/esp-debug-py ./esp-debug-py
+RUN pip install --no-cache-dir ./esp-debug-py
 COPY services/writing-py/pyproject.toml ./
 RUN pip install --no-cache-dir --retries 5 --timeout 60 . \
     && pip install --no-cache-dir --retries 5 --timeout 60 pytest pytest-cov httpx

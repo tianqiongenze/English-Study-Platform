@@ -1,0 +1,18 @@
+{
+  "test": "k6 baseline smoke",
+  "date": "2026-08-20",
+  "session": "23-19",
+  "config": {"vus": 10, "duration": "50s(脚本默认)", "host": "gateway-go:18080", "bff": "bff-java:18081"},
+  "results": {
+    "http_reqs_total": 1142,
+    "rps": 22.8,
+    "http_req_failed": "32.74% (register 冲突预期,首次注册成功后重复 register 非200)",
+    "scenarios_endpoint_failed": "0% (384/384 成功)",
+    "scenarios_duration_ms": {"avg": 128.57, "p95": 283.49, "max": 715.62},
+    "http_req_duration_ms": {"avg": 352.71, "p95": 792.28},
+    "iterations": 384,
+    "data_received": "498MB"
+  },
+  "conclusion": "压测链路验证通过。gateway-go /api/scenarios 端点 0% 失败,p95=283ms 性能良好。register 失败是并发同邮箱冲突(k6 脚本设计:register 失败转 login)。locust 分布式待多节点(单节点资源不足,distributed-locust.yaml 明确 RD 不 apply)。",
+  "limitation": "单节点 RD CPU 仅 19% idle,内存 31G/170M unused,VUS>200 会 OOM。真实 5000 CCU 压测需多节点物理隔离压测集群。"
+}

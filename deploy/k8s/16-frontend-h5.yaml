@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: frontend-h5
-        image: esp/frontend-h5:1.1.1   # 1.1.1 = 坑㉟f修复:nginx 增加 /h5/ 静态映射(vite base=/h5 但 dist 在根),修 H5 白屏
+        image: esp/frontend-h5:1.4.0   # 1.1.1 = 坑㉟f修复:nginx 增加 /h5/ 静态映射(vite base=/h5 但 dist 在根),修 H5 白屏
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 80}]
         securityContext:

@@ -4,6 +4,9 @@ WORKDIR /app
 COPY shared/esp-common-go ./esp-common-go
 COPY services/live-tutor-go/go.mod ./
 ENV GOPROXY=https://goproxy.cn,direct
+# GOTOOLCHAIN=auto:go.mod 声明 go 1.26.0,基础镜像 esp/golang-builder:1.25 内 go1.25.13 不够;
+# auto 经 GOPROXY(goproxy.cn 可达)自动下载 1.26 toolchain(mirror 挂不影响)。
+ENV GOTOOLCHAIN=auto
 RUN sed -i 's|replace esp/common-go => ../../shared/esp-common-go|replace esp/common-go => ./esp-common-go|' go.mod
 RUN go mod download
 COPY services/live-tutor-go/src ./src
@@ -25,5 +28,8 @@ ENV PORT=8094
 ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.esp-observability.svc.cluster.local:4317
 ENV OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 ENV OTEL_SERVICE_NAME=live-tutor-go
+# RWP铁律:readOnlyRootFilesystem容器需显式ENV HOME锚定可写目录;nacos-sdk-go默认写./log=/app/log,
+# OTel/gRPC SDK 可能写 $HOME/.cache;ENV HOME 防 HOME=/ → SDK 写根目录失败(对标 reading-go)。
+ENV HOME=/home/app
 USER app
 ENTRYPOINT ["/app/live-tutor-go"]

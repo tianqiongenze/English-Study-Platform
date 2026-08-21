@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -27,13 +29,13 @@ import (
 	"esp/conversation-go/src/asr"
 	"esp/conversation-go/src/dialog"
 	"esp/conversation-go/src/hub"
-	espjwt "esp/gateway-go/src/jwt"
 	"esp/conversation-go/src/llm"
 	gwlog "esp/conversation-go/src/log"
 	"esp/conversation-go/src/scenario"
 	"esp/conversation-go/src/session"
 	"esp/conversation-go/src/tts"
 	"esp/conversation-go/src/ws"
+	espjwt "esp/gateway-go/src/jwt"
 )
 
 var upgrader = websocket.Upgrader{
@@ -65,6 +67,10 @@ type Server struct {
 }
 
 func main() {
+	middleware.SetRateLimitService(serviceName)
+	// Task B-pilot(2026-08-21):Sentinel-golang 动态限流,规则经 Nacos dataId=gateway-go-flow-rules 下发。
+	// 初始化失败→降级放行(RWT),不阻断启动。NACOS_ADDR 复用 registry 同款 env(默认 nacos:8848)。
+	middleware.InitSentinel(serviceName, config.Getenv("NACOS_ADDR", "nacos:8848"))
 	level := slog.LevelInfo
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 
@@ -105,11 +111,11 @@ func main() {
 		scenarios: scenario.NewRepository(),
 		// L1 精确缓存(Phase1):NewWithCache 在 llm.New() 外包 CachedProvider,
 		// Redis 可达且未设 ESP_LLM_CACHE_ENABLED=false 时生效;否则降级直穿(语义不变)。
-		engine:    &dialog.Engine{LLM: llm.NewWithCache(), HintIdle: 8 * time.Second},
-		asr:       asr.New(),
-		tts:       tts.New(),
-		jwt:       jwtValidator,
-		hub:       wsHub,
+		engine: &dialog.Engine{LLM: llm.NewWithCache(), HintIdle: 8 * time.Second},
+		asr:    asr.New(),
+		tts:    tts.New(),
+		jwt:    jwtValidator,
+		hub:    wsHub,
 	}
 	// AppLog 异步写 TiDB app_logs(ADR-observability-rebuild):业务事件结构化落库,
 	// trace_id 关联 Tempo/Loki。降级:TiDB 不可用时仅 slog.Warn 不阻断业务。
@@ -128,14 +134,27 @@ func main() {
 	mux.HandleFunc("/api/sessions", srv.handleCreateSession)
 	mux.HandleFunc("/api/sessions/history", srv.handleListSessionHistory)
 	mux.HandleFunc("/ws/speech/", srv.handleSpeech)
+	// AI 助手对话端点(2026-08-21):供前端 AIAssistant 浮层调用,LLM 经 gateway 的
+	// llm.NewWithCache()(LCO 三层缓存:L1 精确 Redis + L2 语义 Milvus + L3 Neo4j)。
+	// 鉴权:复用 userIDFromRequest(JWT)。响应带 cache_hit/cache_layer(经 LCO 元数据)。
+	mux.HandleFunc("/api/llm/chat", srv.handleLLMChat)
 	mux.Handle("/metrics", promhttp.Handler())
+	// /debug/* —— actuator 风格诊断端点(admin-go debug_proxy 代理;全语言统一面板消费)。
+	// mappings:返回路由表;beans:返回运行时信息(go 版,非 Spring Bean);pprof 走标准库。
+	mux.HandleFunc("/debug/mappings", srv.handleDebugMappings)
+	mux.HandleFunc("/debug/beans", srv.handleDebugBeans)
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
 	addr := ":" + config.Getenv("PORT", "8080")
 	slog.Info("gateway-go starting", "addr", addr)
 	// Wrap mux with rate limit + circuit breaker + otelhttp tracing.
 	// Rate limit first (reject early), then circuit breaker, then tracing.
-	rateLimited := middleware.HTTPRateLimit(mux, 100, 200)                                              // 100 rps,桶容量200
-	cbProtected := middleware.HTTPCircuitBreaker(rateLimited, 5, 30*time.Second, serviceName)            // 5次失败触发30s熔断
+	rateLimited := middleware.HTTPRateLimit(mux, 100, 200)                                    // 100 rps,桶容量200
+	cbProtected := middleware.HTTPCircuitBreaker(rateLimited, 5, 30*time.Second, serviceName) // 5次失败触发30s熔断
 	tracedHandler := otelhttp.NewHandler(cbProtected, "gateway-go")
 	httpSrv := &http.Server{Addr: addr, Handler: tracedHandler}
 
@@ -159,6 +178,14 @@ func main() {
 }
 
 func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
+	// Task B-pilot:Sentinel 动态流控(resource=api/scenarios)。被限流返 429。
+	if !middleware.AllowOrLimit(serviceName, "api/scenarios") {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(`{"error":"flow limited","retry_after":1}`))
+		return
+	}
 	userID := s.userIDFromRequest(r)
 	if userID == 0 {
 		http.Error(w, "unauthorized", 401)
@@ -371,9 +398,121 @@ func writeConn(conn *ws.SafeConn, f ws.Frame) error {
 	return conn.WriteFrame(f)
 }
 
+// handleLLMChat POST /api/llm/chat —— AI 助手对话(前端浮层调用)。
+// body: {"message":"用户输入","context":"当前页/场景上下文"}
+// 走 srv.engine.LLM(llm.NewWithCache,LCO 三层缓存)。鉴权:JWT userID。
+// 超时 90s(AI 推理长尾,RWT 超时分级);失败降级返友好提示不 500。
+func (s *Server) handleLLMChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	// Task B-pilot:Sentinel 动态流控(resource=api/llm/chat)。被限流返 429。
+	// 放在 method 校验后、鉴权前:流控早失败降负,但不对非法 method 计流。
+	if !middleware.AllowOrLimit(serviceName, "api/llm/chat") {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(`{"error":"flow limited","retry_after":1}`))
+		return
+	}
+	userID := s.userIDFromRequest(r)
+	if userID == 0 {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Message string `json:"message"`
+		Role    string `json:"role"` // 可选:system 角色(如"你是英语学习助手")
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		http.Error(w, `{"error":"message required"}`, http.StatusBadRequest)
+		return
+	}
+	// 构造 LLM 消息:system 设英语学习助手角色(可被 req.Role 覆盖)+ user 消息。
+	system := "你是洁语(Verity)AI 英语学习助手。简洁专业地用中文回答用户关于英语学习的问题(口语/写作/词汇/语法等),鼓励用户练习。"
+	if req.Role != "" {
+		system = req.Role
+	}
+	msgs := []llm.Message{
+		{Role: "system", Content: system},
+		{Role: "user", Content: req.Message},
+	}
+	// 90s 超时(AI 推理 8-34s + LCO 缓存命中 ~10ms)。
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	reply, err := s.engine.LLM.Chat(ctx, msgs)
+	if err != nil {
+		slog.Warn("ai assistant chat failed", "user_id", userID, "err", err)
+		// 降级:不 500,返友好提示(RWT 铁律:失败不阻塞主链)。
+		writeJSON(w, map[string]any{
+			"reply":       "抱歉,AI 助手暂时不可用,请稍后再试。",
+			"error":       err.Error(),
+			"cache_hit":   false,
+			"cache_layer": "",
+		})
+		return
+	}
+	// 注:cache_hit/cache_layer 元数据由 LCO provider 注入(若 LLM 走 LCO 代理);
+	// gateway 内置 CachedProvider 当前不透传 cache 元数据,留空(前端可后续增强)。
+	writeJSON(w, map[string]any{
+		"reply":       reply,
+		"cache_hit":   false,
+		"cache_layer": "",
+	})
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// handleDebugMappings 返回路由表(actuator 风格,全语言统一诊断面板消费)。
+// admin-go /api/admin/debug/gateway-go/mappings 代理到本端点;前端 DebugPanel 不再 404。
+// 返回 JSON: {contexts: {default: {mappings: [{handler, method, pattern}]}}},形似 Spring actuator。
+func (s *Server) handleDebugMappings(w http.ResponseWriter, _ *http.Request) {
+	type mapping struct {
+		Handler string `json:"handler"`
+		Method  string `json:"method"`
+		Pattern string `json:"pattern"`
+	}
+	mappings := []mapping{
+		{Handler: "handleScenarios", Method: "GET", Pattern: "/api/scenarios"},
+		{Handler: "handleCreateSession", Method: "POST", Pattern: "/api/sessions"},
+		{Handler: "handleListSessionHistory", Method: "GET", Pattern: "/api/sessions/history"},
+		{Handler: "handleSpeech", Method: "GET (WS)", Pattern: "/ws/speech/{sessionId}"},
+		{Handler: "promhttp.Handler", Method: "GET", Pattern: "/metrics"},
+		{Handler: "pprof.Index", Method: "GET", Pattern: "/debug/pprof/"},
+	}
+	writeJSON(w, map[string]any{
+		"contexts": map[string]any{
+			"default": map[string]any{"mappings": mappings},
+		},
+	})
+}
+
+// handleDebugBeans 返回运行时信息(Go 版"beans":无 Spring Bean,用 runtime info 等价)。
+// 含 goroutine/mem/GC/版本,供资源监控与诊断。
+func (s *Server) handleDebugBeans(w http.ResponseWriter, _ *http.Request) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	writeJSON(w, map[string]any{
+		"service":    "gateway-go",
+		"lang":       "go",
+		"version":    runtime.Version(),
+		"goroutines": runtime.NumGoroutine(),
+		"mem": map[string]any{
+			"alloc_bytes":  m.Alloc,
+			"sys_bytes":    m.Sys,
+			"num_gc":       m.NumGC,
+			"heap_objects": m.HeapObjects,
+		},
+		"endpoints": []string{"/healthz", "/readyz", "/livez", "/api/scenarios", "/api/sessions", "/api/sessions/history", "/ws/speech/", "/metrics", "/debug/mappings", "/debug/beans", "/debug/pprof/"},
+	})
 }
 
 // parseUserID 解析 JWT(RS256 + 公钥校验,ADR-12)取 userID。

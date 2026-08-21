@@ -14,6 +14,9 @@ COPY services/admin-go/src ./admin-go/src
 # admin-go/ 在 /app/admin-go/,../../shared 解析到 /shared/esp-common-go(非 /app/shared)。
 COPY shared/esp-common-go /shared/esp-common-go
 ENV GOPROXY=https://goproxy.cn,direct
+# go.mod 声明 go 1.26.0(项目级统一),基础镜像 go1.25.13 不够;
+# GOTOOLCHAIN=auto 让 go 自动经 GOPROXY 下载 1.26 toolchain(goproxy.cn 可达,mirror 挂不影响)。
+ENV GOTOOLCHAIN=auto
 RUN CGO_ENABLED=0 go build -C admin-go -o /out/admin-go ./src
 
 FROM esp/alpine-runtime:3.22
@@ -24,5 +27,7 @@ WORKDIR /app
 COPY --from=builder /out/admin-go /app/admin-go
 EXPOSE 8099
 ENV PORT=8099
+# RWP(铁律①):显式 ENV HOME 锚定可写目录,避免 HOME=/ → SDK 写 /.xxx 失败(BVV: docker run echo $HOME 非空非根)。
+ENV HOME=/home/app
 USER app
 ENTRYPOINT ["/app/admin-go"]

@@ -3,11 +3,13 @@
 | 项 | 值 |
 |---|---|
 | 文档编号 | ESP-SAD-001 |
-| 版本 | 5.0 |
-| 日期 | 2026-07-31 |
-| 状态 | 基线评审稿(对齐实现 + 互联网大厂标准 + 异地多活/LangGraph) |
+| 版本 | 5.1 |
+| 日期 | 2026-08-21 |
+| 状态 | 数据面叙事修正稿(P0-A1 审计修复:回写 CockroachDB 实情) |
 | 编制 | 高校 AI 与大数据专业教授级高工 |
 | 上游 | ESP-SRS-001 需求分析文档 |
+
+> **修订说明(v5.1,2026-08-21)**:本版据 P0-A1 架构审计修复数据面叙事。原 v5.0(2026-07-31)通篇以 **TiDB+TiFlash HTAP+TiCDC 异地多活**为数据面叙事,但实际生产自 #140 全服务切 CockroachDB 起已 **100% 走 CockroachDB**(`ESP_RW_STORAGE_TYPE=cockroachdb`,连接 `crdb-public:26257`;见 `platform/esp-rw-java/.../CockroachDbDataSourceConfig.java` 与各服务 deploy env)。TiDB 3区域已于 2026-08-20 下电止血(memory `esp-tidb-decommissioned-scale0-2026-08-20`),`tidb-primary`/`tidb-follower` ExternalName 仍指向已下电集群(`deploy/k8s/05b-platform-infra-externalnames.yaml:13-30`)。本次据实修正第 2/3/4/6/13 章数据面表述,TiDB 相关内容降级为"历史演进/可回切保留"段(注明回切条件)。关联 **ADR-24(新建,CRDB 作为主数据面)**、ADR-10/16(Superseded)。工程铁律⑦诚实优先:本版不再以 TiDB HTAP 为数据面叙事。
 
 ---
 
@@ -69,17 +71,20 @@
    │ └─────────────┘     └─────────────────┘    └────────┬─────────┘          │
    │                                                     │                    │
    │ ┌───────────────────────────────────────────────────▼──────────────────┐ │
-   │ │                 数据面(读写分离)                                       │ │
+   │ │                 数据面(读写分离,实际 CockroachDB)                      │ │
    │ │  ┌─────────────────────┐        ┌─────────────────────────────────┐   │ │
-   │ │  │ TiDB Primary (写)    │───────►│ TiDB Followers (读副本 x N)      │   │ │
-   │ │  │ OLTP 行存 TiKV       │        │ OLAP 列存 TiFlash(学情分析)     │   │ │
+   │ │  │ CRDB Write Pool (写) │───────►│ CRDB Read Pool (读)              │   │ │
+   │ │  │ crdb-public:26257    │        │ crdb-public:26257                │   │ │
+   │ │  │ (leaseholder 写)     │        │ follower-read AS OF SYSTEM TIME  │   │ │
    │ │  └─────────────────────┘        └─────────────────────────────────┘   │ │
-   │ │  RoutingProxy:写→Primary,读(报表/分析/列表)→Follower/TiFlash        │ │
+   │ │  RoutingDataSource:@DataSource(WRITE)/默认→写池;@DataSource(READ)→读池│ │
    │ │                                                                       │ │
-   │ │  Redis Cluster:会话/缓存/限流/分布式锁(6 主 6 从)                      │ │
+   │ │  Redis Cluster:会话/缓存/限流/分布式锁(3 主 3 从)                      │ │
    │ └───────────────────────────────────────────────────────────────────────┘ │
    └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **数据面修正注(v5.1)**:上图数据面已由 v5.0 的 TiDB Primary/Follower+TiFlash 改为 CockroachDB 实情。CRDB 单二进制多 region 能力贴合 ESP 5000 CCU 尺度;读写分离走 CRDB follower-read(`AS OF SYSTEM TIME`)+ esp-rw-java `CockroachDbDataSourceConfig`(双 HikariCP 池 + `RoutingDataSource`)。原 TiDB/TiFlash/TiCDC 异地多活叙事见第 13 章"历史演进/可回切保留"。
 
 ### 2.2 逻辑分层
 | 层 | 组件 | 职责 |
@@ -88,75 +93,100 @@
 | 编排层 | learning-java / teacher-java | 业务流程编排、领域逻辑、事件入口 |
 | AI 能力层 | writing-py / emotion-svc | LLM 调用、算法推理 |
 | 异步处理层 | Pulsar + Disruptor + learning-worker | 削峰、落库、算法触发 |
-| 数据层 | TiDB(读写分离) / Redis Cluster | 持久化、缓存 |
+| 数据层 | CockroachDB(读写分离)+ Redis Cluster | 持久化、缓存 |
 | 可观测层 | Prometheus / Grafana / Loki / OTel | 指标 / 日志 / 追踪 |
 
 ### 2.3 部署拓扑(当前实现)
 - 集群:Rancher Desktop 单节点(6 CPU / 14GB),命名空间 `esp-prod`。
-- 基础设施复用:TiDB / Redis Cluster / Pulsar 已运行于 `ekb-m2-aws-us-east-1`,通过 `05-infra-reuse.yaml` 的 ExternalName 引用,`esp-prod` 内以短名 `tidb-primary`/`tidb-follower`/`redis-cluster`/`pulsar-broker` 访问。其中 `redis-cluster` ExternalName 指向真 Redis Cluster(`redis-cluster-new` StatefulSet,3主3从 Cluster 模式),应用以 cluster 模式连接。
+- 数据面:**CockroachDB**(CRDB 3 节点,zone=z1/z2/z3,单台 RD VM;无 region 层,multi-region Phase1 DEFERRED),短名 `crdb-public:26257`,应用经 `ESP_RW_STORAGE_TYPE=cockroachdb` 走 `CockroachDbDataSourceConfig`。
+- 基础设施复用:Redis Cluster / Pulsar / Neo4j / Milvus / Nacos 已运行于 `ekb-m2-aws-us-east-1` 或下沉宿主,通过 `05b-platform-infra-externalnames.yaml` 的 ExternalName 引用,`esp-prod` 内以短名 `redis-cluster`/`pulsar`/`neo4j`/`nacos` 等访问。其中 `redis-cluster` ExternalName 指向真 Redis Cluster(`redis-cluster-new` StatefulSet,3主3从 Cluster 模式),应用以 cluster 模式连接。
+- **TiDB 已下电(2026-08-20)**:`tidb`/`tidb-follower` ExternalName 仍声明于 `05b-platform-infra-externalnames.yaml:13-30`,但底层 `tidb-cluster-tidb.ekb-m2-aws-us-east-1` 已不可用;`07-tidb-tikv.yaml` 中 PD/TiKV/TiDB 副本现 replicas=1,多节点恢复时可改回(详见第 13 章历史演进段与 ADR-24 回切条件)。mirror pingcap 镜像源 403,回切前需先修镜像拉取。
 - 入口:Traefik Ingress(host=`esp.example.com`),NodePort `30080`(gateway-go)、压测直连 NodePort `31032`。
 
 ---
 
 ## 第 3 章 服务划分(领域驱动)
 
+> **服务清单修正(v5.1)**:`backend/services/` 下实际 24 个子目录(23 服务 + conversation-go 内嵌库)。conversation-go **非独立部署服务**,是 gateway-go 通过 `replace esp/conversation-go => ../conversation-go` 引入的会话/ASR/TTS 领域库(provider 代码物理在 `conversation-go/src/{asr,tts,llm}`,运行时由 gateway-go 调用)。下表按语言栈与领域归类,端口为容器端口。
+
 | 服务 | 语言 | 端口 | 职责 | 状态 | 数据访问 |
 |---|---|---|---|---|---|
-| gateway-go | Go | 8080 | WebSocket 口语会话、Mock ASR/TTS、实时流编排 | 无状态(会话在 Redis) | Redis(读写)/ TiDB(读会话历史) |
-| bff-gateway | Java | 8090 | REST 聚合、JWT 校验、限流 | 无状态 | Redis |
-| learning-java | Java | 8081 | 知识图谱、艾宾浩斯复习、动态难度、学情事件入口(Disruptor) | 无状态 | TiDB 读写分离 |
-| learning-worker | Java | - | Disruptor/Pulsar 消费 → 落库 + 算法 | 无状态 | TiDB 写主库 |
-| writing-py | Python | 8082 | 写作批改、润色、翻译精读、Claude | 无状态 | TiDB 写主库 |
-| teacher-java | Java | 8083 | 教案生成、学情分析、作业评阅 | 无状态 | TiDB 读写分离(分析走 TiFlash) |
+| gateway-go | Go | 8080 | WebSocket 口语会话、Mock ASR/TTS、实时流编排;内嵌 conversation-go 会话/LLM/ASR/TTS 领域库 | 无状态(会话在 Redis) | Redis(读写)/ CRDB(读会话历史) |
+| bff-java(bff-gateway) | Java | 8090 | REST 聚合、JWT 校验、限流、RouteTable 动态化 | 无状态 | Redis / CRDB(esp_auth) |
+| learning-java | Java | 8081 | 知识图谱、艾宾浩斯复习、动态难度、学情事件入口(Disruptor) | 无状态 | CRDB 读写分离(esp_learning + esp_shared.app_logs) |
+| learning-worker | Java | - | Disruptor/Pulsar 消费 → 落库 + 算法 | 无状态 | CRDB 写主库 |
+| teacher-java | Java | 8083 | 教案生成、学情分析、作业评阅 | 无状态 | CRDB 读写分离 |
+| writing-py | Python | 8082 | 写作批改、润色、翻译精读、Claude(Litestar+Granian+LangGraph) | 无状态 | CRDB 写主库 |
 | emotion-svc | Python | 8084 | 情绪感知、视觉辅助 | 无状态 | 无(纯计算) |
-| frontend | React | 3000 | 学习者 + 教师前端 | - | - |
+| content-go | Go | - | 课程策展、内容作答(esp_content) | 无状态 | CRDB |
+| community-go | Go | - | 圈子/UGC/举报(esp_community) | 无状态 | CRDB |
+| gamification-go | Go | - | 排行榜 CQRS(热 Redis ZSET + 冷 CRDB 快照) | 无状态 | Redis / CRDB(esp_gamification) |
+| listening-go | Go | - | 听力训练 | 无状态 | CRDB |
+| reading-go | Go | - | 阅读训练 | 无状态 | CRDB |
+| vocab-srs-go | Go | - | 词汇间隔重复 | 无状态 | CRDB |
+| course-path-go | Go | - | 学习路径编排 | 无状态 | CRDB |
+| live-tutor-go | Go | - | 实时辅导 | 无状态 | CRDB |
+| admin-go | Go | - | 运维/治理面板 | 无状态 | CRDB |
+| asr-adapter-go | Go | - | ASR 引擎 HTTP 适配(消费方为 gateway-go/conversation-go) | 无状态 | 无 |
+| tts-adapter-go | Go | - | TTS 引擎 HTTP 适配 | 无状态 | 无 |
+| writing-coach | Python | - | 写作增强聚合(LCO 三层缓存接入点) | 无状态 | CRDB |
+| llm-orchestrator-rs | Rust | - | LLM 编排/统一 Provider 抽象(LCO 接入点) | 无状态 | Redis / Milvus / Neo4j |
+| assessment-rs | Rust | - | 评测引擎 | 无状态 | CRDB |
+| pronunciation-rs | Rust | - | 发音评分 | 无状态 | 无(纯计算) |
+| media-learn-rs | Rust | - | 媒体学习 | 无状态 | CRDB |
+| **conversation-go** | Go | **(非独立部署)** | **gateway-go 内嵌会话领域库**(ASR/TTS/LLM/cache),非独立 Deployment | 内嵌 | 复用 gateway-go |
+| frontend | React | 3000 | 学习者 + 教师前端(Web/H5/小程序三端) | - | - |
 
-> 当前实现注:learning-worker 的落库消费已内置于 learning-java 进程(`DbLearningEventConsumer`);Pulsar 已就绪并预留 topic,本期学情事件走 Disruptor 直落库,Pulsar 用于跨服务事件广播(speech.session / writing.task 等)。
+> 当前实现注:learning-worker 的落库消费已内置于 learning-java 进程(`DbLearningEventConsumer`),亦可通过 `ESP_ROLE=worker` 独立 Deployment(`21-learning-worker.yaml`);Pulsar 已就绪并预留 topic,本期学情事件走 Disruptor 直落库,Pulsar 用于跨服务事件广播(speech.session / writing.task 等)。独立服务数 23 + 内嵌库 1(conversation-go)。"24 微服务"计数含 conversation-go,但独立部署数为 23。
 
 ---
 
 ## 第 4 章 读写分离架构(重点)
 
+> **实现修正(v5.1)**:本章 v5.0 以 TiDB Primary/Follower + TiFlash 列存为读写分离实现。实际生产自 #140 全服务切 CockroachDB 后,读写分离走 **CRDB follower-read(`AS OF SYSTEM TIME`)** + esp-rw-java `CockroachDbDataSourceConfig`(双 HikariCP 池 + `RoutingDataSource`)。TiDB/TiFlash 路径的 `DataSourceConfig` 与 `@DataSource` 注解机制保留可回切(见第 13 章),但当前生产数据面是 CRDB。
+
 ### 4.1 设计目标
-5000 CCU 下,学情事件高频写、学习路径/学情分析高频读。若读写均打主库,主库成为瓶颈且 OLAP 查询影响 OLTP。读写分离将:
-- **写**:始终命中 TiDB Primary,保证强一致。
-- **读**:按一致性要求分流——强一致读(个人最新状态)走 Primary 或 Follower 强一致读;弱一致读(报表/榜单/分析)走 Follower / TiFlash,卸载主库。
+5000 CCU 下,学情事件高频写、学习路径/学情分析高频读。若读写均打写节点,写节点成为瓶颈且分析查询影响 OLTP。读写分离将:
+- **写**:始终命中 CRDB leaseholder(写池),保证强一致。
+- **读**:按一致性要求分流——强一致读(个人最新状态)走写池;弱一致读(报表/榜单/列表)走 follower-read(`AS OF SYSTEM TIME` 历史读,卸载写节点)。
 
 ### 4.2 路由策略
 ```
                     ┌──────────────────────────┐
-   业务请求 ───────►│  DataSource Router (Java) │
+   业务请求 ───────►│  RoutingDataSource (Java) │
                     └────────────┬─────────────┘
               ┌──────────────────┼──────────────────┐
               │ 标注 @DataSource(READ)│ 默认 / @DataSource(WRITE)│
               ▼                  ▼
      ┌────────────────┐   ┌────────────────┐
      │ Read Pool       │   │ Write Pool      │
-     │ → Follower /     │   │ → Primary       │
-     │   TiFlash(OLAP) │   │ (强一致)        │
+     │ → CRDB read     │   │ → CRDB primary  │
+     │   host(follower │   │   (leaseholder) │
+     │   -read AS OF   │   │ (强一致)        │
+     │   SYSTEM TIME)  │   │                 │
      └────────────────┘   └────────────────┘
 ```
 
-### 4.3 实现机制(Java 侧,核心业务面)
-1. **双 DataSource**:`primaryDataSource`(jdbc:tidb://primary)与 `readDataSource`(jdbc:tidb://follower),由 Spring `AbstractRoutingDataSource` 按 Key 路由,经 `LazyConnectionDataSourceProxy` 包裹延迟获取连接。
-2. **注解驱动**:`@DataSource(READ)` 标注 Service 方法走读池;`@DataSource(WRITE)`/默认走写池。`DataSourceAspect`(`@Around`)在方法入口设置 `RoutingHolder` ThreadLocal 路由 Key,finally 清除。
-3. **强一致读兜底**:写后立即读场景,通过 `@DataSource(value=READ, consistent=true)` 强制走主库(写池),避免主从延迟读到旧值。
-4. **TiFlash 路由**:学情分析(模块4 FR-4.2)用 `@DataSource(value=READ, tiflash=true)` + Repository 自定义查询 `/*+ read_from_storage(tiflash[...]) */` hint,走列存副本,加速聚合。
-5. **Go / Python 侧**:gateway-go 读会话历史走 Follower;writing-py 落库走 Primary。各自在连接串层面区分。
+### 4.3 实现机制(Java 侧,核心业务面,CRDB 路径)
+1. **双 DataSource(CRDB)**:`crdbWriteDataSource`(jdbc:postgresql://crdb-public:26257/...)与 `crdbReadDataSource`(同 host 或独立 read host,读池连接参数启用 follower-read),由 Spring `AbstractRoutingDataSource`(`RoutingDataSource`)按 Key 路由,经 `LazyConnectionDataSourceProxy` 包裹延迟获取连接。实现在 `platform/esp-rw-java/src/main/java/com/esp/rw/CockroachDbDataSourceConfig.java`,`@ConditionalOnProperty(esp.rw.storage.type=cockroachdb)` 激活。
+2. **注解驱动**:`@DataSource(READ)` 标注 Service 方法走读池;`@DataSource(WRITE)`/默认走写池。`DataSourceAspect`(`@Around`)在方法入口设置 `RoutingHolder` ThreadLocal 路由 Key,finally 清除。注解机制与 TiDB 路径完全复用。
+3. **强一致读兜底**:写后立即读场景,通过 `@DataSource(value=READ, consistent=true)` 强制走写池(leaseholder),避免 follower 复制延迟读到旧值。
+4. **follower-read 历史读**:弱一致读走读池,CRDB 用 `AS OF SYSTEM TIME` 提供近实时历史读,卸载写节点。**注意**:CRDB 为 Pebble LSM 行存,无 TiFlash 式列存 MPP,学情大数据聚合(learning_events 30亿行)已退化为外推数仓方案(见第 13 章技术债与 ADR-25 DEFERRED)。
+5. **Go / Python 侧**:gateway-go 读会话历史走 read host;writing-py 落库走 write host。各自在连接串层面区分;Go 服务(gamification-go 等)用 `READ_DB_URL`/`WRITE_DB_URL` env 指向 `crdb-public:26257`。
 
 ### 4.4 读写分离在各模块的应用
 | 模块 | 写 | 读 |
 |---|---|---|
-| 口语陪练 | session_turns 落 Primary(learning-worker 异步) | 会话历史读 Follower |
-| 自适应学习 | learning_events 落 Primary(Disruptor→worker) | 学习路径/mastery 读 Follower(写后强一致读走主库) |
-| 写作批改 | writing_tasks 落 Primary | 历史作文读 Follower |
-| 教师学情分析 | - | 共性难题聚合走 TiFlash 列存 |
-| 作业评阅 | submissions 落 Primary | 列表读 Follower |
+| 口语陪练 | session_turns 落写池(learning-worker 异步) | 会话历史读读池 |
+| 自适应学习 | learning_events 落写池(Disruptor→worker) | 学习路径/mastery 读读池(写后强一致读走写池) |
+| 写作批改 | writing_tasks 落写池 | 历史作文读读池 |
+| 教师学情分析 | - | 共性难题聚合读读池(无列存加速,依赖索引+应用层聚合) |
+| 作业评阅 | submissions 落写池 | 列表读读池 |
 
 ### 4.5 一致性权衡
-- 主从延迟:TiDB Raft 多数派复制,Follow Read 延迟通常 < 1s(NFR-PERF-2)。
-- 关键写后读:走主库,牺牲少量延迟换一致性。
-- 报表:容忍秒级延迟,走 Follower/TiFlash,换吞吐。
+- 复制延迟:CRDB Raft 多副本, follower-read(`AS OF SYSTEM TIME`)容忍秒级历史读延迟。
+- 关键写后读:走写池(leaseholder),牺牲少量延迟换一致性。
+- 报表:容忍秒级延迟,走读池 follower-read,换吞吐。
 
 ---
 
@@ -171,8 +201,9 @@
 ### ADR-02 Pulsar 而非 Kafka
 计算存储分离(Broker 无状态,K8s 横向扩容简单)、多租户、百万 Topic、Geo-replication 预留。
 
-### ADR-03 TiDB + 读写分离 + TiFlash HTAP
-MySQL 协议兼容(零改造)、HTAP(OLTP 行存 + OLAP 列存)、水平扩缩容;读写分离卸载主库(见第 4 章)。主键 AUTO_RANDOM 避免写热点。
+### ADR-03 TiDB + 读写分离 + TiFlash HTAP(Superseded by ADR-24)
+**状态**:Superseded by ADR-24(2026-08-21)。CRDB 作为主数据面后,TiDB HTAP 路径保留可回切,生产不再走 TiDB。
+MySQL 协议兼容(零改造)、HTAP(OLTP 行存 + OLAP 列存)、水平扩缩容;读写分离卸载主库(见第 4 章)。主键 AUTO_RANDOM 避免写热点。**实情(2026-08-21)**:TiDB 3区域 2026-08-20 下电,生产全量切 CockroachDB(见 ADR-24)。
 
 ### ADR-04 Go 承担实时面
 goroutine per connection,单进程 hold 数万 WS;会话状态外置 Redis Cluster → 网关无状态 → K8s 任意 Pod 接连接;跨 Pod 广播走 Redis Pub/Sub。
@@ -205,7 +236,8 @@ goroutine per connection,单进程 hold 数万 WS;会话状态外置 Redis Clust
 5. **不替换 gateway-go 与 Java**:Go 网关用标准库 + gorilla 已是最优实时面选型(ADR-04);Java 用 Spring Boot 生态成熟。**仅替换 Python AI 面的 Web 框架与 ASGI 服务器**,精准提升 AI 服务并发能力。
 **结论**:writing-py / emotion-svc 改用 Litestar + Granian;LLM 调用改异步(`httpx.AsyncClient` / anthropic async);保持 Pydantic v2 模型与 OpenAPI 契约不变,前后端契约零影响。
 
-### ADR-10 TiDB 多分区拓扑与同步/读写分离真相(含 TiKV/TiFlash)
+### ADR-10 TiDB 多分区拓扑与同步/读写分离真相(含 TiKV/TiFlash)(Superseded by ADR-24)
+**状态**:Superseded by ADR-24(2026-08-21)。本 ADR 描述的 TiDB 单点环境已于 2026-08-20 下电,生产全量切 CockroachDB。原文保留作历史溯源与回切参考。
 **背景**:用户提出"容器中有多个分区的 TiDB,它们之间是否进行数据同步、读写分离,是否有 TiKV?多个分区之间的 Pulsar MQ、Redis Cluster 各自是否有数据同步、读写分离等"。
 
 **调研事实**(2026-07-30 对 `ekb-m2-{aws-us-east-1, azure-eastasia, gcp-europe-west1}` 三命名空间实测):
@@ -252,10 +284,11 @@ goroutine per connection,单进程 hold 数万 WS;会话状态外置 Redis Clust
 **决策**:单节点 RD 用脚本化混沌(kubectl delete pod / scale 0 / tc 延迟注入);生产用 Chaos Mesh。
 **依据**:单节点无法真实网络分区;脚本化覆盖 pod kill / 依赖下线 / 延迟 / BFF kill / 跨区断网等核心场景,记录恢复时间与一致性。
 
-### ADR-16 真 TiKV 异地多活 TiDB 集群
+### ADR-16 真 TiKV 异地多活 TiDB 集群(Superseded by ADR-24)
+**状态**:Superseded by ADR-24(2026-08-21)。TiDB 异地多活路径未实际落地即被 CRDB 主数据面决策覆盖。
 **背景**:原 ADR-10 指出容器内 TiDB 为 unistore 单点(无真 TiKV/TiFlash)。用户要求部署含真 TiKV 的异地多活集群。
-**决策**:用 TiDB Operator 在 K8s 部署真实 TidbCluster CR(PD3 + TiKV3 + TiDB2 + TiFlash2,开启 `tidb_enable_follower_read=ON`);跨 aws/azure/gcp 三区用 **TiCDC** 异步同步(aws 主写区 → azure/gcp 只读副本),实现异地多活读写分离。原 unistore 单点保留只作迁移源,数据迁移后下线。
-**依据**:真 TiKV 提供 Raft 多副本强一致与水平扩缩;TiFlash 列存支撑 FR-4.2 学情 OLAP;TiCDC 是 TiDB 官方跨集群增量同步方案,异地只读副本承担报表读,卸载主库。资源:已扩 RD 至 8CPU/30G/360G 承载。
+**决策(已被覆盖)**:用 TiDB Operator 在 K8s 部署真实 TidbCluster CR(PD3 + TiKV3 + TiDB2 + TiFlash2,开启 `tidb_enable_follower_read=ON`);跨 aws/azure/gcp 三区用 **TiCDC** 异步同步(aws 主写区 → azure/gcp 只读副本),实现异地多活读写分离。原 unistore 单点保留只作迁移源,数据迁移后下线。
+**实情(2026-08-21)**:TiDB 3区域 2026-08-20 下电(memory `esp-tidb-decommissioned-scale0-2026-08-20`),mirror pingcap 镜像源 403 致运维受阻,生产改走 CockroachDB。原 TiCDC 异地多活方案未上线即被 ADR-24 覆盖。回切条件见 ADR-24。
 
 ### ADR-17 数字人与智能体 + LLM 端点
 **决策**:三端前端接入数字人(唇形/表情随 TTS+情绪驱动);四类智能体(口语/写作/学习路径/教案)在各服务编排;LLM 统一 `LlmProvider` 抽象直连 Anthropic API,复用本机代理端点(`ANTHROPIC_BASE_URL`、模型 `claude-opus-4-8[1M]`/`glm_for_coding`),`LLM_MODE=mock` 供压测。
@@ -315,18 +348,18 @@ users(teacher) ──< classes ──< assignments ──< submissions
 users(teacher) ──< lesson_plans
 ```
 
-### 6.2 读写分离下的表归属
-| 表 | 写主库 | 读副本 | 备注 |
+### 6.2 读写分离下的表归属(CRDB 路径)
+| 表 | 写池 | 读池 | 备注 |
 |---|---|---|---|
 | users | ✓ | ✓ | 读多写少 |
-| sessions / session_turns | ✓(异步) | ✓ | 会话历史读副本 |
-| learning_events | ✓(Disruptor→worker) | ✓(个人) / TiFlash(分析) | 高频写,AUTO_RANDOM |
-| user_mastery | ✓ | ✓(写后强一致读走主库) | PK(user_id,kp_id) |
+| sessions / session_turns | ✓(异步) | ✓ | 会话历史读读池 |
+| learning_events | ✓(Disruptor→worker) | ✓(个人,follower-read) | 高频写,CRDB 用 `unique_rowid()` 替代 AUTO_RANDOM |
+| user_mastery | ✓ | ✓(写后强一致读走写池) | PK(user_id,kp_id) |
 | writing_tasks | ✓ | ✓ | feedback JSON 列 |
-| lesson_plans / classes / assignments / submissions | ✓ | ✓(分析走 TiFlash) | |
+| lesson_plans / classes / assignments / submissions | ✓ | ✓ | 无列存加速 |
 
 ### 6.3 索引与分区
-- learning_events 按 `created_at` 范围分区(TiDB 分区表),idx_user_time 加速查询。
+- learning_events:CRDB 行存无 TiDB 式分区表,按 `created_at` 建索引 `idx_user_time` 加速查询;30亿行聚合走外推数仓(ADR-25 DEFERRED)。
 - 高频读路径覆盖索引:`user_mastery(user_id, next_review_at)`。
 
 ---
@@ -341,17 +374,17 @@ users(teacher) ──< lesson_plans
 
 ## 第 8 章 高并发与性能设计
 1. **接入层**:gateway-go WS 长连接 + Redis Pub/Sub;BFF 限流(令牌桶,Redis)。
-2. **业务层**:Disruptor 削峰学情事件;批量化写 TiDB(批量 200)。
-3. **数据层**:读写分离 + TiFlash 列存 + 连接池(HikariCP max 50)。
+2. **业务层**:Disruptor 削峰学情事件;批量化写 CRDB(批量 200)。
+3. **数据层**:CRDB 读写分离(follower-read)+ 连接池(HikariCP max 50)。无 TiFlash 列存,OLAP 聚合外推数仓(ADR-25 DEFERRED)。
 4. **缓存层**:Redis Cluster 缓存学习路径、场景模板、热点教案。
-5. **LLM 层**:流式输出降首字延迟;mock 模式压测;结果缓存(相同 prompt)。
+5. **LLM 层**:流式输出降首字延迟;mock 模式压测;三层语义缓存(LCO 铁律,L1 Redis/L2 Milvus/L3 Neo4j)。
 
 ---
 
 ## 第 9 章 高可用与容错
 - 服务多副本 + readiness/liveness 探针;HPA 自动扩缩。
 - Pulsar 消息持久化 + 消费失败重试 + 死信队列。
-- TiDB 多 Region/Raft 多副本;Redis Cluster 主从 + 故障转移。
+- CockroachDB Raft 多副本(3 节点 zone=z1/z2/z3,单台 RD VM;multi-region Phase1 DEFERRED);Redis Cluster 主从 + 故障转移(3主3从)。
 - 优雅停机:WS drain / Disruptor drain(`@PreDestroy`)/ Pulsar consumer 关闭。
 
 ---
@@ -368,13 +401,13 @@ users(teacher) ──< lesson_plans
 ## 第 11 章 部署架构
 ### 11.1 K8s 生产
 - 每服务 Deployment + HPA(CPU/自定义指标 CCU/队列深度)。
-- TiDB Operator 部署 TiDB 集群(含 TiFlash);Redis Cluster Operator;Pulsar Helm chart。本期复用已存在集群。
+- 数据面:CockroachDB(3 节点单台 RD VM,zone=z1/z2/z3);Redis Cluster(3主3从);Pulsar standalone。本期复用已存在集群/下沉宿主组件。
 - Ingress(Traefik)+ cert-manager(Let's Encrypt);Secret 管理 API Key/DB 密码。
-- 命名空间:`esp-prod`、`esp-infra`(复用)。
+- 命名空间:`esp-prod`、`ekb-m2-aws-us-east-1`(复用基础设施)。
 
 ### 11.2 本地验证(Docker Compose)
-- 全栈:TiDB 集群(PD+TiKV+TiDB+TiFlash)、Redis Cluster、Pulsar standalone、各服务、frontend。
-- `docker compose up` 一键起;`tidb-init` 自动建库建表。
+- 全栈:CockroachDB、Redis Cluster、Pulsar standalone、各服务、frontend。
+- `docker compose up` 一键起;CRDB init 自动建库建表(`scripts/apply_crdb_schema.py`)。
 
 ---
 
@@ -388,7 +421,28 @@ users(teacher) ──< lesson_plans
 
 ---
 
-## 第 13 章 技术栈清单
+## 第 13 章 历史演进与可回切保留(TiDB 路径)
+
+> **本章为 v5.1 新增**,记录 TiDB HTAP/TiCDC 异地多活路径的历史决策与回切条件,生产当前不走此路径。
+
+### 13.1 历史决策(已被 ADR-24 覆盖)
+- v5.0 SAD 以 TiDB+TiFlash HTAP+TiCDC 异地多活为数据面叙事(原 ADR-03/10/16)。
+- 实际 2026-08 起生产全量切 CockroachDB(`ESP_RW_STORAGE_TYPE=cockroachdb`,`crdb-public:26257`)。
+- TiDB 3区域(aws/azure/gcp 逻辑 ns)于 2026-08-20 下电止血:`deploy/k8s/07-tidb-tikv.yaml` 中 PD/TiKV/TiDB replicas 现 =1(实际底层已不可用),memory `esp-tidb-decommissioned-scale0-2026-08-20`。
+- `deploy/k8s/05b-platform-infra-externalnames.yaml:13-30` 仍声明 `tidb`/`tidb-follower` ExternalName 指向已下电集群,作为可回切保留(应用 env `WRITE_DB_URL`/`READ_DB_URL` 仍保留 `tidb-primary`/`tidb-follower` jdbc:mysql 回切串,见 `20-learning-java.yaml:38-39`)。
+
+### 13.2 多区域实情
+- 当前无物理多区域:CRDB 3 节点同处单台 RD VM(zone=z1/z2/z3),无 region 层。
+- multi-region(GLOBAL/REGIONAL BY ROW + SURVIVE REGION FAILURE)为 Phase1 DEFERRED,见 `docs/design/cockroachdb-vs-tidb-multi-region-plan.md`(注:该文档原"不值得引入 CRDB"的 ADR 结论已被 ADR-24 覆盖,保留作选型溯源)。
+
+### 13.3 回切条件(多节点恢复时)
+- 多节点服务器恢复 + mirror pingcap 镜像源修好(当前 403)后,可回 TiDB:`07-tidb-tikv.yaml` replicas 改回 3 + `05b-platform-infra-externalnames.yaml` 指向真实集群 + 应用 env `ESP_RW_STORAGE_TYPE=tidb`。
+- schema 兼容性需重验:`AUTO_RANDOM`(TiDB)↔ `unique_rowid()`(CRDB)、`ON UPDATE CURRENT_TIMESTAMP`(TiDB)↔ 触发器/应用层维护(CRDB)等差异。
+- 回切决策需新 ADR,不可静默切换(工程铁律⑦诚实优先 + DGO GitOps)。
+
+---
+
+## 第 14 章 技术栈清单
 | 类别 | 选型 | 版本 | 选型依据 |
 |---|---|---|---|
 | 实时网关 | Go + gorilla/websocket + go-redis | Go 1.22+ | goroutine per connection,单进程 hold 数万 WS;无状态(会话外置 Redis) |
@@ -397,8 +451,8 @@ users(teacher) ──< lesson_plans
 | 服务治理 | Spring Cloud Alibaba(Nacos + Sentinel + Dubbo Triple) | 2023.x | Nacos 注册/配置、Sentinel 流控熔断、Dubbo Triple 服务间 RPC(ADR-08) |
 | AI 服务 | Python 3.12 + **Litestar + Granian** + anthropic SDK | Litestar 2.x / Granian 1.x | 全异步 + Rust ASGI 内核,吞吐/尾延迟优于 FastAPI+Uvicorn(ADR-09) |
 | MQ | Apache Pulsar | 3.x | 计算存储分离、多租户、Geo-Replication 预留(ADR-02/11) |
-| DB | TiDB(HTAP)+ TiFlash + TiKV | 7.x/8.x | MySQL 兼容、HTAP、水平扩缩;读写分离卸载主库(ADR-03/10) |
-| 缓存 | Redis Cluster | 7.x | 会话/缓存/限流/分布式锁,6 主 6 从预留(ADR-11) |
+| DB | **CockroachDB(主数据面)** | 22.x/23.x | Postgres 兼容、Raft 多副本、声明式多区域;读写分离走 follower-read(ADR-24);TiDB+TiFlash 路径保留可回切(ADR-03/10/16 Superseded) |
+| 缓存 | Redis Cluster | 7.x/8.x | 会话/缓存/限流/分布式锁,3 主 3 从(ADR-11) |
 | 前端 | React 18 + Vite + TS + SWR | — | 轻量数据请求 + 快速构建 |
 | 可观测 | Prometheus + Grafana + Loki + OpenTelemetry | — | 指标/日志/追踪三位一体 |
 | 压测 | Locust | 2.x | 5000 CCU HTTP+WS 压测 |
@@ -406,13 +460,13 @@ users(teacher) ──< lesson_plans
 
 ---
 
-## 第 14 章 与需求追溯
+## 第 15 章 与需求追溯
 | SRS 需求 | 架构落点 |
 |---|---|
 | G-01 5000 CCU | gateway-go 无状态 + K8s HPA |
 | G-06 学情事件 5000 ev/s | Disruptor + 批量写 |
-| NFR-PERF-2 读写分离 | 第 4 章 + 双 DataSource |
+| NFR-PERF-2 读写分离 | 第 4 章 + CRDB 双 DataSource(CockroachDbDataSourceConfig) |
 | FR-2.4 学情事件流 | Disruptor RingBuffer → worker |
-| FR-4.2 学情大数据分析 | TiFlash 列存 OLAP |
+| FR-4.2 学情大数据分析 | 原靠 TiFlash 列存(Superseded);CRDB 行存无 MPP,改走外推数仓(ADR-25 DEFERRED) |
 | NFR-MAINT-* 可观测 | 第 10 章 |
 | NFR-DEPLOY-* | 第 11 章 |

@@ -22,3 +22,8 @@ anyhow = "1"
 
 # Prometheus /metrics 端点(Phase1 子项 1.2,4 个 Rust 服务共用 esp_common::metrics::metrics_router)
 prometheus = "0.13"
+
+# 测试依赖(Router::oneshot 走 tower::ServiceExt;axum 0.7 不默认 re-export oneshot)
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

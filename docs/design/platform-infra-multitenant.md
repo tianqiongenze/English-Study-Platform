@@ -3,6 +3,8 @@
 > 评估视角:教授级高级工程师 / 互联网大厂资深架构师(10亿用户/100万并发工业级基线)。
 > 关联:`deploy/k8s/00-platform-infra-namespace.yaml`、`deploy/k8s/05b-platform-infra-externalnames.yaml`、`deploy/k8s/05-infra-reuse.yaml`、`docs/design/architecture/multi-node-topology.md`、`docs/design/schema-per-service-phase0.sql`。
 > 日期:2026-08-13。
+>
+> **2026-08-20 更新**:Neo4j 已从集群 `ekb-m2-aws-us-east-1` ns 下沉宿主(brew install neo4j 5.x,7474/7687),ESP 指向改 `host.lima.internal:7474`(orchestrator-rs `NEO4J_URL`)+ llm-cache-proxy 直连 `127.0.0.1`。邻居 education-platform 的 Neo4j 已弃用(改 NebulaGraph),删 ekb deploy 零影响。Milvus 仍集群 ns(scale=0,Phase2 待下沉宿主)。本文 §1/§6 中 Neo4j "集群 ns / scale=0 / 容器内" 描述为下沉前快照,Neo4j 部署形态以本注为准。下沉计划见 `report/milvus-neo4j-sink-plan.md`。
 
 ## 1. 背景与目标
 

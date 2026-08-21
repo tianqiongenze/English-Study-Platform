@@ -10,6 +10,8 @@ import com.esp.rw.DataSource;
 import com.esp.rw.DataSourceType;
 import com.esp.teacher.domain.Submission;
 import com.esp.teacher.repository.SubmissionRepository;
+import com.esp.teacher.repository.TeacherEventOutboxRepository;
+import com.esp.teacher.domain.TeacherEventOutbox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -17,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -49,13 +52,16 @@ public class TeacherSummarySaga {
     private final LearningRpcService learningRpc;
     private final CacheService cacheService;
     private final EventPublisher eventPublisher;
+    private final TeacherEventOutboxRepository outboxRepo;
 
     public TeacherSummarySaga(SubmissionRepository submissionRepo, LearningRpcService learningRpc,
-                              CacheService cacheService, @Lazy EventPublisher eventPublisher) {
+                              CacheService cacheService, @Lazy EventPublisher eventPublisher,
+                              TeacherEventOutboxRepository outboxRepo) {
         this.submissionRepo = submissionRepo;
         this.learningRpc = learningRpc;
         this.cacheService = cacheService;
         this.eventPublisher = eventPublisher;
+        this.outboxRepo = outboxRepo;
     }
 
     /**
@@ -121,11 +127,19 @@ public class TeacherSummarySaga {
         if (classId != null) {
             cacheService.evict("teacher:class-weak", "teacher:class-weak:" + classId);
         }
-        // EDA:发 teacher.finalized 事件 → learning-java 更新 mastery 分数
-        eventPublisher.publish(EventTopics.TEACHER_FINALIZED,
-                new TeacherFinalizedEvent(s.getUserId(), s.getAssignmentId(), finalScore.doubleValue()));
-        log.info("teacher.finalized published: userId={}, assignmentId(as kpId)={}, score={}",
-                s.getUserId(), s.getAssignmentId(), finalScore);
+        // P0-D1(2026-08-21):teacher.finalized 改 transactional outbox(本地原子写 + relay 异步重投)。
+        // 原实现 eventPublisher.publish 在 @Transactional 内 sendAsync:① 事务回滚但消息已发=幽灵事件;
+        // ② sendAsync 失败只 warn 丢消息,mastery 评分永久缺失;③ broker 不可达静默丢。
+        // 正解(用户 2026-08-21 确认走 DB outbox 统一路线):事务内同 esp_teacher schema 写 outbox 行
+        // (与 submission 同库同事务原子),由独立 OutboxRelay 扫表重投 Pulsar(幂等键 submissionId)。
+        // broker 挂时 outbox 行留存,relay 兜底重投;事务回滚则 outbox 行随之回滚(无幽灵事件)。
+        // 与 content-go outbox_relay.go 同模式,统一 outbox(schema-per-service 各自带 relay)。
+        TeacherFinalizedEvent evt = new TeacherFinalizedEvent(s.getUserId(), s.getAssignmentId(), finalScore.doubleValue());
+        String messageKey = "teacher:finalized:" + submissionId;
+        outboxRepo.save(TeacherEventOutbox.pending(
+                "teacher.finalized", messageKey, s.getUserId(), evt));
+        log.info("teacher.finalized enqueued to local outbox: submissionId={}, userId={}, kpId={}, score={}",
+                submissionId, s.getUserId(), s.getAssignmentId(), finalScore);
 
         // 返回前置快照(本地事务提交后,Spring 会把返回值交给调用方;补偿时用)
         return new Snapshot(submissionId, prevStatus, prevFinalScore, s.getUserId(), s.getAssignmentId());

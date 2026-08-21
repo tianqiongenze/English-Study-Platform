@@ -1,0 +1,38 @@
+# golangci-lint v2 配置(CLC 铁律:nil 防御 + SCS 铁律:安全扫描)
+# 迁移自 v1:新增 version/enable linters 结构 + nilness/nilerr/gosec
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.25"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    # gosimple 在 v2 已并入 staticcheck(SA/S/ST 系列)
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    # CLC 铁律点名:nil 防御 linter
+    - nilnesserr  # v2 中 nilness→nilnesserr:检测 nil 指针解引用/err 检查后返回不一致 nil
+    - nilerr      # 检测返回 nil err 但 err 实际非 nil 的逻辑错误
+    # SCS 铁律:供应链安全代码扫描
+    - gosec       # 注入/硬编码密钥/弱密码等
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+
+  exclusions:
+    generated: strict
+    presets:
+      - legacy
+      - std-error-handling
+    rules:
+      - linters: [gosec]
+        path: _test\.go
+        text: "G101|G104|G304|G404|G505"

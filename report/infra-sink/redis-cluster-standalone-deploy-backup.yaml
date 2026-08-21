@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    argocd.argoproj.io/tracking-id: esp-platform:apps/Deployment:ekb-m2-aws-us-east-1/redis-cluster
+    deployment.kubernetes.io/revision: "2"
+  creationTimestamp: "2026-08-19T15:49:10Z"
+  generation: 2
+  name: redis-cluster
+  namespace: ekb-m2-aws-us-east-1
+  resourceVersion: "1911911"
+  uid: 77a68631-9cfb-48eb-9c1e-2360ba9250a6
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: redis-cluster
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: redis-cluster
+    spec:
+      containers:
+      - args:
+        - --appendonly
+        - "yes"
+        image: redis:8.0-alpine
+        imagePullPolicy: IfNotPresent
+        name: redis
+        ports:
+        - containerPort: 6379
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          successThreshold: 1
+          tcpSocket:
+            port: 6379
+          timeoutSeconds: 1
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          name: redis-data
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-cluster-data
+status:
+  availableReplicas: 1
+  conditions:
+  - lastTransitionTime: "2026-08-19T15:50:47Z"
+    lastUpdateTime: "2026-08-19T15:50:47Z"
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: "True"
+    type: Available
+  - lastTransitionTime: "2026-08-19T18:48:33Z"
+    lastUpdateTime: "2026-08-19T18:48:33Z"
+    message: ReplicaSet "redis-cluster-59dbd687d9" has timed out progressing.
+    reason: ProgressDeadlineExceeded
+    status: "False"
+    type: Progressing
+  observedGeneration: 2
+  readyReplicas: 1
+  replicas: 2
+  unavailableReplicas: 1
+  updatedReplicas: 1

@@ -194,6 +194,7 @@ TOGAF ADM(Architecture Development Method)是企业架构建模与治理的迭�
 | G2 | ADR 索引与编号规范 | `docs/design/architecture/adr-index.md`(ADR-XX~XX 目录 + 编号规则) | 小 | **P0** |
 | G3 | 合规审查模板与流程 | `architecture-compliance-review-template.md`(评审 checklist:契约/BSSolver映射/安全/可观测) | 小 | P1 |
 | G4 | 契约合规扩展(全接口 Pact) | C5 同源,扩 integration-tests 到全 11 路由 consumer/provider | 大 | P1 |
+| G5 | LCO 铁律工具侧落地(llm-cache-proxy) | ADR-23(`adr-llm-cache-proxy.md`):独立宿主 Go 代理横截本机编码工具 LLM 调用,实施三层语义缓存(L1 Redis 精确哈希 / L2 Milvus 2560 维 Qwen 向量 / L3 Neo4j 知识图谱),落地 LCO/CLC/SCS/RWT 铁律;CI 加 govulncheck+覆盖率 artifact,golangci-lint 启 nilnesserr/nilerr/gosec,Dockerfile 加 HEALTHCHECK,L2/L3 接口级 mock 测试补齐 | 小(已完成 2026-08-20) | **P0** |
 
 ### 3.7 Phase H 变更治理(已有经验沉淀,需结构化)
 

@@ -42,7 +42,7 @@
 |---|---|---|
 | Loki+Fluent Bit 日志链路 | 全集群无资源 | 未落地,后续引入(ETC 范围) |
 | ArgoCD GitOps | deploy/gitops/*.yaml 存在无 ns | 未落地,后续引入 |
-| Milvus/Neo4j 语义检索+知识图谱 | 底座 pod 在跑,backend 零引用 | 未落地,业务接入未启动 |
+| Milvus/Neo4j 语义检索+知识图谱 | L2 Milvus(`esp_llm_semantic` 384维 minilm)+ L3 Neo4j 已接入(conversation-go/orchestrator-rs/writing-coach/llm-cache-proxy);Neo4j 2026-08-20 下沉宿主 | ✅ 已落地(原"未落地"状态反转);L2 维度对齐 + Neo4j 下沉见 `llm-cache-proxy-sdd.md` / `report/milvus-neo4j-sink-plan.md` |
 
 ### D 类:测试/工程化执行滞后
 

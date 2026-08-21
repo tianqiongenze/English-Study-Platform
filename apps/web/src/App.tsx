@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import LearningLayout from "./pages/LearningLayout";
 import TeacherLayout from "./pages/TeacherLayout";
 import { SkeletonPage } from "./Skeleton";
+import AIAssistant from "./components/AIAssistant";
 
 // 路由懒加载(React.lazy):非首屏页面级组件按需分包。
 // chunk 命名由 Vite 自动按模块名处理,无需 /* webpackChunkName */ 注释。
@@ -16,9 +17,12 @@ const Analytics = lazy(() => import("./pages/teacher/Analytics"));
 const Grading = lazy(() => import("./pages/teacher/Grading"));
 const Profile = lazy(() => import("./pages/Profile"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const GovernanceDashboard = lazy(() => import("./pages/admin/GovernanceDashboard"));
 const MiddlewarePanel = lazy(() => import("./pages/admin/MiddlewarePanel"));
 const DebugPanel = lazy(() => import("./pages/admin/DebugPanel"));
+const ApiTestPanel = lazy(() => import("./pages/admin/ApiTestPanel"));
+const OpsPanel = lazy(() => import("./pages/admin/OpsPanel"));
 const ContentLibrary = lazy(() => import("./pages/learning/ContentLibrary"));
 const ContentAdmin = lazy(() => import("./pages/admin/ContentAdmin"));
 const CommunityPage = lazy(() => import("./pages/community/CommunityPage"));
@@ -59,13 +63,19 @@ export default function App() {
           <Route path="grading" element={<Lazy><Grading /></Lazy>} />
         </Route>
         <Route path="/profile" element={<RequireAuth><Lazy><Profile /></Lazy></RequireAuth>} />
-        <Route path="/admin" element={<RequireAuth role="admin"><Lazy><AdminDashboard /></Lazy></RequireAuth>} />
-        <Route path="/admin/content" element={<RequireAuth role="admin"><Lazy><ContentAdmin /></Lazy></RequireAuth>} />
-        <Route path="/admin/governance" element={<RequireAuth role="admin"><Lazy><GovernanceDashboard /></Lazy></RequireAuth>} />
-        <Route path="/admin/middleware" element={<RequireAuth role="admin"><Lazy><MiddlewarePanel /></Lazy></RequireAuth>} />
-        <Route path="/admin/debug" element={<RequireAuth role="admin"><Lazy><DebugPanel /></Lazy></RequireAuth>} />
+        <Route path="/admin" element={<RequireAuth role="admin"><AdminLayout /></RequireAuth>}>
+          <Route index element={<Lazy><AdminDashboard /></Lazy>} />
+          <Route path="ops" element={<Lazy><OpsPanel /></Lazy>} />
+          <Route path="content" element={<Lazy><ContentAdmin /></Lazy>} />
+          <Route path="governance" element={<Lazy><GovernanceDashboard /></Lazy>} />
+          <Route path="middleware" element={<Lazy><MiddlewarePanel /></Lazy>} />
+          <Route path="debug" element={<Lazy><DebugPanel /></Lazy>} />
+          <Route path="api-test" element={<Lazy><ApiTestPanel /></Lazy>} />
+        </Route>
         <Route path="*" element={<Navigate to="/learning/speech" replace />} />
       </Routes>
+      {/* AI 助手浮层(全局,所有登录后页面显示;经 gateway LCO 三层缓存) */}
+      <AIAssistant />
     </BrowserRouter>
   );
 }

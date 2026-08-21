@@ -14,7 +14,7 @@ spec:
   replicas: 1
   selector: {matchLabels: {app: pronunciation-rs}}
   template:
-    metadata: {labels: {app: pronunciation-rs}}
+    metadata: {labels: {app: pronunciation-rs}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8088", prometheus.io/path: "/metrics"}}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -48,7 +48,15 @@ spec:
         lifecycle:
           preStop:
             exec: {command: ["sh","-c","sleep 5"]}
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go 默认写 ./log=/app/log(对标 reading-go 已修模式),OTel/gRPC 可能写 /tmp。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1
@@ -74,7 +82,7 @@ spec:
   replicas: 1              # P1→实跑(单节点验证拓扑)
   selector: {matchLabels: {app: listening-go}}
   template:
-    metadata: {labels: {app: listening-go}}
+    metadata: {labels: {app: listening-go}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8089", prometheus.io/path: "/metrics"}}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -82,7 +90,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: listening-go
-        image: esp/listening-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
+        image: esp/listening-go:0.3.1   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8089}]
         securityContext:
@@ -103,7 +111,15 @@ spec:
         lifecycle:
           preStop:
             exec: {command: ["sh","-c","sleep 5"]}
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go 默认写 ./log=/app/log(对标 reading-go 已修模式),OTel/gRPC 可能写 /tmp。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1
@@ -129,7 +145,7 @@ spec:
   replicas: 1              # P1 scaffold,已部署验证
   selector: {matchLabels: {app: assessment-rs}}
   template:
-    metadata: {labels: {app: assessment-rs}}
+    metadata: {labels: {app: assessment-rs}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8090", prometheus.io/path: "/metrics"}}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -163,7 +179,15 @@ spec:
         lifecycle:
           preStop:
             exec: {command: ["sh","-c","sleep 5"]}
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go 默认写 ./log=/app/log(对标 reading-go 已修模式),OTel/gRPC 可能写 /tmp。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1
@@ -189,7 +213,7 @@ spec:
   replicas: 1              # S6 部署验证(单节点)
   selector: {matchLabels: {app: reading-go}}
   template:
-    metadata: {labels: {app: reading-go}}
+    metadata: {labels: {app: reading-go}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8091", prometheus.io/path: "/metrics"}}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -197,7 +221,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: reading-go
-        image: esp/reading-go:0.3.0   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
+        image: esp/reading-go:0.3.1   # #140 CRDB 切库:esp-common-go pgx + 方言迁移
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8091}]
         securityContext:
@@ -219,6 +243,16 @@ spec:
           preStop:
             exec: {command: ["sh","-c","sleep 5"]}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go/v2 默认写 ./log(相对 WORKDIR /app → /app/log)+ /tmp 临时文件,readOnly 下 mkdir /app/log 失败(read-only file system)。
+        # 对标 learning-java/teacher-java 已修模式(emptyDir 挂 SDK 写路径);同形 mountPath 与 binary 实际写路径一致(CLC 追踪执行路径)。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
+      # RWP铁律(必须修):emptyDir 供 nacos-sdk-go /app/log + 通用 /tmp 写入(fsGroup:1000 属主与 runAsUser:1000 一致)
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1
@@ -244,7 +278,7 @@ spec:
   replicas: 1              # S7 启用,单节点验证
   selector: {matchLabels: {app: gamification-go}}
   template:
-    metadata: {labels: {app: gamification-go}}
+    metadata: {labels: {app: gamification-go}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8092", prometheus.io/path: "/metrics"}}
     spec:
       securityContext:              # Phase1 1.6: pod 级 fsGroup+seccompProfile
         fsGroup: 1000
@@ -252,7 +286,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: gamification-go
-        image: esp/gamification-go:0.4.2   # #220 #226 数字人 persona:GET/PUT /me/digital-human 写 esp_auth.users.digital_human(跨 schema)
+        image: esp/gamification-go:0.4.3   # #220 #226 数字人 persona:GET/PUT /me/digital-human 写 esp_auth.users.digital_human(跨 schema)
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8092}]
         securityContext:
@@ -274,7 +308,15 @@ spec:
         lifecycle:
           preStop:
             exec: {command: ["sh","-c","sleep 5"]}
+        # RWP铁律(DGO回写):readOnlyRootFilesystem:true已开但无挂载=定时炸弹;
+        # nacos-sdk-go 默认写 ./log=/app/log(对标 reading-go 已修模式),OTel/gRPC 可能写 /tmp。
+        volumeMounts:
+        - {name: app-log, mountPath: /app/log}
+        - {name: tmp, mountPath: /tmp}
         resources: {requests: {cpu: "100m", memory: 128Mi}, limits: {cpu: "500m", memory: 256Mi}}
+      volumes:
+      - {name: app-log, emptyDir: {}}
+      - {name: tmp, emptyDir: {}}
       terminationGracePeriodSeconds: 30
 ---
 apiVersion: v1

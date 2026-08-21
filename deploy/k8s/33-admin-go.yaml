@@ -10,11 +10,12 @@ spec:
   replicas: 1
   selector: {matchLabels: {app: esp-admin}}
   template:
-    metadata: {labels: {app: esp-admin}}
+    metadata: {labels: {app: esp-admin}, annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8099", prometheus.io/path: "/metrics"}}
     spec:
+      serviceAccountName: esp-admin-sa   # Phase3:ops 端点(logs/scale/restart)需 K8s API 权限
       containers:
       - name: esp-admin
-        image: esp/admin-go:1.0.0
+        image: esp/admin-go:1.3.7   # 1.3.7(Task B-pilot v3 + Fold1):接 Sentinel-golang v1.0.4 动态限流(规则经 Nacos dataId=admin-go-flow-rules 热加载)+ AllowOrLimit 包裹 /api/admin/ops+/api/admin/cache(限流返 429)+ Sentinel LogDir=/tmp+console logger+空 content→ClearRules + 修 Pulsar URL 双 esp bug(pulsar.go TrimPrefix 取短名,免 /esp/esp/business/ 404);1.3.6=ClearRules;1.3.5=初版;1.3.4=Phase4 runtime/缓存监控
         imagePullPolicy: IfNotPresent
         ports: [{containerPort: 8099}]
         securityContext:
@@ -24,6 +25,15 @@ spec:
         env:
         - {name: PROMETHEUS_URL, value: "http://prometheus.esp-observability.svc.cluster.local:9090"}
         - {name: PORT, value: "8099"}
+        # Phase4(2026-08-21):缓存监控 + Pulsar MQ 各下游基址(信任域配置,防 SSRF)。
+        # LCO/Neo4j 在宿主 port-forward,经 ExternalName svc 指向 host.lima.internal(esp-observability ns)。
+        - {name: LCO_STATS_URL, value: "http://lco-proxy.esp-observability.svc.cluster.local:15720"}
+        - {name: MILVUS_ADDR, value: "milvus:19530"}
+        - {name: NEO4J_REST_URL, value: "http://neo4j-rest.esp-observability.svc.cluster.local:7474"}
+        - {name: NEO4J_USER, value: "neo4j"}
+        - {name: NEO4J_PASSWORD, valueFrom: {secretKeyRef: {name: neo4j-creds, key: password, optional: true}}}
+        - {name: PULSAR_ADMIN_URL, value: "http://pulsar-broker.ekb-m2-aws-us-east-1.svc.cluster.local:8080"}
+        - {name: NACOS_ADDR, value: "nacos:8848"}   # Phase4 Nacos 注册(admin-go 自身也注册)
         envFrom:
         - secretRef: {name: esp-rsa-jwt-verify}
         readinessProbe: {httpGet: {path: /readyz, port: 8099}, initialDelaySeconds: 3, periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 3}
@@ -47,3 +57,69 @@ spec:
   type: NodePort
   selector: {app: esp-admin}
   ports: [{port: 80, targetPort: 8099, nodePort: 30099}]
+---
+# Phase3(2026-08-21):运维操作面板 RBAC —— esp-admin-sa 受限 Role。
+# 授予 esp-admin-go 的 ops 端点用到的最小权限:deploy get/list/scale/update(资源监控+scale/restart)+ pod/log get(实时日志)。
+# 铁律:禁 cluster-admin,最小权限(SCS 铁律第②条),仅 esp-prod ns 内。
+# 资源监控走 Prometheus 不需 K8s 权限;日志/scale/restart 才用本 RBAC。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: esp-admin-sa
+  namespace: esp-prod
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: esp-admin-ops
+  namespace: esp-prod
+rules:
+# deploy get/list/watch:查 deploy 状态(资源监控补充);scale/update:scale + restart(rollout restart 改 annotation)
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+# pod get/list/watch:查 service 对应 pod(找 log 目标 pod);pods/log get:实时日志
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list", "watch"]
+# Phase4(2026-08-21):HPA get/list/watch(admin-go /api/admin/runtime/hpa 直查 autoscaling/v2)
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: esp-admin-ops-binding
+  namespace: esp-prod
+subjects:
+- kind: ServiceAccount
+  name: esp-admin-sa
+  namespace: esp-prod
+roleRef:
+  kind: Role
+  name: esp-admin-ops
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Phase4(2026-08-21):缓存监控下游 ExternalName svc。
+# LCO(llm-cache-proxy)+ Neo4j 在宿主 port-forward,经 ExternalName 指向 host.lima.internal。
+# esp-admin-go 通过 lco-proxy:15720 / neo4j-rest:7474 访问宿主(经 ExternalName 解析到 host.lima.internal)。
+# 注:需确认 host.lima.internal 在 esp-observability ns 可解析(RD 单节点 DNS 已配);若不可达用宿主 IP 192.168.5.2。
+apiVersion: v1
+kind: Service
+metadata:
+  name: lco-proxy
+  namespace: esp-observability
+spec:
+  type: ExternalName
+  externalName: host.lima.internal
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-rest
+  namespace: esp-observability
+spec:
+  type: ExternalName
+  externalName: host.lima.internal

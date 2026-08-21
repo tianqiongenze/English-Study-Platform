@@ -1,0 +1,24 @@
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+apiVersion: v1
+kind: Endpoints
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Endpoints","metadata":{"annotations":{},"name":"milvus-minio","namespace":"ekb-m2-aws-us-east-1"},"subsets":[{"addresses":[{"ip":"192.168.5.2"}],"ports":[{"name":"s3","port":9000,"protocol":"TCP"},{"name":"console","port":9001,"protocol":"TCP"}]}]}
+  creationTimestamp: "2026-04-13T00:01:40Z"
+  labels:
+    endpoints.kubernetes.io/managed-by: endpoint-controller
+  name: milvus-minio
+  namespace: ekb-m2-aws-us-east-1
+  resourceVersion: "1921080"
+  uid: 7ea06463-3d2d-4953-847d-4ede4f5cce38
+subsets:
+- addresses:
+  - ip: 192.168.5.2
+  ports:
+  - name: s3
+    port: 9000
+    protocol: TCP
+  - name: console
+    port: 9001
+    protocol: TCP

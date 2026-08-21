@@ -1,0 +1,53 @@
+// LCO Embedding gRPC 服务定义(2026-08-20 会话23-19,Phase 5.1)
+// 替换 llm-cache-proxy → embedding 的 HTTP/JSON 向量化调用(2560维 float32)。
+// 收益:protobuf packed repeated float ~10KB vs JSON ~25KB(~2.5x 体积↓)+ 二进制解析快。
+// 兼容期:与现有 FastAPI HTTP /embed(15730)并行,gRPC 监听 15731,protocol 开关切换。
+syntax = "proto3";
+
+package llmcache.embedding.v1;
+
+option go_package = "llm-cache-proxy/internal/proto/embeddingpb;embeddingpb";
+
+// EmbeddingService 对标 embedding/app.py 的 FastAPI 端点:
+//   POST /embed        → Embed
+//   POST /embed_batch  → EmbedBatch
+//   GET  /readyz       → Health
+service EmbeddingService {
+  // Embed 单条文本向量化(对标 /embed)。
+  rpc Embed(EmbedRequest) returns (EmbedResponse);
+  // EmbedBatch 批量向量化(对标 /embed_batch,6.48x 加速)。
+  rpc EmbedBatch(EmbedBatchRequest) returns (EmbedBatchResponse);
+  // Health 就绪探针(对标 /readyz,返回 loaded:{qwen,minilm})。
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+// EmbedRequest 对标 {"text":"...","model":"auto|qwen|minilm"}。
+message EmbedRequest {
+  string text = 1;
+  string model = 2; // auto(服务端路由)|qwen(2560维)|minilm(384维)
+}
+
+// EmbedResponse 对标 {"vector":[...],"model":"...","dim":...,"device":...}。
+// vector 用 repeated float(packed),2560维时 ~10KB(JSON ~25KB)。
+message EmbedResponse {
+  repeated float vector = 1;
+  string model = 2;
+  int32 dim = 3;
+  string device = 4; // mps|cpu
+}
+
+message EmbedBatchRequest {
+  repeated EmbedRequest items = 1;
+}
+
+message EmbedBatchResponse {
+  repeated EmbedResponse results = 1;
+}
+
+message HealthRequest {}
+
+// HealthResponse 对标 {"ready":true,"loaded":{"qwen":true,"minilm":true}}。
+message HealthResponse {
+  bool ready = 1;
+  map<string, bool> loaded = 2;
+}

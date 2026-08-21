@@ -1,4 +1,4 @@
-export { createI18n } from "./i18n";
+export { createI18n, RTL_LOCALES, HTML_LANG } from "./i18n";
 export type { Locale, MessageKey, I18n, LocaleListener } from "./i18n";
 export { I18nProvider, useI18n } from "./i18n-react";
 export { Icon, SunIcon, MoonIcon, MonitorIcon, GlobeIcon, LogoIcon, TrophyIcon, MedalIcon, HomeIcon, BookIcon, MicIcon, PenIcon, UsersIcon, GridIcon, SettingsIcon, ChevronRightIcon, SparklesIcon, ImageOffIcon, RocketIcon, HeartIcon } from "./icons";

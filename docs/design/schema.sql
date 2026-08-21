@@ -255,6 +255,7 @@ CREATE TABLE IF NOT EXISTS user_vocabulary (
   lapse_count INT NOT NULL DEFAULT 0,       -- 遗忘次数
   last_review_at DATETIME(3),
   mastery_score DECIMAL(5,2) NOT NULL DEFAULT 0,
+  version INT NOT NULL DEFAULT 0,           -- P0-D2(2026-08-21):乐观锁版本列,防并发 lost update
   UNIQUE INDEX uk_user_word (user_id, word_id),
   INDEX idx_due (user_id, due_at)
 );

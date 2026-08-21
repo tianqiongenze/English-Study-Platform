@@ -137,11 +137,23 @@ type Server struct {
 	catalog *Catalog
 	pubKey  *rsa.PublicKey
 	prom    string
+	// Phase4(2026-08-21):缓存监控 + Pulsar MQ 各下游基址,从 env 注入(信任域配置,防 SSRF)。
+	lcoStats    string // env LCO_STATS_URL,LCO /stats+/metrics(宿主 15720)
+	milvusAddr  string // env MILVUS_ADDR,Milvus REST(集群 19530)
+	neo4jRest   string // env NEO4J_REST_URL,Neo4j REST(宿主 7474)
+	neo4jUser   string // env NEO4J_USER
+	neo4jPass   string // env NEO4J_PASSWORD
+	pulsarAdmin string // env PULSAR_ADMIN_URL,Pulsar Admin REST(broker 8080)
 }
 
 const adminServiceName = "admin-go"
 
 func main() {
+	// Task B-pilot(2026-08-21):限流指标 service label + Sentinel-golang 动态限流。
+	// Sentinel 规则经 Nacos dataId=admin-go-flow-rules 下发;初始化失败→降级放行(RWT)。
+	middleware.SetRateLimitService(adminServiceName)
+	middleware.InitSentinel(adminServiceName, env("NACOS_ADDR", "nacos:8848"))
+
 	var cat Catalog
 	if err := json.Unmarshal(catalogData, &cat); err != nil {
 		log.Fatalf("bad catalog.json: %v", err)
@@ -158,12 +170,28 @@ func main() {
 		catalog: &cat,
 		pubKey:  pub,
 		prom:    env("PROMETHEUS_URL", "http://prometheus.esp-observability.svc.cluster.local:9090"),
+		// Phase4 缓存/MQ 各下游基址(env 未设则对应 handler 返 503 降级,RWT 不阻塞)。
+		lcoStats:    env("LCO_STATS_URL", ""),
+		milvusAddr:  env("MILVUS_ADDR", "milvus:19530"),
+		neo4jRest:   env("NEO4J_REST_URL", ""),
+		neo4jUser:   env("NEO4J_USER", "neo4j"),
+		neo4jPass:   env("NEO4J_PASSWORD", ""),
+		pulsarAdmin: env("PULSAR_ADMIN_URL", "http://pulsar-broker-0.pulsar-broker:8080"),
 	}
 
 	// Nacos 服务注册(优雅退出时注销)
 	nacosCli := registry.RegisterNacos(adminServiceName, 8099)
 
 	mux := http.NewServeMux()
+	// 根路径 admin 信息页(无需 token,展示服务状态+端点清单,避免 404 不友好)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"service":"esp-admin","status":"ok","endpoints":["/healthz","/readyz","/api/admin/services","/api/admin/infra","/api/admin/catalog","/api/admin/metrics/query","/api/admin/middleware/health"],"note":"Admin API service. All /api/admin/* require role=admin RS256 JWT. Visit /api/admin/catalog with token for service catalog."}`)
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
@@ -186,6 +214,29 @@ func main() {
 	// 全语言统一深度诊断面板(Step3):代理到各服务 debug/actuator 端点 + 能力矩阵。
 	mux.HandleFunc("/api/admin/debug/capabilities", srv.requireAdmin(srv.handleDebugCapabilities))
 	mux.HandleFunc("/api/admin/debug/", srv.requireAdmin(srv.handleDebugProxy))
+
+	// 运维操作面板(Phase3 · 2026-08-21):资源监控 + 实时日志 + 可管理操作(scale/restart)。
+	// 资源监控走 Prometheus 查询(只读,L0);日志/scale/restart 走 K8s API(需 esp-admin-sa RBAC)。
+	// 写操作 scale/restart 为 L2 不可逆(BRR 铁律):requireAdmin 守门 + 前端 Popconfirm 二次确认。
+	mux.HandleFunc("/api/admin/ops/resources", srv.requireAdmin(srv.handleOpsResources))
+	mux.HandleFunc("/api/admin/logs/", srv.requireAdmin(srv.handleOpsLogs))
+	mux.HandleFunc("/api/admin/scale/", srv.requireAdmin(srv.handleOpsScale))
+	mux.HandleFunc("/api/admin/restart/", srv.requireAdmin(srv.handleOpsRestart))
+
+	// 各级缓存监控 + Pulsar MQ 消息查看(Phase4 · 2026-08-21)。
+	// 缓存:LCO 命中率(宿主 /stats+/metrics)+ Milvus collection(REST)+ Neo4j 节点(Cypher REST);三源独立超时降级(RWT)。
+	// Pulsar:Admin REST 8080 代理(无认证)+ 白名单 tenant=esp/ns=esp{business,cache}(SCS);peek 只读不 ack(BRR)。
+	mux.HandleFunc("/api/admin/cache/stats", srv.requireAdmin(srv.handleCacheStats))
+	mux.HandleFunc("/api/admin/cache/milvus", srv.requireAdmin(srv.handleCacheMilvus))
+	mux.HandleFunc("/api/admin/cache/neo4j", srv.requireAdmin(srv.handleCacheNeo4j))
+	mux.HandleFunc("/api/admin/pulsar/topics", srv.requireAdmin(srv.handlePulsarTopics))
+	mux.HandleFunc("/api/admin/pulsar/messages", srv.requireAdmin(srv.handlePulsarMessages))
+
+	// 服务运行时健康(Phase4 · 2026-08-21):HPA + 熔断 + 限流 + API 错误率。
+	// HPA 走 K8s API autoscaling/v2(最稳,不依赖 Prometheus);熔断/限流 admin-go 直抓各 Go 服务 /metrics(绕开 host→podIP 不通)。
+	mux.HandleFunc("/api/admin/runtime/hpa", srv.requireAdmin(srv.handleRuntimeHPA))
+	mux.HandleFunc("/api/admin/runtime/resilience", srv.requireAdmin(srv.handleRuntimeResilience))
+	mux.HandleFunc("/api/admin/runtime/apis", srv.requireAdmin(srv.handleRuntimeApis))
 
 	// /metrics:Prometheus 抓取端点(治理面板自身指标 + middleware 包注册的限流/熔断 gauge)。
 	mux.Handle("/metrics", promhttp.Handler())
@@ -300,11 +351,11 @@ type NacosServiceEntry struct {
 }
 
 type SentinelFlowRule struct {
-	Resource   string `json:"resource"`
-	Grade      int    `json:"grade"`  // 1=QPS, 0=并发线程数
-	Count      int    `json:"count"`  // 阈值
-	Strategy   int    `json:"strategy"` // 0=直接, 1=关联, 2=链路
-	ControlBehavior int `json:"controlBehavior"` // 0=快速失败, 1=WarmUp, 2=匀速排队
+	Resource        string `json:"resource"`
+	Grade           int    `json:"grade"`           // 1=QPS, 0=并发线程数
+	Count           int    `json:"count"`           // 阈值
+	Strategy        int    `json:"strategy"`        // 0=直接, 1=关联, 2=链路
+	ControlBehavior int    `json:"controlBehavior"` // 0=快速失败, 1=WarmUp, 2=匀速排队
 }
 
 func (s *Server) nacosAddr() string {
@@ -328,11 +379,11 @@ func (s *Server) handleNacosServices(w http.ResponseWriter, r *http.Request) {
 	// Nacos 返回: {"count":N, "serviceList":[{"name":"x","groupName":"DEFAULT_GROUP",...}]}
 	var parsed struct {
 		ServiceList []struct {
-			Name      string `json:"name"`
-			GroupName string `json:"groupName"`
-			ClusterCount int `json:"clusterCount"`
-			InstanceCount int `json:"instanceCount"`
-			HealthyInstanceCount int `json:"healthyInstanceCount"`
+			Name                 string `json:"name"`
+			GroupName            string `json:"groupName"`
+			ClusterCount         int    `json:"clusterCount"`
+			InstanceCount        int    `json:"instanceCount"`
+			HealthyInstanceCount int    `json:"healthyInstanceCount"`
 		} `json:"serviceList"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {

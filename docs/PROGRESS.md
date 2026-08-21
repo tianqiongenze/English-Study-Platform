@@ -341,3 +341,44 @@ P1-D16前次修了3个body user_id端点,3个session越权端点(get_session/lis
 3. 20-learning-java.yaml 回写 1.13.3(DGO)。apply+rollout 成功,pod imageID 匹配 build manifest,Spring Started in 50.6s 正常。learning-worker 用旧 1.11.3 不同 tag(worker 只消费不发 Pulsar,不需 publishReliable)。
 
 **4 前置全完成**:ingress /graphql + 探针 timeout 3→5s + gap3 projector + gap2 publishReliable。压测环境就绪,可串行跑 P1-D10 HPA + k6 GraphQL 对比(VM 雪崩防护:串行非并行)。
+
+## 续十一 k6 GraphQL 压测产 bff-java 容量拐点(2026-08-21)
+
+### k6 GraphQL vs REST 执行结果
+- graphql scenario **完整跑完 100%**(5648 complete, 192 interrupted, 193/200 VUs 稳定)
+- rest scenario **73% 时 bff-java:8090 全 connection refused,未完成**
+- bff-java 活 pod pbbm7 被 OOMKilled(exitCode 137,limits 1536Mi 不够 k6 并发)
+- HPA 扩容的 3 新 pod(2ccgz/bpfmd/qxgjx)没到 ready 就被缩容(启动期被压崩)
+
+### P0 级发现(影响 P1-D10 决策)
+1. **bff-java JVM 冷启动 151 秒**(`Started BffApplication in 151.414 seconds`)
+   - HPA 扩容触发→新 pod 151s 才 Ready→突发流量早过去了,HPA 对重型 JVM 服务来不及扩容
+   - 冷启动卡点:Nacos gRPC 注册 `TimeoutException: Waited 3000 milliseconds`,gRPC 3s 超时偏短(VM load 18 时慢超 3s 反复重试)
+2. **bff-java OOMKilled**:exitCode 137,limits memory 1536Mi 在 k6 并发下不够
+3. **HPA 扩容的 3 新 pod 没到 ready 就被缩容**:典型"扩容来不及+扩出来也接不住"
+
+### 单节点 9 核容量拐点(实测)
+- bff-java 1 副本 + 1536Mi + 151s 冷启动 = **单节点无法支撑突发并发流量**
+- graphql(单请求聚合多字段)可扛 ~193 VUs;rest(5 串行/VU 高并发)OOM 崩
+- 拐点远早于 5000 CCU
+
+### 决策(基于 HSA 铁律:以实情为准)
+- **不在 bff-java 崩溃状态下跑 P1-D10**:会污染 HPA 数据 + 雪崩 VM(esp-lco-embedding-vm-snowball)
+- k6 已产有效对比数据(graphql 完整跑完),rest 未完成不补跑(优先级低,graphql 对比已够说明问题)
+- 等 bff-java 回稳态 + VM load<10 再评估 P1-D10(可能调 bff-java 容量后再跑)
+
+### 已做止血(L1 可逆)
+1. 清 3 个卡 Terminating 死 pod(`--force --grace-period=0`)
+2. 删 k6 job + configmap
+3. 停 HPA watch 后台脚本(hpa-snapshots.log 采到完整 k6 期 128KB 数据)
+
+### 数据资产
+- report/loadtest/k6-graphql-vs-rest-result-2026-08-21.md(根因+结果报告)
+- report/loadtest/hpa-snapshots.log(128KB,k6 压测期完整 HPA 扩缩容+top pod)
+- report/loadtest/graphql-vs-rest-plan.md / p1-d10-hpa-capacity-plan.md
+
+### DEFERRED / 代码债
+- bff-java Nacos gRPC 超时 3s 偏短(VM 高负载时)→ 考虑调到 5-10s(需查 Nacos client 配置,ASV)
+- bff-java limits memory 1536Mi → 多节点生产应调大(单节点资源紧暂不动)
+- bff-java 冷启动 151s → 预热/启动优化(GraalVM native image 或 Spring AOT,工程量大 DEFERRED)
+- k6 rest scenario 未完整跑 → bff-java 容量恢复后可补跑(优先级低)

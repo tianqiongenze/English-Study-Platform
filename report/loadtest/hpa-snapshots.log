@@ -1,0 +1,1403 @@
+>>> HPA watch start ns=esp-prod interval=10s out=report/loadtest/hpa-snapshots.log
+>>> 配合 locust 脚本: deploy/locust/p1_d10_hpa_staircase.py
+>>> 阶梯档: 100→500→1000→2000→5000 CCU, 每档 ramp30s+hold120s
+>>> 看扩容触发延迟: 同档内 REPLICAS 从 N→N+1 的时间差
+
+============================================================
+== ts=1787312901 19:48:21 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                    1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 27%/70%                   1         4         2          3d
+community-go          Deployment/community-go          cpu: 2%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 4%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 1%/70%                    1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 7%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 7%/70%                    1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 6%/60%, memory: 27%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 13%/65%                   1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 55%/70%                   1         3         3          3d
+listening-go          Deployment/listening-go          cpu: 2%/70%                    1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 1%/70%                    1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                    1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                    1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                    1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 1%/70%                    1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 22%/70%                   1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 1%/70%                    1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 5%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+learning-worker-6f588ff6f-55bm2        58m          747Mi           
+bff-java-68dff6cbdb-zxtnr              55m          975Mi           
+bff-java-68dff6cbdb-pbbm7              53m          636Mi           
+learning-worker-6f588ff6f-tnmlg        52m          886Mi           
+learning-worker-6f588ff6f-qct5w        43m          764Mi           
+teacher-java-864f9b4559-n8r8s          40m          712Mi           
+learning-java-75fbb5577-gk4gq          24m          1381Mi          
+gamification-go-8959fdb9c-zmpn8        8m           17Mi            
+otel-collector-865b9dd846-cgz8f        6m           141Mi           
+esp-admin-7579558676-qws7f             6m           30Mi            
+gateway-go-6566b645bd-6hv72            6m           35Mi            
+emotion-svc-5ff5c98556-nggbt           4m           153Mi           
+writing-py-569f5dbf56-p955s            4m           229Mi           
+content-go-76d6dcf656-9vwdd            2m           20Mi            
+whisper-b8b94c86d-cfzgm                2m           41Mi            
+vocab-srs-go-6cff878d64-xfw4v          2m           17Mi            
+live-tutor-go-8685444546-dd4hv         2m           26Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           8Mi             
+reading-go-7dfb4d8f76-ngzrn            1m           26Mi            
+course-path-go-5c5fd7fc89-pgq9m        1m           32Mi            
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+community-go-5d88497c-d4crn            1m           15Mi            
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+listening-go-7949f58fcd-g8jb8          1m           31Mi            
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           22Mi            
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+
+============================================================
+== ts=1787312911 19:48:31 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                    1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 27%/70%                   1         4         2          3d
+community-go          Deployment/community-go          cpu: 2%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 4%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 1%/70%                    1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 7%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 7%/70%                    1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 6%/60%, memory: 27%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 13%/65%                   1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 55%/70%                   1         3         3          3d
+listening-go          Deployment/listening-go          cpu: 2%/70%                    1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 1%/70%                    1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                    1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                    1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                    1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 1%/70%                    1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 22%/70%                   1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 1%/70%                    1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 5%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+learning-worker-6f588ff6f-55bm2        58m          747Mi           
+bff-java-68dff6cbdb-zxtnr              55m          975Mi           
+bff-java-68dff6cbdb-pbbm7              53m          636Mi           
+learning-worker-6f588ff6f-tnmlg        52m          886Mi           
+learning-worker-6f588ff6f-qct5w        43m          764Mi           
+teacher-java-864f9b4559-n8r8s          40m          712Mi           
+learning-java-75fbb5577-gk4gq          24m          1381Mi          
+gamification-go-8959fdb9c-zmpn8        8m           17Mi            
+otel-collector-865b9dd846-cgz8f        6m           141Mi           
+esp-admin-7579558676-qws7f             6m           30Mi            
+gateway-go-6566b645bd-6hv72            6m           35Mi            
+emotion-svc-5ff5c98556-nggbt           4m           153Mi           
+writing-py-569f5dbf56-p955s            4m           229Mi           
+content-go-76d6dcf656-9vwdd            2m           20Mi            
+whisper-b8b94c86d-cfzgm                2m           41Mi            
+vocab-srs-go-6cff878d64-xfw4v          2m           17Mi            
+live-tutor-go-8685444546-dd4hv         2m           26Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           8Mi             
+reading-go-7dfb4d8f76-ngzrn            1m           26Mi            
+course-path-go-5c5fd7fc89-pgq9m        1m           32Mi            
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+community-go-5d88497c-d4crn            1m           15Mi            
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+listening-go-7949f58fcd-g8jb8          1m           31Mi            
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           22Mi            
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+
+============================================================
+== ts=1787312921 19:48:41 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                    1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 27%/70%                   1         4         2          3d
+community-go          Deployment/community-go          cpu: 2%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 4%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 1%/70%                    1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 4%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 8%/70%                    1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 6%/60%, memory: 27%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 12%/65%                   1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 51%/70%                   1         3         3          3d
+listening-go          Deployment/listening-go          cpu: 1%/70%                    1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 2%/70%                    1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                    1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                    1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                    1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 1%/70%                    1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 20%/70%                   1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 2%/70%                    1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 4%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-zxtnr              55m          975Mi           
+learning-worker-6f588ff6f-tnmlg        55m          886Mi           
+bff-java-68dff6cbdb-pbbm7              51m          636Mi           
+learning-worker-6f588ff6f-55bm2        51m          747Mi           
+teacher-java-864f9b4559-n8r8s          43m          712Mi           
+learning-worker-6f588ff6f-qct5w        42m          764Mi           
+learning-java-75fbb5577-gk4gq          21m          1381Mi          
+gamification-go-8959fdb9c-zmpn8        6m           17Mi            
+gateway-go-6566b645bd-6hv72            6m           35Mi            
+esp-admin-7579558676-qws7f             5m           29Mi            
+emotion-svc-5ff5c98556-nggbt           4m           153Mi           
+writing-py-569f5dbf56-p955s            4m           229Mi           
+whisper-b8b94c86d-cfzgm                3m           41Mi            
+otel-collector-865b9dd846-cgz8f        3m           141Mi           
+content-go-76d6dcf656-9vwdd            2m           20Mi            
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+community-go-5d88497c-d4crn            1m           15Mi            
+listening-go-7949f58fcd-g8jb8          1m           31Mi            
+live-tutor-go-8685444546-dd4hv         1m           26Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           8Mi             
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+course-path-go-5c5fd7fc89-pgq9m        1m           32Mi            
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+reading-go-7dfb4d8f76-ngzrn            1m           26Mi            
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           22Mi            
+vocab-srs-go-6cff878d64-xfw4v          1m           17Mi            
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+
+============================================================
+== ts=1787312931 19:48:51 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                    1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 26%/70%                   1         4         2          3d
+community-go          Deployment/community-go          cpu: 2%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 4%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 1%/70%                    1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 4%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 6%/70%                    1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 7%/60%, memory: 27%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 10%/65%                   1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 49%/70%                   1         3         3          3d
+listening-go          Deployment/listening-go          cpu: 1%/70%                    1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 1%/70%                    1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                    1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                    1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                    1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 1%/70%                    1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 21%/70%                   1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 1%/70%                    1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 4%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-pbbm7              98m          636Mi           
+learning-worker-6f588ff6f-55bm2        55m          747Mi           
+learning-worker-6f588ff6f-tnmlg        51m          886Mi           
+bff-java-68dff6cbdb-zxtnr              50m          975Mi           
+teacher-java-864f9b4559-n8r8s          40m          712Mi           
+learning-worker-6f588ff6f-qct5w        39m          764Mi           
+learning-java-75fbb5577-gk4gq          22m          1381Mi          
+gateway-go-6566b645bd-6hv72            7m           35Mi            
+writing-py-569f5dbf56-p955s            7m           229Mi           
+emotion-svc-5ff5c98556-nggbt           5m           153Mi           
+gamification-go-8959fdb9c-zmpn8        5m           17Mi            
+esp-admin-7579558676-qws7f             5m           30Mi            
+whisper-b8b94c86d-cfzgm                3m           41Mi            
+otel-collector-865b9dd846-cgz8f        3m           141Mi           
+content-go-76d6dcf656-9vwdd            2m           20Mi            
+writing-coach-587fd7b85c-v9dqs         2m           138Mi           
+course-path-go-5c5fd7fc89-pgq9m        2m           32Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           8Mi             
+reading-go-7dfb4d8f76-ngzrn            1m           26Mi            
+live-tutor-go-8685444546-dd4hv         1m           26Mi            
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+listening-go-7949f58fcd-g8jb8          1m           31Mi            
+community-go-5d88497c-d4crn            1m           15Mi            
+tts-adapter-go-7d8b6f5646-s84jc        1m           22Mi            
+vocab-srs-go-6cff878d64-xfw4v          1m           17Mi            
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+
+============================================================
+== ts=1787312942 19:49:02 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                    1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 26%/70%                   1         4         2          3d
+community-go          Deployment/community-go          cpu: 2%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 4%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 1%/70%                    1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 4%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 6%/70%                    1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 7%/60%, memory: 27%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 10%/65%                   1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 49%/70%                   1         3         3          3d
+listening-go          Deployment/listening-go          cpu: 1%/70%                    1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 1%/70%                    1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                    1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                    1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                    1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 1%/70%                    1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 21%/70%                   1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 1%/70%                    1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 4%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-pbbm7              98m          636Mi           
+learning-worker-6f588ff6f-55bm2        55m          747Mi           
+learning-worker-6f588ff6f-tnmlg        51m          886Mi           
+bff-java-68dff6cbdb-zxtnr              50m          975Mi           
+teacher-java-864f9b4559-n8r8s          40m          712Mi           
+learning-worker-6f588ff6f-qct5w        39m          764Mi           
+learning-java-75fbb5577-gk4gq          22m          1381Mi          
+gateway-go-6566b645bd-6hv72            7m           35Mi            
+writing-py-569f5dbf56-p955s            7m           229Mi           
+emotion-svc-5ff5c98556-nggbt           5m           153Mi           
+gamification-go-8959fdb9c-zmpn8        5m           17Mi            
+esp-admin-7579558676-qws7f             5m           30Mi            
+whisper-b8b94c86d-cfzgm                3m           41Mi            
+otel-collector-865b9dd846-cgz8f        3m           141Mi           
+content-go-76d6dcf656-9vwdd            2m           20Mi            
+writing-coach-587fd7b85c-v9dqs         2m           138Mi           
+course-path-go-5c5fd7fc89-pgq9m        2m           32Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           8Mi             
+reading-go-7dfb4d8f76-ngzrn            1m           26Mi            
+live-tutor-go-8685444546-dd4hv         1m           26Mi            
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+listening-go-7949f58fcd-g8jb8          1m           31Mi            
+community-go-5d88497c-d4crn            1m           15Mi            
+tts-adapter-go-7d8b6f5646-s84jc        1m           22Mi            
+vocab-srs-go-6cff878d64-xfw4v          1m           17Mi            
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+
+============================================================
+== ts=1787312952 19:49:12 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                    1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 49%/70%                   1         4         1          3d
+community-go          Deployment/community-go          cpu: 2%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 4%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 2%/70%                    1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 5%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 5%/70%                    1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 7%/60%, memory: 27%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 11%/65%                   1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 39%/70%                   1         3         1          3d
+listening-go          Deployment/listening-go          cpu: 1%/70%                    1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 1%/70%                    1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                    1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                    1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                    1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 1%/70%                    1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 20%/70%                   1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 1%/70%                    1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 7%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+learning-worker-6f588ff6f-55bm2        77m          755Mi           
+learning-worker-6f588ff6f-tnmlg        75m          887Mi           
+bff-java-68dff6cbdb-pbbm7              56m          636Mi           
+learning-worker-6f588ff6f-qct5w        51m          764Mi           
+teacher-java-864f9b4559-n8r8s          38m          712Mi           
+learning-java-75fbb5577-gk4gq          38m          1381Mi          
+writing-py-569f5dbf56-p955s            13m          229Mi           
+gateway-go-6566b645bd-6hv72            10m          34Mi            
+otel-collector-865b9dd846-cgz8f        9m           150Mi           
+esp-admin-7579558676-qws7f             7m           30Mi            
+emotion-svc-5ff5c98556-nggbt           7m           153Mi           
+gamification-go-8959fdb9c-zmpn8        6m           17Mi            
+whisper-b8b94c86d-cfzgm                5m           41Mi            
+content-go-76d6dcf656-9vwdd            3m           21Mi            
+vocab-srs-go-6cff878d64-xfw4v          3m           17Mi            
+live-tutor-go-8685444546-dd4hv         3m           26Mi            
+community-go-5d88497c-d4crn            2m           15Mi            
+reading-go-7dfb4d8f76-ngzrn            2m           26Mi            
+course-path-go-5c5fd7fc89-pgq9m        2m           32Mi            
+tts-adapter-go-7d8b6f5646-s84jc        2m           22Mi            
+listening-go-7949f58fcd-g8jb8          2m           31Mi            
+asr-adapter-go-688fcd5fbb-dfs46        2m           18Mi            
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           8Mi             
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+writing-coach-587fd7b85c-v9dqs         1m           138Mi           
+
+============================================================
+== ts=1787312964 19:49:24 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                     1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 28%/70%                    1         4         2          3d
+community-go          Deployment/community-go          cpu: 4%/70%                     1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 6%/70%                     1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 2%/70%                     1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 7%/70%                     1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 6%/70%                     1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 10%/60%, memory: 27%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 19%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 51%/70%                    1         3         3          3d
+listening-go          Deployment/listening-go          cpu: 2%/70%                     1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 3%/70%                     1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                     1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 2%/70%                     1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 19%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 3%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 13%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-bczv8              468m         244Mi           
+learning-worker-6f588ff6f-55bm2        381m         34Mi            
+bff-java-68dff6cbdb-pbbm7              95m          636Mi           
+learning-java-75fbb5577-gk4gq          68m          1381Mi          
+learning-worker-6f588ff6f-qct5w        57m          764Mi           
+teacher-java-864f9b4559-n8r8s          50m          712Mi           
+gateway-go-6566b645bd-6hv72            20m          45Mi            
+writing-py-569f5dbf56-p955s            20m          229Mi           
+emotion-svc-5ff5c98556-nggbt           16m          153Mi           
+gamification-go-8959fdb9c-zmpn8        15m          20Mi            
+esp-admin-7579558676-qws7f             14m          33Mi            
+otel-collector-865b9dd846-cgz8f        11m          150Mi           
+whisper-b8b94c86d-cfzgm                8m           41Mi            
+content-go-76d6dcf656-9vwdd            8m           21Mi            
+reading-go-7dfb4d8f76-ngzrn            8m           36Mi            
+writing-coach-587fd7b85c-v9dqs         7m           138Mi           
+vocab-srs-go-6cff878d64-xfw4v          7m           17Mi            
+community-go-5d88497c-d4crn            7m           15Mi            
+listening-go-7949f58fcd-g8jb8          6m           31Mi            
+course-path-go-5c5fd7fc89-pgq9m        5m           32Mi            
+live-tutor-go-8685444546-dd4hv         5m           26Mi            
+asr-adapter-go-688fcd5fbb-dfs46        2m           18Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   2m           8Mi             
+tts-adapter-go-7d8b6f5646-s84jc        2m           22Mi            
+assessment-rs-58585f4c98-lqzwz         2m           6Mi             
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+
+============================================================
+== ts=1787312974 19:49:34 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 2%/70%                     1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 28%/70%                    1         4         2          3d
+community-go          Deployment/community-go          cpu: 14%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 16%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 5%/70%                     1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 7%/70%                     1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 15%/70%                    1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 10%/60%, memory: 27%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 34%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 51%/70%                    1         3         3          3d
+listening-go          Deployment/listening-go          cpu: 2%/70%                     1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 5%/70%                     1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 1%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                     1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 8%/70%                     1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 25%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 7%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 13%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-bczv8              468m         244Mi           
+bff-java-68dff6cbdb-pbbm7              95m          636Mi           
+learning-java-75fbb5577-gk4gq          68m          1381Mi          
+learning-worker-6f588ff6f-qct5w        57m          764Mi           
+teacher-java-864f9b4559-n8r8s          50m          712Mi           
+gateway-go-6566b645bd-6hv72            20m          45Mi            
+writing-py-569f5dbf56-p955s            20m          229Mi           
+emotion-svc-5ff5c98556-nggbt           16m          153Mi           
+gamification-go-8959fdb9c-zmpn8        15m          20Mi            
+esp-admin-7579558676-qws7f             14m          33Mi            
+otel-collector-865b9dd846-cgz8f        11m          150Mi           
+whisper-b8b94c86d-cfzgm                8m           41Mi            
+content-go-76d6dcf656-9vwdd            8m           21Mi            
+reading-go-7dfb4d8f76-ngzrn            8m           36Mi            
+writing-coach-587fd7b85c-v9dqs         7m           138Mi           
+vocab-srs-go-6cff878d64-xfw4v          7m           17Mi            
+community-go-5d88497c-d4crn            7m           15Mi            
+listening-go-7949f58fcd-g8jb8          6m           31Mi            
+course-path-go-5c5fd7fc89-pgq9m        5m           32Mi            
+live-tutor-go-8685444546-dd4hv         5m           26Mi            
+asr-adapter-go-688fcd5fbb-dfs46        2m           18Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   2m           8Mi             
+tts-adapter-go-7d8b6f5646-s84jc        2m           22Mi            
+assessment-rs-58585f4c98-lqzwz         2m           6Mi             
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+
+============================================================
+== ts=1787312985 19:49:45 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 2%/70%                     1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 47%/70%                    1         4         2          3d
+community-go          Deployment/community-go          cpu: 14%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 16%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 5%/70%                     1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 16%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 15%/70%                    1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 20%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 34%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 57%/70%                    1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: 6%/70%                     1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 5%/70%                     1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 1%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                     1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 8%/70%                     1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 25%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 7%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 20%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-bczv8              994m         557Mi           
+learning-worker-6f588ff6f-b26cv        723m         208Mi           
+learning-worker-6f588ff6f-txl5n        682m         157Mi           
+bff-java-68dff6cbdb-pbbm7              62m          636Mi           
+learning-worker-6f588ff6f-qct5w        51m          764Mi           
+learning-java-75fbb5577-gk4gq          46m          1381Mi          
+teacher-java-864f9b4559-n8r8s          44m          712Mi           
+emotion-svc-5ff5c98556-nggbt           13m          153Mi           
+gateway-go-6566b645bd-6hv72            12m          45Mi            
+writing-py-569f5dbf56-p955s            11m          229Mi           
+otel-collector-865b9dd846-cgz8f        9m           150Mi           
+gamification-go-8959fdb9c-zmpn8        9m           20Mi            
+esp-admin-7579558676-qws7f             8m           33Mi            
+content-go-76d6dcf656-9vwdd            7m           21Mi            
+listening-go-7949f58fcd-g8jb8          4m           31Mi            
+reading-go-7dfb4d8f76-ngzrn            4m           36Mi            
+whisper-b8b94c86d-cfzgm                4m           41Mi            
+community-go-5d88497c-d4crn            4m           15Mi            
+vocab-srs-go-6cff878d64-xfw4v          4m           17Mi            
+live-tutor-go-8685444546-dd4hv         3m           26Mi            
+course-path-go-5c5fd7fc89-pgq9m        3m           32Mi            
+asr-adapter-go-688fcd5fbb-dfs46        2m           18Mi            
+writing-coach-587fd7b85c-v9dqs         2m           138Mi           
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           8Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           22Mi            
+
+============================================================
+== ts=1787312995 19:49:55 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                     1         4         1          7d21h
+bff-java              Deployment/bff-java              cpu: 31%/70%                    1         4         2          3d
+community-go          Deployment/community-go          cpu: 8%/70%                     1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 14%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 3%/70%                     1         4         1          7d21h
+emotion-svc           Deployment/emotion-svc           cpu: 13%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 9%/70%                     1         4         1          7d21h
+gateway-go            Deployment/gateway-go            cpu: 12%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 23%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 51%/70%                    1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: 4%/70%                     1         4         1          7d21h
+live-tutor-go         Deployment/live-tutor-go         cpu: 3%/70%                     1         4         1          7d21h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d21h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                     1         4         1          7d21h
+reading-go            Deployment/reading-go            cpu: 4%/70%                     1         4         1          7d21h
+teacher-java          Deployment/teacher-java          cpu: 22%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 4%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 11%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-bczv8              1381m        1259Mi          
+learning-worker-6f588ff6f-txl5n        955m         265Mi           
+learning-worker-6f588ff6f-b26cv        954m         302Mi           
+bff-java-68dff6cbdb-pbbm7              59m          636Mi           
+teacher-java-864f9b4559-n8r8s          44m          712Mi           
+learning-worker-6f588ff6f-qct5w        39m          764Mi           
+learning-java-75fbb5577-gk4gq          31m          1381Mi          
+emotion-svc-5ff5c98556-nggbt           8m           153Mi           
+gateway-go-6566b645bd-6hv72            7m           45Mi            
+writing-py-569f5dbf56-p955s            6m           229Mi           
+otel-collector-865b9dd846-cgz8f        6m           155Mi           
+gamification-go-8959fdb9c-zmpn8        6m           20Mi            
+esp-admin-7579558676-qws7f             6m           33Mi            
+content-go-76d6dcf656-9vwdd            4m           21Mi            
+whisper-b8b94c86d-cfzgm                4m           41Mi            
+listening-go-7949f58fcd-g8jb8          3m           31Mi            
+community-go-5d88497c-d4crn            3m           15Mi            
+reading-go-7dfb4d8f76-ngzrn            3m           36Mi            
+course-path-go-5c5fd7fc89-pgq9m        2m           32Mi            
+asr-adapter-go-688fcd5fbb-dfs46        2m           18Mi            
+live-tutor-go-8685444546-dd4hv         2m           26Mi            
+vocab-srs-go-6cff878d64-xfw4v          2m           17Mi            
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           22Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           8Mi             
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+writing-coach-587fd7b85c-v9dqs         1m           138Mi           
+
+============================================================
+== ts=1787313005 19:50:05 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                    1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: 29%/70%                   1         4         1          3d1h
+community-go          Deployment/community-go          cpu: 6%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 8%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 2%/70%                    1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 8%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 6%/70%                    1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: 7%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 15%/65%                   1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 39%/70%                   1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: 3%/70%                    1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 2%/70%                    1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                    1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                    1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 0%/70%                    1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: 3%/70%                    1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: 22%/70%                   1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 2%/70%                    1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 6%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-bczv8              1381m        1259Mi          
+learning-worker-6f588ff6f-txl5n        955m         265Mi           
+learning-worker-6f588ff6f-b26cv        954m         302Mi           
+bff-java-68dff6cbdb-pbbm7              59m          636Mi           
+teacher-java-864f9b4559-n8r8s          44m          712Mi           
+learning-worker-6f588ff6f-qct5w        39m          764Mi           
+learning-java-75fbb5577-gk4gq          31m          1381Mi          
+emotion-svc-5ff5c98556-nggbt           8m           153Mi           
+gateway-go-6566b645bd-6hv72            7m           45Mi            
+writing-py-569f5dbf56-p955s            6m           229Mi           
+otel-collector-865b9dd846-cgz8f        6m           155Mi           
+gamification-go-8959fdb9c-zmpn8        6m           20Mi            
+esp-admin-7579558676-qws7f             6m           33Mi            
+content-go-76d6dcf656-9vwdd            4m           21Mi            
+whisper-b8b94c86d-cfzgm                4m           41Mi            
+listening-go-7949f58fcd-g8jb8          3m           31Mi            
+community-go-5d88497c-d4crn            3m           15Mi            
+reading-go-7dfb4d8f76-ngzrn            3m           36Mi            
+course-path-go-5c5fd7fc89-pgq9m        2m           32Mi            
+asr-adapter-go-688fcd5fbb-dfs46        2m           18Mi            
+live-tutor-go-8685444546-dd4hv         2m           26Mi            
+vocab-srs-go-6cff878d64-xfw4v          2m           17Mi            
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           22Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           8Mi             
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+writing-coach-587fd7b85c-v9dqs         1m           138Mi           
+
+============================================================
+== ts=1787313016 19:50:16 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                    1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: 29%/70%                   1         4         1          3d1h
+community-go          Deployment/community-go          cpu: 6%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 8%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 2%/70%                    1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 8%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 6%/70%                    1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: 7%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 15%/65%                   1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 39%/70%                   1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: 3%/70%                    1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 2%/70%                    1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                    1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                    1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 0%/70%                    1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: 3%/70%                    1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: 22%/70%                   1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 2%/70%                    1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 6%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-bczv8              1236m        1661Mi          
+learning-worker-6f588ff6f-txl5n        817m         344Mi           
+learning-worker-6f588ff6f-b26cv        810m         344Mi           
+bff-java-68dff6cbdb-pbbm7              437m         672Mi           
+learning-worker-6f588ff6f-qct5w        50m          764Mi           
+learning-java-75fbb5577-gk4gq          45m          1380Mi          
+teacher-java-864f9b4559-n8r8s          41m          712Mi           
+writing-py-569f5dbf56-p955s            15m          229Mi           
+gateway-go-6566b645bd-6hv72            10m          45Mi            
+emotion-svc-5ff5c98556-nggbt           9m           152Mi           
+otel-collector-865b9dd846-cgz8f        7m           154Mi           
+whisper-b8b94c86d-cfzgm                7m           41Mi            
+esp-admin-7579558676-qws7f             7m           32Mi            
+gamification-go-8959fdb9c-zmpn8        6m           20Mi            
+vocab-srs-go-6cff878d64-xfw4v          4m           17Mi            
+writing-coach-587fd7b85c-v9dqs         3m           138Mi           
+course-path-go-5c5fd7fc89-pgq9m        3m           31Mi            
+content-go-76d6dcf656-9vwdd            3m           21Mi            
+listening-go-7949f58fcd-g8jb8          3m           31Mi            
+live-tutor-go-8685444546-dd4hv         3m           25Mi            
+community-go-5d88497c-d4crn            3m           15Mi            
+reading-go-7dfb4d8f76-ngzrn            3m           36Mi            
+asr-adapter-go-688fcd5fbb-dfs46        2m           18Mi            
+pronunciation-rs-74699fdd6f-xk25n      1m           8Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           7Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           21Mi            
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+
+============================================================
+== ts=1787313026 19:50:26 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                     1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: 218%/70%                   1         4         2          3d1h
+community-go          Deployment/community-go          cpu: 6%/70%                     1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 6%/70%                     1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 3%/70%                     1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 9%/70%                     1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 6%/70%                     1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: 10%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 22%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 50%/70%                    1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: 3%/70%                     1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 3%/70%                     1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                     1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: 3%/70%                     1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: 20%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 4%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 15%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-pbbm7              1256m        1094Mi          
+learning-worker-6f588ff6f-b26cv        728m         416Mi           
+learning-worker-6f588ff6f-txl5n        656m         349Mi           
+learning-worker-6f588ff6f-xb9v7        474m         129Mi           
+learning-worker-6f588ff6f-qct5w        177m         764Mi           
+learning-java-75fbb5577-gk4gq          53m          1375Mi          
+teacher-java-864f9b4559-n8r8s          44m          710Mi           
+k6-graphql-vs-rest-dvc22               20m          99Mi            
+otel-collector-865b9dd846-cgz8f        14m          145Mi           
+emotion-svc-5ff5c98556-nggbt           14m          151Mi           
+writing-py-569f5dbf56-p955s            12m          228Mi           
+gamification-go-8959fdb9c-zmpn8        12m          20Mi            
+gateway-go-6566b645bd-6hv72            11m          45Mi            
+esp-admin-7579558676-qws7f             10m          32Mi            
+vocab-srs-go-6cff878d64-xfw4v          6m           20Mi            
+course-path-go-5c5fd7fc89-pgq9m        6m           28Mi            
+content-go-76d6dcf656-9vwdd            6m           20Mi            
+live-tutor-go-8685444546-dd4hv         6m           26Mi            
+reading-go-7dfb4d8f76-ngzrn            6m           37Mi            
+whisper-b8b94c86d-cfzgm                5m           41Mi            
+listening-go-7949f58fcd-g8jb8          5m           29Mi            
+community-go-5d88497c-d4crn            4m           15Mi            
+pronunciation-rs-74699fdd6f-xk25n      2m           7Mi             
+frontend-react-788b47dcd9-9pgsm        2m           8Mi             
+tts-adapter-go-7d8b6f5646-s84jc        2m           20Mi            
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           7Mi             
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+
+============================================================
+== ts=1787313036 19:50:36 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                     1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: 628%/70%                   1         4         4          3d1h
+community-go          Deployment/community-go          cpu: 8%/70%                     1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 12%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 6%/70%                     1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 14%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 12%/70%                    1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: 11%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 26%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 177%/70%                   1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: 5%/70%                     1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 6%/70%                     1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 2%/70%                     1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: 6%/70%                     1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: 22%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 6%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 12%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-pbbm7              1256m        1094Mi          
+learning-worker-6f588ff6f-b26cv        728m         416Mi           
+learning-worker-6f588ff6f-xb9v7        474m         129Mi           
+learning-worker-6f588ff6f-qct5w        177m         764Mi           
+learning-java-75fbb5577-gk4gq          53m          1375Mi          
+teacher-java-864f9b4559-n8r8s          44m          710Mi           
+k6-graphql-vs-rest-dvc22               20m          99Mi            
+otel-collector-865b9dd846-cgz8f        14m          145Mi           
+emotion-svc-5ff5c98556-nggbt           14m          151Mi           
+writing-py-569f5dbf56-p955s            12m          228Mi           
+gamification-go-8959fdb9c-zmpn8        12m          20Mi            
+gateway-go-6566b645bd-6hv72            11m          45Mi            
+esp-admin-7579558676-qws7f             10m          32Mi            
+content-go-76d6dcf656-9vwdd            6m           20Mi            
+vocab-srs-go-6cff878d64-xfw4v          6m           20Mi            
+reading-go-7dfb4d8f76-ngzrn            6m           37Mi            
+course-path-go-5c5fd7fc89-pgq9m        6m           28Mi            
+live-tutor-go-8685444546-dd4hv         6m           26Mi            
+whisper-b8b94c86d-cfzgm                5m           41Mi            
+listening-go-7949f58fcd-g8jb8          5m           29Mi            
+community-go-5d88497c-d4crn            4m           15Mi            
+pronunciation-rs-74699fdd6f-xk25n      2m           7Mi             
+frontend-react-788b47dcd9-9pgsm        2m           8Mi             
+tts-adapter-go-7d8b6f5646-s84jc        2m           20Mi            
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           7Mi             
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+frontend-portal-7b7b6c4cbf-f8vcs       1m           8Mi             
+
+============================================================
+== ts=1787313047 19:50:47 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                     1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: 628%/70%                   1         4         4          3d1h
+community-go          Deployment/community-go          cpu: 8%/70%                     1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 12%/70%                    1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 6%/70%                     1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 14%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 12%/70%                    1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: 11%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 26%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 177%/70%                   1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: 5%/70%                     1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 6%/70%                     1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 2%/70%                     1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: 6%/70%                     1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: 22%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 6%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 12%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-pbbm7              1295m        1392Mi          
+learning-worker-6f588ff6f-xb9v7        636m         279Mi           
+learning-worker-6f588ff6f-qct5w        163m         764Mi           
+learning-java-75fbb5577-gk4gq          41m          1375Mi          
+teacher-java-864f9b4559-n8r8s          39m          710Mi           
+k6-graphql-vs-rest-dvc22               29m          108Mi           
+emotion-svc-5ff5c98556-nggbt           12m          151Mi           
+otel-collector-865b9dd846-cgz8f        10m          156Mi           
+writing-py-569f5dbf56-p955s            10m          228Mi           
+gateway-go-6566b645bd-6hv72            9m           45Mi            
+gamification-go-8959fdb9c-zmpn8        8m           20Mi            
+content-go-76d6dcf656-9vwdd            7m           23Mi            
+esp-admin-7579558676-qws7f             7m           33Mi            
+whisper-b8b94c86d-cfzgm                6m           41Mi            
+listening-go-7949f58fcd-g8jb8          6m           32Mi            
+reading-go-7dfb4d8f76-ngzrn            4m           37Mi            
+community-go-5d88497c-d4crn            4m           15Mi            
+vocab-srs-go-6cff878d64-xfw4v          4m           20Mi            
+course-path-go-5c5fd7fc89-pgq9m        3m           28Mi            
+writing-coach-587fd7b85c-v9dqs         3m           137Mi           
+live-tutor-go-8685444546-dd4hv         2m           26Mi            
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           20Mi            
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+llm-orchestrator-rs-7cd4d7b758-p27gg   1m           7Mi             
+
+============================================================
+== ts=1787313057 19:50:57 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                        MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                    1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: 647%/70%                  1         4         4          3d1h
+community-go          Deployment/community-go          cpu: 8%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 14%/70%                   1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 3%/70%                    1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 12%/70%                   1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 8%/70%                    1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: 9%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 20%/65%                   1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 163%/70%                  1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: 6%/70%                    1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 2%/70%                    1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                    1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                    1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                    1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: 4%/70%                    1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: 19%/70%                   1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 4%/70%                    1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 10%/70%                   1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-pbbm7              1310m        1712Mi          
+bff-java-68dff6cbdb-2ccgz              814m         703Mi           
+bff-java-68dff6cbdb-qxgjx              730m         382Mi           
+learning-worker-6f588ff6f-xb9v7        581m         324Mi           
+learning-worker-6f588ff6f-b5srb        567m         243Mi           
+learning-worker-6f588ff6f-qct5w        174m         765Mi           
+learning-java-75fbb5577-gk4gq          40m          1372Mi          
+teacher-java-864f9b4559-n8r8s          37m          710Mi           
+k6-graphql-vs-rest-dvc22               27m          108Mi           
+gateway-go-6566b645bd-6hv72            11m          45Mi            
+otel-collector-865b9dd846-cgz8f        10m          158Mi           
+writing-py-569f5dbf56-p955s            10m          228Mi           
+whisper-b8b94c86d-cfzgm                7m           41Mi            
+emotion-svc-5ff5c98556-nggbt           7m           150Mi           
+course-path-go-5c5fd7fc89-pgq9m        7m           25Mi            
+community-go-5d88497c-d4crn            6m           23Mi            
+gamification-go-8959fdb9c-zmpn8        6m           20Mi            
+esp-admin-7579558676-qws7f             6m           32Mi            
+live-tutor-go-8685444546-dd4hv         5m           26Mi            
+content-go-76d6dcf656-9vwdd            4m           22Mi            
+listening-go-7949f58fcd-g8jb8          3m           32Mi            
+writing-coach-587fd7b85c-v9dqs         3m           137Mi           
+vocab-srs-go-6cff878d64-xfw4v          3m           21Mi            
+reading-go-7dfb4d8f76-ngzrn            3m           37Mi            
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           19Mi            
+
+============================================================
+== ts=1787313069 19:51:09 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                     1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: 655%/70%                   1         4         4          3d1h
+community-go          Deployment/community-go          cpu: 12%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 8%/70%                     1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 7%/70%                     1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 7%/70%                     1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 6%/70%                     1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: 11%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 20%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 174%/70%                   1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: 3%/70%                     1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 5%/70%                     1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                     1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: 3%/70%                     1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: 18%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 3%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 10%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-pbbm7              1310m        1712Mi          
+bff-java-68dff6cbdb-2ccgz              814m         703Mi           
+bff-java-68dff6cbdb-qxgjx              730m         382Mi           
+learning-worker-6f588ff6f-xb9v7        581m         324Mi           
+learning-worker-6f588ff6f-b5srb        567m         243Mi           
+learning-worker-6f588ff6f-qct5w        174m         765Mi           
+learning-java-75fbb5577-gk4gq          40m          1372Mi          
+teacher-java-864f9b4559-n8r8s          37m          710Mi           
+k6-graphql-vs-rest-dvc22               27m          108Mi           
+gateway-go-6566b645bd-6hv72            11m          45Mi            
+otel-collector-865b9dd846-cgz8f        10m          158Mi           
+writing-py-569f5dbf56-p955s            10m          228Mi           
+whisper-b8b94c86d-cfzgm                7m           41Mi            
+emotion-svc-5ff5c98556-nggbt           7m           150Mi           
+course-path-go-5c5fd7fc89-pgq9m        7m           25Mi            
+community-go-5d88497c-d4crn            6m           23Mi            
+gamification-go-8959fdb9c-zmpn8        6m           20Mi            
+esp-admin-7579558676-qws7f             6m           32Mi            
+live-tutor-go-8685444546-dd4hv         5m           26Mi            
+content-go-76d6dcf656-9vwdd            4m           22Mi            
+listening-go-7949f58fcd-g8jb8          3m           32Mi            
+writing-coach-587fd7b85c-v9dqs         3m           137Mi           
+vocab-srs-go-6cff878d64-xfw4v          3m           21Mi            
+reading-go-7dfb4d8f76-ngzrn            3m           37Mi            
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+asr-adapter-go-688fcd5fbb-dfs46        1m           18Mi            
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+tts-adapter-go-7d8b6f5646-s84jc        1m           19Mi            
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313080 19:51:20 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                     1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: 655%/70%                   1         4         4          3d1h
+community-go          Deployment/community-go          cpu: 12%/70%                    1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 8%/70%                     1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 3%/70%                     1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 7%/70%                     1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 6%/70%                     1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: 11%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 20%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 174%/70%                   1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: 3%/70%                     1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 5%/70%                     1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                     1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: 4%/70%                     1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: 18%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 3%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 10%/70%                    1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+bff-java-68dff6cbdb-pbbm7              1205m        1850Mi          
+bff-java-68dff6cbdb-2ccgz              792m         985Mi           
+bff-java-68dff6cbdb-qxgjx              740m         700Mi           
+learning-worker-6f588ff6f-b5srb        571m         248Mi           
+learning-worker-6f588ff6f-xb9v7        563m         435Mi           
+learning-worker-6f588ff6f-qct5w        83m          764Mi           
+learning-java-75fbb5577-gk4gq          47m          1358Mi          
+k6-graphql-vs-rest-dvc22               42m          108Mi           
+teacher-java-864f9b4559-n8r8s          40m          710Mi           
+emotion-svc-5ff5c98556-nggbt           14m          149Mi           
+gateway-go-6566b645bd-6hv72            11m          45Mi            
+writing-py-569f5dbf56-p955s            9m           228Mi           
+esp-admin-7579558676-qws7f             9m           32Mi            
+gamification-go-8959fdb9c-zmpn8        8m           21Mi            
+otel-collector-865b9dd846-cgz8f        8m           158Mi           
+live-tutor-go-8685444546-dd4hv         4m           26Mi            
+whisper-b8b94c86d-cfzgm                4m           41Mi            
+reading-go-7dfb4d8f76-ngzrn            4m           37Mi            
+content-go-76d6dcf656-9vwdd            4m           21Mi            
+listening-go-7949f58fcd-g8jb8          3m           32Mi            
+tts-adapter-go-7d8b6f5646-s84jc        3m           22Mi            
+community-go-5d88497c-d4crn            3m           23Mi            
+writing-coach-587fd7b85c-v9dqs         3m           137Mi           
+vocab-srs-go-6cff878d64-xfw4v          3m           20Mi            
+course-path-go-5c5fd7fc89-pgq9m        3m           21Mi            
+asr-adapter-go-688fcd5fbb-dfs46        2m           18Mi            
+frontend-h5-749ddcbbb9-br4zb           1m           7Mi             
+assessment-rs-58585f4c98-lqzwz         1m           6Mi             
+pronunciation-rs-74699fdd6f-xk25n      1m           6Mi             
+
+============================================================
+== ts=1787313090 19:51:30 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                         MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: 1%/70%                     1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: 602%/70%                   1         4         4          3d1h
+community-go          Deployment/community-go          cpu: 6%/70%                     1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 8%/70%                     1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 3%/70%                     1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 14%/70%                    1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: 8%/70%                     1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: 11%/60%, memory: 35%/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: 23%/65%                    1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 83%/70%                    1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: 3%/70%                     1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 4%/70%                     1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: 0%/70%                     1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: 1%/70%                     1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: 1%/70%                     1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: 4%/70%                     1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: 20%/70%                    1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: 3%/70%                     1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: 9%/70%                     1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics not available for pod esp-prod/asr-adapter-go-688fcd5fbb-dfs46, age: 5h39m41.122976s
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313105 19:51:45 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         4          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics not available for pod esp-prod/asr-adapter-go-688fcd5fbb-dfs46, age: 5h39m52.266627s
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313116 19:51:56 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         4          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics not available for pod esp-prod/asr-adapter-go-688fcd5fbb-dfs46, age: 5h40m7.235364s
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313131 19:52:11 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         4          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics not available for pod esp-prod/asr-adapter-go-688fcd5fbb-dfs46, age: 5h41m14.193929s
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313198 19:53:18 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         4          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics API not available
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313214 19:53:34 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         1          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics API not available
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313227 19:53:47 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         1          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics API not available
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313237 19:53:57 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         1          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics API not available
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313248 19:54:08 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         1          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics API not available
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313258 19:54:18 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         1          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+learning-worker-6f588ff6f-b5srb        717m         733Mi           
+learning-worker-6f588ff6f-xb9v7        715m         530Mi           
+k6-graphql-vs-rest-dvc22               215m         123Mi           
+bff-java-68dff6cbdb-bpfmd              140m         1497Mi          
+bff-java-68dff6cbdb-2ccgz              131m         1529Mi          
+bff-java-68dff6cbdb-qxgjx              117m         1423Mi          
+learning-java-75fbb5577-gk4gq          76m          1342Mi          
+learning-worker-6f588ff6f-qct5w        65m          795Mi           
+teacher-java-864f9b4559-n8r8s          45m          700Mi           
+writing-py-569f5dbf56-p955s            21m          229Mi           
+gamification-go-8959fdb9c-zmpn8        19m          51Mi            
+emotion-svc-5ff5c98556-nggbt           18m          151Mi           
+otel-collector-865b9dd846-cgz8f        17m          139Mi           
+esp-admin-7579558676-qws7f             16m          40Mi            
+gateway-go-6566b645bd-6hv72            14m          50Mi            
+whisper-b8b94c86d-cfzgm                9m           40Mi            
+content-go-76d6dcf656-9vwdd            8m           39Mi            
+vocab-srs-go-6cff878d64-xfw4v          7m           42Mi            
+community-go-5d88497c-d4crn            6m           37Mi            
+listening-go-7949f58fcd-g8jb8          5m           39Mi            
+live-tutor-go-8685444546-dd4hv         5m           33Mi            
+reading-go-7dfb4d8f76-ngzrn            5m           44Mi            
+course-path-go-5c5fd7fc89-pgq9m        4m           35Mi            
+tts-adapter-go-7d8b6f5646-s84jc        3m           19Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   2m           8Mi             
+writing-coach-587fd7b85c-v9dqs         2m           143Mi           
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+
+============================================================
+== ts=1787313269 19:54:29 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         1          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+NAME                                   CPU(cores)   MEMORY(bytes)   
+learning-worker-6f588ff6f-b5srb        717m         733Mi           
+learning-worker-6f588ff6f-xb9v7        715m         530Mi           
+k6-graphql-vs-rest-dvc22               215m         123Mi           
+bff-java-68dff6cbdb-bpfmd              140m         1497Mi          
+bff-java-68dff6cbdb-2ccgz              131m         1529Mi          
+bff-java-68dff6cbdb-qxgjx              117m         1423Mi          
+learning-java-75fbb5577-gk4gq          76m          1342Mi          
+learning-worker-6f588ff6f-qct5w        65m          795Mi           
+teacher-java-864f9b4559-n8r8s          45m          700Mi           
+writing-py-569f5dbf56-p955s            21m          229Mi           
+gamification-go-8959fdb9c-zmpn8        19m          51Mi            
+emotion-svc-5ff5c98556-nggbt           18m          151Mi           
+otel-collector-865b9dd846-cgz8f        17m          139Mi           
+esp-admin-7579558676-qws7f             16m          40Mi            
+gateway-go-6566b645bd-6hv72            14m          50Mi            
+whisper-b8b94c86d-cfzgm                9m           40Mi            
+content-go-76d6dcf656-9vwdd            8m           39Mi            
+vocab-srs-go-6cff878d64-xfw4v          7m           42Mi            
+community-go-5d88497c-d4crn            6m           37Mi            
+listening-go-7949f58fcd-g8jb8          5m           39Mi            
+live-tutor-go-8685444546-dd4hv         5m           33Mi            
+reading-go-7dfb4d8f76-ngzrn            5m           44Mi            
+course-path-go-5c5fd7fc89-pgq9m        4m           35Mi            
+tts-adapter-go-7d8b6f5646-s84jc        3m           19Mi            
+llm-orchestrator-rs-7cd4d7b758-p27gg   2m           8Mi             
+writing-coach-587fd7b85c-v9dqs         2m           143Mi           
+pronunciation-rs-74699fdd6f-xk25n      1m           7Mi             
+media-learn-rs-74df97789f-svtxr        1m           1Mi             
+frontend-react-788b47dcd9-9pgsm        1m           8Mi             
+
+============================================================
+== ts=1787313284 19:54:44 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         1          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: 16%/70%                                1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: 4%/70%                                 1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: 18%/70%                                1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: 65%/70%                                1         3         1          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: 5%/70%                                 1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics not available for pod esp-prod/asr-adapter-go-688fcd5fbb-dfs46, age: 5h42m51.690593s
+(top pod failed, metrics-server 未就绪?)
+
+============================================================
+== ts=1787313295 19:54:55 stage_mark= ==
+--- kubectl get hpa -n esp-prod ---
+NAME                  REFERENCE                        TARGETS                                     MINPODS   MAXPODS   REPLICAS   AGE
+assessment-rs         Deployment/assessment-rs         cpu: <unknown>/70%                          1         4         1          7d22h
+bff-java              Deployment/bff-java              cpu: <unknown>/70%                          1         4         1          3d1h
+community-go          Deployment/community-go          cpu: <unknown>/70%                          1         2         1          4d18h
+content-go            Deployment/content-go            cpu: <unknown>/70%                          1         2         1          4d20h
+course-path-go        Deployment/course-path-go        cpu: <unknown>/70%                          1         4         1          7d22h
+emotion-svc           Deployment/emotion-svc           cpu: <unknown>/70%                          1         3         1          6d12h
+gamification-go       Deployment/gamification-go       cpu: <unknown>/70%                          1         4         1          7d22h
+gateway-go            Deployment/gateway-go            cpu: <unknown>/60%, memory: <unknown>/75%   1         4         1          7d22h
+learning-java         Deployment/learning-java         cpu: <unknown>/65%                          1         6         1          7d22h
+learning-worker       Deployment/learning-worker       cpu: <unknown>/70%                          1         3         3          3d1h
+listening-go          Deployment/listening-go          cpu: <unknown>/70%                          1         4         1          7d22h
+live-tutor-go         Deployment/live-tutor-go         cpu: <unknown>/70%                          1         4         1          7d22h
+llm-orchestrator-rs   Deployment/llm-orchestrator-rs   cpu: <unknown>/70%                          1         3         1          6d18h
+media-learn-rs        Deployment/media-learn-rs        cpu: <unknown>/70%                          1         4         1          7d22h
+pronunciation-rs      Deployment/pronunciation-rs      cpu: <unknown>/70%                          1         4         1          7d22h
+reading-go            Deployment/reading-go            cpu: <unknown>/70%                          1         4         1          7d22h
+teacher-java          Deployment/teacher-java          cpu: <unknown>/70%                          1         6         1          6d12h
+vocab-srs-go          Deployment/vocab-srs-go          cpu: <unknown>/70%                          1         3         1          6d18h
+writing-py            Deployment/writing-py            cpu: <unknown>/70%                          1         3         1          6d12h
+--- kubectl top pod -n esp-prod (sorted by cpu) ---
+error: Metrics not available for pod esp-prod/asr-adapter-go-688fcd5fbb-dfs46, age: 5h43m3.270105s
+(top pod failed, metrics-server 未就绪?)
+

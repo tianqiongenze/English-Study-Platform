@@ -233,3 +233,87 @@ P1-D16前次修了3个body user_id端点,3个session越权端点(get_session/lis
 **侦察已确认**:dialogue/mod.rs get_session(165行,SELECT含user_id=r.1但未校验)/list_turns(188)/chat_sse(220)三handler当前纯Path查询无归属校验;4服务find _test.go全0个。
 
 **待4 agent返回**:收结论→统一全量验证(Rust cargo build + 4 Go服务go test)→commit→push。之后P1-D21契约IT(XL,真实Pulsar broker)→P1-D10 HPA多节点Locust→k6压测。
+
+
+### 会话23-29续五(2026-08-21):P1-D21契约IT+P1-D10压测脚本+k6 GraphQL 并行
+
+**git push 网络问题**:github.com:443 持续 75s 超时(非认证非冲突,网络层)。2 commit 待推(ad545ea纵深IDOR+63测/79a88ba PROGRESS冷热分离)。后台 bgz7dh6tf 8次退避重试中。本地全闭环,远程待网络恢复。
+
+**三任务并行(写代码/脚本轻负载阶段,执行由主线程串行控VM雪崩):**
+- P1-D21契约IT:Workflow(wf_1823316f-5c9)3阶段——Scout 4 relay点(learning-java/OutboxRelay,teacher-java/TeacherEventOutbox,content-go/outbox_relay,gamification-go/rankings_projector)→Plan IT方案→WriteIT代码骨架。验证at-least-once+幂等消费=exactly-once(EER铁律)。真实Pulsar broker(pulsar-broker:6650,2broker Running)非mock。
+- P1-D10 HPA压测脚本:agent a907e14fec3cd0e2a,准备阶梯压测脚本(100→500→1000→2000→5000 CCU)+HPA watch+方案md。只准备不执行。
+- k6 GraphQL压测脚本:agent ad2f0480fe97b673e,编写graphql-vs-rest.js对比GraphQL聚合vs REST多端往返。只编写不执行。
+
+**侦察已确认**:Pulsar 2broker+3bookie Running;outbox relay 4点定位;k6已装;locust 6脚本含ccu5000_ws;GraphQL Phase1完成(schema.graphqls+4Fetcher+DataLoader,/graphql端点);HPA 19个maxReplicas 2-6,learning-worker 3副本。
+
+**VM雪崩防护**:三任务写脚本阶段轻负载可并行;实际跑压测/真实broker IT由主线程串行(esp-lco-embedding-vm-snowball+esp-singlenode-host-cluster-contention铁律)。
+
+**待**:Workflow+2agent返回→主线程落地IT代码→串行执行压测(先探针timeout调优防误杀)。
+
+
+## 续六(2026-08-21)P1-D21 Workflow Scout 阶段返回 —— 4 relay 点接线真相(HSA 实证)
+
+**背景**:P1-D21 契约 IT(验证 EER outbox at-least-once + idempotent = exactly-once)。Workflow wf_1823316f-5c9 三阶段:Scout(4 relay 点并行实证)→ Plan → WriteIT。Scout 全返回,颠覆原"4 统一 Pulsar relay"假设。
+
+**实证结论(4 relay 点真实机制,非叙事)**:
+
+| relay 点 | 真实机制 | 幂等 | IT 可行性 | 缺陷 |
+|---|---|---|---|---|
+| learning-java/OutboxRelay | DB→DB 重投器(扫 outbox 表→INSERT learning_events),**不发 Pulsar** | message_id UNIQUE + ON CONFLICT DO NOTHING ✓ | medium(testcontainers-CRDB) | 无 |
+| content-go/OutboxRelay | CRDB→CRDB 重投器(坑㉙补 learning-java 只读 TiDB 缺口),**非 Pulsar** | message_id 去重 ✓ | medium(纯 CRDB 无需 broker) | drainOutbox 主路径**零覆盖** |
+| teacher-java/OutboxRelay | **真 Pulsar relay**(@Scheduled 扫表→Producer.send 同步阻塞 blockIfQueueFull(true),满足 EER) | **消费端无 message_id 显式去重!**(learning-java handleFinalized 不读 msg key) | **high**(真实 Pulsar 3 broker Running) | **消费端幂等隐式缺失** |
+| gamification-go/rankings_projector | Pulsar 消费端(Redis SETNX 去重 ✓) | Redis SETNX esp:gamif:processed:{msg_id} ✓ | medium(需 -tags pulsar_eda) | **生产镜像跑 stub!**(Dockerfile 无 -tags pulsar_eda,线上 no-op,违反配而未接+stale-image-blindspot) |
+
+**重大缺陷(3 项,需后续 P1 修)**:
+1. **teacher-java 消费端幂等缺失**:learning-java LearningEventConsumer.handleFinalized 不读 msg.getKey()/getProperty("message_id"),TeacherFinalizedEvent POJO 无 messageId 字段 → 依赖下游 findById upsert 隐式幂等(非 message_id 显式)。EER 铁律要求 message_id 幂等键贯穿。
+2. **gamification-go projector 线上跑 stub**:Dockerfile `go build ./src` 无 -tags pulsar_eda → rankings_projector_stub.go 编译 → startRankingsProjector no-op。代码存在但线上无投影,违反工程铁律②配而未接 + feature-stale-image-blindspot。
+3. **content-go/learning-java drainOutbox 主路径零 IT 覆盖**:relayBackoffSec/relayMaxRetry 常量锁了,但 DB 扫表+INSERT+退避+死信主路径零覆盖(测试注释自认"dead 路径依赖 DB 故只锁常量")。
+
+**IT 方案(Workflow Plan 阶段生成中)**:分两类——
+- DB→DB 重投器(learning-java/content-go):testcontainers-CRDB 起库+建 outbox/learning_events 表,写 outbox 行→验证 relay 扫表重投→done/dead/退避路径。无需 broker。
+- 真 Pulsar relay(teacher-java):真实 pulsar-broker:6650(3 broker Running)→写 outbox 行→验证 Producer.send 投递+消费端幂等。high 可行性。
+
+**状态**:Scout 全返回(4/4)。Plan/WriteIT 阶段 agent a77ce6c 启动中。待 Workflow 返回→主线程落地 IT 代码→编译验证→commit。
+
+## 续七(2026-08-21)P1-D21 Workflow Plan 阶段返回 —— 确认 message_id 真实 bug + IT 方案
+
+**Plan 阶段(a77ce6c)实证 — 比 Scout 更深,确认 1 个 Scout 漏掉的真实 bug**:
+
+**bug(EER 真实违规,可 IT 暴露)**:teacher-java EventPublisher.publishReliable 第 98 行 p.send(payload) 不调 .newMessage().key(),第 3 参 idempotencyKey 仅用于异常文案拼接(第 102 行) → message_id 在 relay→broker 链路实际丢失。下游 learning-java handleFinalized 只 getValue() 反序列化从不读 msg.getKey()/getProperty(message_id) → 所谓 message_id 去重是注释谎言,实际靠 score 覆盖 + @Version 碰巧幂等,补偿后重评不同 score 会覆盖。IT 造重复投递同 message_id 消费端计两次即暴露。
+
+**IT 方案(Plan 阶段确定)**:
+- 优先级:teacher-java/OutboxRelay(high 真 Pulsar) + learning-java/OutboxRelay(high 纯 DB 无需 broker)先做;content-go(medium 纯 CRDB)次;gamification-go projector(medium 需先改构建 tags)后。
+- 核心策略:真实 Pulsar broker(pulsar-broker:6650 集群 3 broker Running 已核实)优先,testcontainers Pulsar 仅 Go 侧备选。理由:真实 broker 能暴露 publishReliable 不写 message_id 头这种隐蔽 bug;testcontainers-pulsar JVM broker 内存大,9 核 VM 叠加 LCO embedding 雪崩风险不划算。
+- 关键验证点:(a) teacher.finalized 路径投递后用 pulsar-admin/consumer.peek 核验 broker 消息是否携带 message_id key/property(预期暴露 bug:不携带);(b) learning-java 同 message_id 造两行 outbox,relay 投递后 learning_events 只落一行;(c) gamification-go 同 message_id 重复发,Redis SETNX 第二次返 false 跳过,ZSET 只加一次。
+- 数据隔离:独立 test tenant(user_id 负数段 -9xxxxx)+ 独立 test topic 后缀 .it/subscription 名,IT 结束显式清理 outbox/learning_events/user_mastery 对应行 + Redis key DEL。
+- 风险:VM 雪崩(esp-lco-embedding-vm-snowball,IT 编译与 LCO embedding 离峰串行不并行,IT 批次小于 30s);真实 broker 脆弱(broker 有 20+ 次 restart 历史,IT 需重试+超时分级,失败区分 broker 不可达 标 DEFERRED vs 幂等失效 立即修)。
+- testFramework:Java 侧 SpringBootTest(classes=TeacherApplication,webEnvironment=NONE)+ActiveProfiles(it)+EnableScheduling 起真实 relay;Go 侧 testcontainers-cockroachdb + 编译 projector tags;CI 门禁 IT 标 integration tag 默认不跑夜班手动触发,覆盖率门禁仅约束单测(TCG)。
+
+**3 类 gap 汇总(IT 能暴露的)**:
+1. teacher-java publishReliable 不写 message_id 头(EER 真实违规,IT 可暴露,修后 IT 转绿闭环)。
+2. learning-java worker 模式 reportEvent 用 EventPublisher.publish(sendAsync+blockIfQueueFull(false)+失败仅 warn)发 LEARNING_EVENT_REPORT,队列满静默丢,未切 publishReliable,fire-and-forget 违规。
+3. gamification-go projector 生产镜像跑 stub(Dockerfile 无 pulsar_eda tags),配而未接+stale-image-blindspot 双违规。
+
+**状态**:Plan 完成。WriteIT agent ad1c11e4 启动中(核实细节+写 IT 代码骨架)。待返回 → 主线程落地 → 编译验证 → commit。Monitor bygv7fcrn 盯 ad1c11e4。
+## 续八(2026-08-21)P1-D21 主线程核实 —— message_id bug 真相修正(HSA/ASV/CLC)
+
+**Workflow WriteIT 阶段失败**:agent ad1c11e4 反复核实细节后冻结,写了 0 个 IT 文件,journal 无 result 无 workflow 结束标记。Scout+Plan 两阶段产出高价值事实(已落盘续六/续七),WriteIT 无产出。主线程亲自核实 Plan agent 叙事(不轻信)。
+
+**主线程字节码+源码核实结论(修正 Plan agent 部分不准确)**:
+
+1. **EventPublisher.publishReliable 确实不写 Pulsar 消息头**(字节码证实):javap -c 显示第 33 行 Producer.send(Object) 直接发载荷,无 newMessage().key()/.property() 调用;第 3 参 String(messageId)只在 makeConcatWithConstants 用于异常文案拼接。**Plan agent 此判断正确。** 注:EventPublisher.java 源码不在本仓库(esp-cache 是 com.esp:esp-cache:1.0.0 共享 jar,在 ~/.m2,源码 sources jar 下载失败 .lastUpdated),Plan agent 报的 EventPublisher.java:98 行号是反编译推断非真实行号,但事实成立。
+
+2. **Plan agent 严重不准确处**:声称 handleFinalized 读 ev.messageId() 但 TeacherFinalizedEvent 无 messageId 字段 → 主线程反编译 TeacherFinalizedEvent 证实字段只有 userId/kpId/finalScore,**确无 messageId**;第 107 行 ev.messageId() 实为 handleEventReport(LearningEventReport ev) 另一事件,非 handleFinalized。handleFinalized 第 134-164 行**完全不读 message_id**。
+
+3. **teacher.finalized 幂等真相(修正)**:Plan agent 称靠 score 覆盖+@Version 碰巧幂等是注释谎言 → **不准确**。实际靠主键 upsert(findById→applyTeacherFinalized→save 同 user+kp 覆盖同一行)+ @Version OCC 重试(P1-D2 已加第 151-160 行)。这是**合法设计幂等策略**(重投递同事件→同 user+kp→upsert 覆盖同分数→幂等),非碰巧。teacher.finalized 是最终分数覆盖语义,重投递天然幂等。
+
+4. **publishReliable 不写消息头的真实危害程度(降级)**:对 teacher.finalized 链路危害低(业务层主键 upsert 兜底,不依赖 Pulsar 头)。真正依赖 message_id 显式去重的是 learning.event.report 链路——但其 message_id 通过 LearningEventReport POJO 载荷字段(messageId())贯穿,经 reportEvent 4 参透传到 learning_events 表 ON CONFLICT(message_id) DO NOTHING 去重,**不依赖 Pulsar 消息头**。故 publishReliable 不写头的缺陷对现有两条链路均非阻断(载荷字段兜底),但违反 EER message_id 应贯穿 broker 头最佳实践,属代码债非线上 bug。
+
+5. **esp-cache 是共享 jar**:修 publishReliable 写头需改 esp-cache 源码仓库(不在本仓库)+ 重发 jar + 所有依赖方升级,爆炸半径大(BRR L2,跨仓库)。非本会话可单点修复,标 DEFERRED 记条件。
+
+**P1-D21 结论**:契约 IT 价值仍在(验证 EER 接线+暴露 gap),但 WriteIT 失败无代码产出。3 类 gap 重新定级:
+- gap1(teacher publishReliable 不写头):降为代码债非线上 bug(载荷字段兜底),DEFERRED 跨仓库修 esp-cache。
+- gap2(learning-java worker 模式 reportEvent 用 publish sendAsync 静默丢):仍为 EER 违规,但需核实 worker 模式是否启用(单进程一体化模式 esp.disruptor.enabled=true 不发 Pulsar 走进程内 Disruptor,可能不触发)。
+- gap3(gamification-go projector 生产镜像跑 stub):仍为配而未接+stale-image-blindspot 双违规(Dockerfile 无 pulsar_eda tags),这是真问题但属构建配置非 IT 范畴。
+
+**下一步决策**:P1-D21 IT 代码不强制现在补(WriteIT 失败,主线程核实后 gap1 降级)。转向执行阶段——串行跑 P1-D10 HPA 压测 + k6 GraphQL 对比(先探针 timeout 调优防误杀),收容量数据。IT 代码补全标 DEFERRED 待 WriteIT 重试或主线程择机手写。

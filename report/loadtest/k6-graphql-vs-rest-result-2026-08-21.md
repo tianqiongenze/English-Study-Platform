@@ -63,3 +63,62 @@ Started BffApplication in 151.414 seconds (process running for 158.565)
 - bff-java limits memory 1536Mi → 多节点生产应调大(单节点资源紧暂不动)
 - bff-java 冷启动 151s → 预热/启动优化(GraalVM native image 或 Spring AOT,工程量大 DEFERRED)
 - k6 rest scenario 未完整跑 → bff-java 容量恢复后可补跑(优先级低,graphql 对比已够说明问题)
+
+
+## HPA 扩缩容时间线(esp-data 分析 hpa-snapshots.log 1403行/31样本)
+
+### bff-java HPA REPLICAS 时间线(19:48-19:54)
+| 时间 | 副本 | 备注 |
+|---|---|---|
+| 19:48-19:49:02 | 2 | 预热态(老 pod zxtnr+pbbm7) |
+| 19:49:12 | 1 | 缩到 1 |
+| 19:49:24-19:49:55 | 2 | 新 pod bczv8 19:49:24 出现 |
+| 19:50:05-19:50:16 | 1 | 再缩到 1 |
+| 19:50:26 | 2 | **CPU 首次破阈值 218%** |
+| **19:50:36** | **4** | **HPA 触发扩容直达 MAXPODS=4(CPU 628%)** |
+| 19:50:36-19:53:18 | 4 | 维持 4,19:51:45 起 CPU=`<unknown>`(新 pod 启动期 OOMKill) |
+| **19:53:34** | **1** | **缩容回 1(3 新 pod 全未 ready 即死)** |
+| 19:54:55 | 3 | 尾部小回弹 |
+
+### CPU 峰值
+- HPA 显示 **655%/70%(9.3 倍超阈)** @ 19:51:09-19:51:20
+- 单 pod 实测 cores 峰值:**bczv8 = 1381m(1.38 core)** @ 19:49:55-19:50:05
+- 19:51:45 后全 `<unknown>`(pod 崩溃 HPA 取不到指标)
+
+### 扩容触发延迟
+- CPU 首次 ≥70% @ 19:50:26(218%),HPA 19:50:36 副本 2→4
+- **HPA 控制器决策延迟 ≈10s(一个采样周期,可接受)**
+- 但新 pod(2ccgz/qxgjx)19:50:57 才在 top pod 出现(启动 ≥21s),一出现就 814m/730m 高负载,**从未 ready 即 OOMKill** = 无效扩容
+
+### OOM 轨迹(pbbm7 内存爬升)
+636→1094→1392→1712→**1850Mi @ 19:51:20**(超 limits 1536Mi)→ OOMKill 窗口 19:51:20-19:51:45
+- bczv8 内存:244→557→1259→1661Mi 同期攀升
+- 19:52:11→19:53:18 有 **67s 日志断档**(VM CPU 雪崩,watcher 自身停摆)
+
+### 其他服务 HPA(关键:下游全富余)
+- **gamification-go**:全程 1(CPU 5-15%)— 未触发
+- **learning-java**:全程 1(CPU 13-34%,峰值 34% < 65%)— 未触发
+- **teacher-java**:全程 1(CPU 18-25% < 70%)— 未触发
+- **gateway-go**:全程 1(含 memory target)— 未触发
+- **learning-worker**:3↔1 多次摆动(预扩容后缩放震荡,峰值 CPU 174/177%,非本次新增扩容)
+- 其余 emotion/content/course-path/listening/vocab/live-tutor/reading/llm-orchestrator/assessment/writing-py/media-learn/pronunciation/community:**全程 1,均未触发**
+- **结论:负载完全压在 bff-java(GraphQL/聚合层),下游 Java/Go 服务 CPU 富余,HPA 无需动作**
+
+### top pod CPU 排行(压测期峰值)
+| 排名 | Pod | 峰值 CPU | 时间 |
+|---|---|---|---|
+| 1 | bff-java-bczv8 | 1381m | 19:49:55/19:50:05 |
+| 2 | bff-java-pbbm7 | 1310m | 19:50:57/19:51:09 |
+| 3 | learning-worker-txl5n | 955m | 19:49:55/19:50:05 |
+(前 4 中 3 席 bff-java)
+
+## 根因小结(esp-data 结论)
+bff-java 是单点瓶颈,HPA 扩容决策延迟仅 ~10s 可接受,但 MAXPODS=4 的新 pod 在高负载下启动期就被 OOMKill(内存上限不足 1536Mi + 启动即承压),导致"扩了等于没扩",最后缩回 1。
+
+修复方向:① 上调 bff-java 内存 limit(1536→3072Mi);② 启动期降载/预热;③ 评估 bff-java 是否需横向拆分(GraphQL 聚合层单服务吃满);④ 151s 冷启动需 GraalVM native/Spring AOT(工程量大 DEFERRED)。
+
+## 对 P1-D10 的决策意义(关键)
+- k6 已实测拐点:~2000 CCU 档(19:50:26 CPU 218% 飙升对应高 CCU)bff-java OOM
+- 下游全富余 → P1-D10 压力会 100% 堆在 bff-java,5000 CCU 必崩(远早于 5000)
+- bff-java 止血态(maxReplicas=1)→ P1-D10 一压就 OOM(重复 k6 发现)
+- 单节点 9 核 + bff-java 1 副本 1536Mi + 151s 冷启动 = P1-D10 5000 CCU 物理不可能通过

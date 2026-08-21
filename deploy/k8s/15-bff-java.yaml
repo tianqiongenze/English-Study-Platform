@@ -94,7 +94,7 @@ spec:
     kind: Deployment
     name: bff-java
   minReplicas: 1
-  maxReplicas: 4
+  maxReplicas: 1   # 单节点止血态(2026-08-21):k6 压测实测 bff-java ~2000CCU 档 OOM(151s冷启动+1536Mi不足+HPA扩容新pod启动期即崩);单节点9核扩4个JVM抢CPU触发慢启动恶性循环(load飙24.97)。maxReplicas=1 止住扩容循环,bff pbbm7 稳定1/1。多节点生产恢复 maxReplicas=4(此时扩容跨节点不抢CPU)。关联 esp-singlenode-host-cluster-contention。
   metrics:
   - type: Resource
     resource:

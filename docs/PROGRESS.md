@@ -382,3 +382,60 @@ P1-D16前次修了3个body user_id端点,3个session越权端点(get_session/lis
 - bff-java limits memory 1536Mi → 多节点生产应调大(单节点资源紧暂不动)
 - bff-java 冷启动 151s → 预热/启动优化(GraalVM native image 或 Spring AOT,工程量大 DEFERRED)
 - k6 rest scenario 未完整跑 → bff-java 容量恢复后可补跑(优先级低)
+
+
+### 续十一补 bff-java HPA 滚动风暴止血(2026-08-21 20:00)
+
+**现象**:bff-java k6 压崩后,HPA 进入慢启动恶性循环:
+- load 高→新 pod 151s 启动慢→startup 超时/就绪失败→pod Terminating→HPA 再扩新一批→循环
+- 3 pod(mlnt6/z4gr4/zrrqr)刚 1/1 Ready 立刻 Terminating + 新 3 pod(9vzsz/p77qw/z6fg8)Pending
+- 持续吃 VM CPU,load 飙 24.97,单节点 9 核雪崩
+
+**止血(L1 可逆,已执行)**:
+`kubectl -n esp-prod patch hpa bff-java --type=merge -p '{"spec":{"minReplicas":1,"maxReplicas":1}}'`
+- 锁 maxReplicas=1 止住扩容循环
+- deploy 收敛到 1/1 AVAILABLE(pbbm7 稳定)
+
+**⚠️ 待回写仓库(DGO 铁律)**:HPA maxReplicas 被临时 patch=1,仓库 deploy/k8s/15-bff-java.yaml 原值待恢复。
+- 会话结束前必须:`kubectl patch hpa bff-java -p '{"spec":{"maxReplicas":4,"minReplicas":1}}'` 恢复
+- 或保持 maxReplicas=1 作为单节点止血态(多节点再恢复 4)——需用户确认
+- 当前属"临时止血态",非稳态配置
+
+**关联铁律**:
+- BRR(爆炸半径):止血用最小侵入(patch HPA maxReplicas,非删 HPA/删 deploy)
+- DGO(声明式):临时 patch 必回写 yaml + PROGRESS 记"待回写"
+- esp-singlenode-host-cluster-contention:单节点 9 核 HPA 扩容同节点多 JVM = 雪崩,多节点才解
+
+
+## 续十二 P1-D10 跳过决策 + bff-java HPA DGO 回写(2026-08-21 20:10)
+
+### 决策(用户确认,基于 esp-data HPA 分析)
+**跳过 P1-D10 阶梯压测**,诚实落盘单节点限制。理由:
+- k6 已实测 bff-java ~2000 CCU 档 OOMKilled(esp-data HPA 分析:19:50:26 CPU 218% 飙升,19:51:20 pbbm7 内存 1850Mi 超 limits 1536Mi,OOMKill 窗口 19:51:20-19:51:45)
+- 下游服务 CPU 全富余 HPA 全程未触发(gamification 5-15%/learning 13-34%/teacher 18-25%/gateway 含 memory target,均 <70% 阈值)
+- 负载 100% 堆在 bff-java(GraphQL/聚合层单点瓶颈)
+- 单节点9核 + bff-java 1副本1536Mi + 151s冷启动 = P1-D10 5000CCU 物理不可能通过
+- 跑 P1-D10 = 重复 k6 的 bff 崩溃,产不出新数据,雪崩 VM(违反 esp-lco-embedding-vm-snowball / esp-singlenode-host-cluster-contention)
+
+### bff-java HPA DGO 回写
+- 仓库 deploy/k8s/15-bff-java.yaml:97 maxReplicas 4→1(单节点止血态,加注释说明根因+多节点恢复条件)
+- live(patch maxReplicas=1)== 仓库(1),DGO 合规无漂移
+- 注释记录:多节点生产恢复 maxReplicas=4(扩容跨节点不抢 CPU)
+
+### 单节点限制铁律实证(HSA:以实情为准)
+| 维度 | 单节点实测 | 多节点目标 |
+|---|---|---|
+| bff-java HPA 扩容 | 扩4个JVM同节点抢CPU→慢启动恶性循环 | 跨节点扩容不抢CPU |
+| bff-java 冷启动 | 151s(Nacos gRPC 3s超时) | 多节点资源充足可能更快 |
+| bff-java 内存 | 1536Mi不够k6并发OOM | 可调大3072Mi |
+| P1-D10 5000CCU | 物理不可能通过 | 多节点验证水平扩展 |
+
+### 数据资产(完整)
+- report/loadtest/k6-graphql-vs-rest-result-2026-08-21.md(k6结果+HPA时间线分析,4714字节)
+- report/loadtest/hpa-snapshots.log(128KB/1403行/31样本,完整k6压测期HPA+top pod)
+- report/loadtest/graphql-vs-rest-plan.md / p1-d10-hpa-capacity-plan.md
+
+### 下一步(非压测方向)
+- bff-java 容量优化(代码债,DEFERRED):151s冷启动→GraalVM native/Spring AOT;1536Mi→3072Mi;Nacos gRPC 3s→5-10s(ASV查配置)
+- Sentinel bff-java-flow-rules 404 = Nacos 未推规则(配而未接,RWT 相关,代码债)
+- 多节点环境就绪后:恢复 bff-java maxReplicas=4 + 跑 P1-D10 验证水平扩展

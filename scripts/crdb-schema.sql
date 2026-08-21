@@ -168,6 +168,7 @@ CREATE TABLE esp_teacher.submissions (
   auto_feedback JSONB NULL,
   final_score   DECIMAL(5,2) NULL,
   status        VARCHAR(16) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','auto_graded','finalized')),
+  version       BIGINT NOT NULL DEFAULT 0,    -- P1-D3 OCC:乐观锁版本号,防 read-modify-write lost update
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   INDEX idx_assignment (assignment_id)
 );

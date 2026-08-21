@@ -23,9 +23,11 @@ func createTestContext(w *httptest.ResponseRecorder, method, path string, body [
 	return ctx
 }
 
-// newTestServer creates a Server with nil DBs for handler unit tests that don't need DB.
-func newTestServer() *Server {
-	return &Server{}
+// newTestServer creates a Server with nil DBs and a test JWT validator for
+// handler unit tests that don't need DB. P1-30: requireAuth 走零信任 JWT 自校验,
+// 故单测必须注入真实公钥 validator(测试私钥签发 token 走真实执行路径)。
+func newTestServer(t *testing.T) *Server {
+	return &Server{jwt: testValidator(t)}
 }
 
 // ---- filterBlocked:关键词过滤 ----
@@ -119,18 +121,18 @@ func TestRandID_Hex(t *testing.T) {
 	}
 }
 
-// ---- requireAuth ----
+// ---- requireAuth(P1-30 零信任 JWT 自校验,单测走真实签发 token)----
 
 func TestRequireAuth_Unauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Request = httptest.NewRequest("GET", "/", nil) // 无 token
 
-	srv := newTestServer()
+	srv := newTestServer(t)
 	uid, ok := srv.requireAuth(c)
 	if ok {
-		t.Error("should not be authorized without X-User-Id")
+		t.Error("should not be authorized without token")
 	}
 	if uid != 0 {
 		t.Errorf("uid should be 0, got %d", uid)
@@ -145,9 +147,9 @@ func TestRequireAuth_Valid(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Request.Header.Set("X-User-Id", "123")
+	c.Request.Header.Set("Authorization", "Bearer "+signTestJWT(t, 123))
 
-	srv := newTestServer()
+	srv := newTestServer(t)
 	uid, ok := srv.requireAuth(c)
 	if !ok {
 		t.Error("should be authorized")
@@ -157,17 +159,17 @@ func TestRequireAuth_Valid(t *testing.T) {
 	}
 }
 
-func TestRequireAuth_InvalidUID(t *testing.T) {
+func TestRequireAuth_InvalidToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Request.Header.Set("X-User-Id", "abc")
+	c.Request.Header.Set("Authorization", "Bearer not-a-valid-jwt") // 非法 token
 
-	srv := newTestServer()
+	srv := newTestServer(t)
 	uid, ok := srv.requireAuth(c)
 	if ok {
-		t.Error("should not be authorized with invalid uid")
+		t.Error("should not be authorized with invalid token")
 	}
 	if uid != 0 {
 		t.Errorf("uid should be 0, got %d", uid)
@@ -179,9 +181,10 @@ func TestRequireAuth_ZeroUID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Request.Header.Set("X-User-Id", "0")
+	// signTestJWT 对 uid<=0 返回空串(模拟生产:无有效 subject → ParseUserID 返 0)
+	c.Request.Header.Set("Authorization", "Bearer "+signTestJWT(t, 0))
 
-	srv := newTestServer()
+	srv := newTestServer(t)
 	uid, ok := srv.requireAuth(c)
 	if ok {
 		t.Error("uid=0 should not be authorized")

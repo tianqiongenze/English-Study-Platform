@@ -20,6 +20,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+
+	"esp/common-go/middleware"
 )
 
 const (
@@ -591,7 +593,13 @@ func (s *Server) rankings(c *gin.Context) {
 	if limit > 100 {
 		limit = 100
 	}
-	meStr := c.GetHeader("X-User-Id")
+	// P1-30 零信任:meStr 取自 JWT(非 X-User-Id 头);未登录(无 token)则空串,
+	// 仅影响"我的排名"块(my rank 为空),公开榜仍可看。
+	uid := middleware.UserIDFromRequest(s.jwt, c.Request)
+	meStr := ""
+	if uid > 0 {
+		meStr = strconv.FormatInt(uid, 10)
+	}
 	key := lbKey(typ, scope, scopeID, period, time.Now())
 
 	// L1 top-N 缓存命中则直接回(热榜降 ZREVRANGE 成本)。
@@ -732,14 +740,15 @@ func (s *Server) rankingGap(c *gin.Context) {
 	scope := c.DefaultQuery("scope", "global")
 	scopeID := c.DefaultQuery("scope_id", "all")
 	period := c.DefaultQuery("period", "weekly")
-	meStr := c.GetHeader("X-User-Id")
-	if meStr == "" {
+	// P1-30 零信任:meStr 取自 JWT(非 X-User-Id 头)。
+	uid := middleware.UserIDFromRequest(s.jwt, c.Request)
+	meStr := strconv.FormatInt(uid, 10)
+	if uid <= 0 {
 		c.JSON(401, gin.H{"error": "unauthorized"})
 		return
 	}
 	key := lbKey(typ, scope, scopeID, period, time.Now())
 	optOut := s.refreshedOptOut(c.Request.Context())
-	uid, _ := strconv.ParseInt(meStr, 10, 64)
 	if optOut[uid] {
 		c.JSON(200, gin.H{"opted_out": true})
 		return
@@ -807,14 +816,10 @@ func lastLabel(code string) string {
 
 // opt-out 切换(写 esp_auth.users + 即时反映:读端 refreshedOptOut 过滤)
 func (s *Server) setOptOut(c *gin.Context) {
-	meStr := c.GetHeader("X-User-Id")
-	if meStr == "" {
+	// P1-30 零信任:uid 取自 JWT(非 X-User-Id 头)。
+	uid := middleware.UserIDFromRequest(s.jwt, c.Request)
+	if uid <= 0 {
 		c.JSON(401, gin.H{"error": "unauthorized"})
-		return
-	}
-	uid, err := strconv.ParseInt(meStr, 10, 64)
-	if err != nil {
-		c.JSON(400, gin.H{"error": "bad user"})
 		return
 	}
 	var body struct {

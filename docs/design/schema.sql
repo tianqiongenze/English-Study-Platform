@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   auto_feedback JSON NULL,
   final_score DECIMAL(5,2) NULL,
   status ENUM('pending','auto_graded','finalized') NOT NULL DEFAULT 'pending',
+  version BIGINT NOT NULL DEFAULT 0,        -- P1-D3 OCC:乐观锁版本号,防 read-modify-write lost update
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_assignment (assignment_id)
 );

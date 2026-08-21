@@ -613,3 +613,63 @@ gateway-go 1.15.1→1.15.2(Sentinel 接入+RWP)/esp-admin 1.3.4→1.3.7(SetRateL
 - [ ] P1 S级快速修(半天):P1-D5 message_id 入主 DDL / P1-D8 Redis ExternalName / P1-D11 WebClient 超时 / P1-D12 readyz 依赖检查 / P1-D18 邀请码模偏差。
 - [ ] P1 M级(1-2天):P1-D1 pollLoop hwm / P1-D2 乐观锁退避 / P1-30 纯信任头。
 - [ ] 之后:k6+Locust 压测对比 GraphQL vs pre-GraphQL。
+
+
+## 会话23-29续二:P1高优S+M级修复(5条,2026-08-21)
+
+> P1 路线图出案后,按"S级快速修→M级"顺序执行。全部编译验证(CLC)+apply+rollout验证(HSA)。
+
+### P1 高优已修(5条,commit 1a59a90/758c4f1 已落地本地,push 待网络恢复)
+
+**S级快速修(3条,DGO回写yaml+commit):**
+- P1-D5(EER):schema.sql 的 learning_events + learning_event_outbox 补 message_id 列+UNIQUE INDEX(对齐 scripts/crdb-schema.sql,原仅迁移脚本声明致重建丢幂等键)。
+- P1-D11(RWT):bff-java WebClientConfig 加 connectTimeout 2s + responseTimeout 90s(原 builder().build() 无超时挂死 Netty worker)。mvn compile RC=0。
+- P1-D12(OSW/RWT):gateway-go readyz 加 Redis PING(2s超时)失败返503(原无条件200,Redis脑裂时pod仍接流量致假500雪崩)。build RC=0。
+
+**P1-D8 Redis Pod FQDN→ExternalName(单节点铁律):**
+- 7处 REDIS_CLUSTER/REDIS_ADDR 直指 redis-cluster-new-0.redis-cluster-new.ekb-...(跨ns单Pod FQDN)改回 redis-cluster ExternalName 短名。
+- 11服务全 rollout ready=1/1,course-path-go 日志确认 redis-cluster:6379 连通。
+- 反模式危害:Pod FQDN 直连绕过 Service LB,Pod 重建连接断,单Pod无法享 Cluster MOVED 重定向。坑㉓是 nodes.conf 公告短名问题非 ExternalName 解析问题。
+
+**M级(2条,改代码+验证):**
+- P1-D1(EER):gamification-go pollLoop hwm 推进修正。原 processedMark 未命中或 userCache 未命中时 continue 跳过但 hwm 无条件推进→被跳过事件计分永久丢失。修正:userCache 未命中设 missingUser 标记整批不推进 hwm 重试(防计分丢失;已 fanout 由 processedMark 幂等防重复);processedMark 已处理跳过合理(幂等去重)hwm 可推进。build RC=0。
+- P1-D18(SCS/CLC):community-go genInviteCode 模偏差消除。原 int(idx)%len(chars) 因 256%31=8 致前8字符多一概率。改拒绝法(rejection sampling)maxBiasFree=256-256%len 无偏。build RC=0。
+
+### 待办(本会话后续)
+- [ ] git push origin master 待网络恢复(本地 758c4f1 落地,后台重试中 b6bysng3y)。
+- [ ] P1 剩余高优:P1-D2 乐观锁退避 / P1-D3 Submission @Version / P1-D16 IDOR / P1-30 纯信任头(L/M级,需改代码+契约测试)。
+- [ ] P1-D10 HPA容量(多节点 Locust,L级,多节点阶段)。
+- [ ] P1-D20/D21 测试补(XL,契约IT真实Pulsar broker)。
+- [ ] 之后:k6+Locust 压测。
+
+### 会话23-29续三(2026-08-21):P1 剩余 L/M 级并行修复派发
+
+**git push 已落地**(后台 b6bysng3y 完成,exit 0):`git log origin/master..HEAD` 返回 0 未推送,c3c73f1/1a59a90/758c4f1 全在远程 master。
+
+**4 agent 并行派发(各自调查→修复→编译验证→返回结论):**
+- P1-D19(CLC/RWT,community-go):joinCircle TOCTOU 原子化 + sync.Once 永久降级改可重试 init。agent a7e57f612d8678846。
+- P1-D2+D3(OCC,learning-java+teacher-java 合并避免 schema 冲突):handleFinalized 主库强读+乐观锁退避上限3次;Submission @Version + DDL version 列。agent a751782bf6fb69ddf。
+- P1-D16(SCS,llm-orchestrator-rs):LLM 对话端点 body user_id 不可信,改 X-User-Id 头权威校验(401缺失/403不一致)。agent ac6cf54457ffe1d95。
+- P1-30(SCS,~3 Go 服务):纯信任 X-User-Id 头改共享 JWT 公钥校验(esp-common-go/middleware/jwt.go 新建,对标 gateway-go/src/jwt)。agent aaa92dd2cea5d4a9e。
+
+**互不冲突**:4 agent 分属 community-go/learning-java+teacher-java/llm-orchestrator-rs/多 Go 服务+esp-common-go,无共享文件交叉(仅 P1-D2+D3 合并因都改 schema.sql,内部串行)。
+
+**待 agent 返回后**:收结论→统一 commit→push→PROGRESS/Redis 锚点更新。P1-D20(4服务零测试)待代码定型后补测(TCG)。
+
+
+### 4 agent 全部返回(2026-08-21)——静态验证通过,等全量 build+test
+
+**P1-D16(Rust IDOR,llm-orchestrator-rs)完成**:3 端点(/api/llm/chat、POST+GET /api/dialogue/sessions)body/query user_id 纯信任改 X-User-Id 头权威(401缺失/非法→403不一致);list_sessions 去全表 None 分支强制 WHERE user_id=权威值。cargo build EXIT=0。**纵深 IDOR 未修(报告待跟进)**:GET /api/dialogue/sessions/:id、POST /api/dialogue/chat、GET /:id/turns 按 session_id 越权读他人会话,需校验 session.owner==X-User-Id。
+
+**P1-D19(community-go CLC)完成**:joinCircle TOCTOU 修(三步非原子→单事务 SELECT...FOR UPDATE + COUNT 主库 + ON CONFLICT DO NOTHING,消除 follower-lag 漂移+并发超限)。sync.Once 永久降级**审计不成立**(grep sync. 全空,初始化在 main() 即时执行,非 lazy init,HSA 如实报告未编造修复)。build/vet RC=0。
+
+**P1-D2+D3(Java OCC)完成**:
+- P1-D2 learning-java:UserMastery 已有 @Version(审计暗示缺失不成立);"裸重试无限循环"字面不成立但经 Pulsar nack 等价成立→新增 retryOnConflict(3次,指数退避20-40-80ms+jitter)显式 catch ObjectOptimisticLockingFailureException 耗尽转 nack;"读 follower"路径不成立(consumer 默认主库)未强加 @DataSource(ASV/HSA)。compile RC=0。
+- P1-D3 teacher-java:Submission 无 @Version→加 @Version Long version(jakarta.persistence.Version,ASV 核实);schema.sql+crdb-schema.sql 加 version BIGINT NOT NULL DEFAULT 0;TeacherSummarySaga.run retryOnConflict 包裹。compile RC=0。
+- **预存隐患(报告未改)**:TeacherSummarySaga.run 自调用 tryFinalize/compensate 绕过 @Transactional+@DataSource 代理(self-invocation,P0-D1 outbox 既有结构)。OCC 重试在 run 层 catch Hibernate flush 仍正确工作。超出 P1-D2/D3 范围,BRR 不擅改,记录待办。
+
+**P1-30(Go JWT,3服务+esp-common-go)完成**:新建 esp-common-go/middleware/jwt.go(JWTValidator RS256+ParseUserID/ParseUserClaims+RequireAuth 中间件+MustInitJWTFromEnv 单例,启动期公钥缺失 os.Exit(1) 对齐 gateway-go,开发期 ESP_JWT_ALLOW_MISSING_KEY=1 降级)+ jwt_test.go(10测含 HS256 alg 混淆拒)。community-go/content-go/gamification-go 各加 jwt 字段+userID/roleOf/requireUID 走 JWT(消除裸 X-User-Id 头读取)。部署层补 envFrom: esp-rsa-jwt-verify(与 gateway-go 同款,secret 已验证含 JWT_RSA_PUBLIC_KEY_PEM)。各服务 build/vet/test RC=0。
+
+**静态验证(主线程,已过)**:① esp-rsa-jwt-verify secret 存在含 JWT_RSA_PUBLIC_KEY_PEM(真 PEM);② schema.sql submissions version 列在(行122);③ crdb-schema.sql submissions version 列在(行171);④ 非测试代码零残留 X-User-Id 头读取(grep 空);⑤ 三服务 envFrom 与 gateway-go 同款对齐。
+
+**待**:esp-builder 全量 Go build+vet+test 验证(community-go 是 P1-D19+P1-30 叠加重点)→ 统一 commit → push。

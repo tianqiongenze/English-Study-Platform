@@ -87,30 +87,31 @@ pub struct TurnDto {
 
 // ---------------- session handlers ----------------
 
-pub async fn list_sessions(State(h): State<AppHandle>, Query(q): Query<ListQuery>) -> Response {
+pub async fn list_sessions(
+    State(h): State<AppHandle>,
+    headers: HeaderMap,
+    Query(q): Query<ListQuery>,
+) -> Response {
+    // P1-D16 零信任身份:query.user_id 不可信,以 X-User-Id 头为权威;缺失→401,不一致→403
+    let header_uid = match crate::require_user_id(&headers) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let uid = match crate::authorize_user_id(header_uid, q.user_id) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    // 强制只查权威用户的数据(防越权查他人会话)
     let rows: Result<Vec<(i64, i64, Option<i64>, Option<i64>, Option<String>, String)>, _> =
-        match q.user_id {
-            Some(uid) => {
-                sqlx::query_as(
-                    "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
-                 FROM dialogue_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
-                )
-                .bind(uid)
-                .bind(limit)
-                .fetch_all(&h.0.pg)
-                .await
-            }
-            None => {
-                sqlx::query_as(
-                    "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
-                 FROM dialogue_sessions ORDER BY created_at DESC LIMIT $1",
-                )
-                .bind(limit)
-                .fetch_all(&h.0.pg)
-                .await
-            }
-        };
+        sqlx::query_as(
+            "SELECT id, user_id, scenario_id, persona_id, cefr_level, status \
+             FROM dialogue_sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
+        )
+        .bind(uid)
+        .bind(limit)
+        .fetch_all(&h.0.pg)
+        .await;
     match rows {
         Ok(rs) => {
             let dtos: Vec<SessionDto> = rs
@@ -132,8 +133,19 @@ pub async fn list_sessions(State(h): State<AppHandle>, Query(q): Query<ListQuery
 
 pub async fn create_session(
     State(h): State<AppHandle>,
-    Json(req): Json<CreateSessionReq>,
+    headers: HeaderMap,
+    Json(mut req): Json<CreateSessionReq>,
 ) -> Response {
+    // P1-D16 零信任身份:body.user_id 不可信,以 X-User-Id 头为权威;缺失→401,不一致→403
+    let header_uid = match crate::require_user_id(&headers) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let uid = match crate::authorize_user_id(header_uid, Some(req.user_id)) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    req.user_id = uid; // 覆盖为权威头值,防冒充他人建会话
     let res: Result<(i64,), _> = sqlx::query_as(
         "INSERT INTO dialogue_sessions (user_id, scenario_id, persona_id, cefr_level, status) \
          VALUES ($1, $2, $3, $4, 'active') RETURNING id",

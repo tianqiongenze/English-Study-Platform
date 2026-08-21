@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -138,18 +139,66 @@ public class LearningEventConsumer {
             }
             Long kpId = ev.getKpId();
             BigDecimal score = BigDecimal.valueOf(ev.getFinalScore());
-            UserMastery m = masteryRepo.findById(
-                    new com.esp.learning.domain.UserMasteryId(ev.getUserId(), kpId)).orElse(null);
-            if (m == null) {
-                m = new UserMastery(ev.getUserId(), kpId);
-            }
-            m.applyTeacherFinalized(score, Instant.now());
-            masteryRepo.save(m); // upsert(幂等:同主键覆盖)
+            // P1-D2 OCC(2026-08-21):UserMastery 有 @Version,user_mastery 是 read-modify-write
+            // (findById→applyTeacherFinalized→save)。并发 teacher.finalized 同 (user,kp) 时,
+            // Hibernate flush 的 UPDATE 追加 WHERE version=?,冲突抛 ObjectOptimisticLockingFailureException。
+            // 原实现 generic catch(Exception)→log warn→外层 negativeAcknowledge→Pulsar 立即重投→再冲突,
+            // 等价"裸重试无上限致无限循环"(Pulsar nack 替代 Java 循环,本质同害)。
+            // 按 OCC 铁律:此处显式重读主库→重算→重 save,指数退避 + jitter,上限 3 次;耗尽则抛
+            // 让外层 negativeAcknowledge(Pulsar 按 broker 退避重投,非应用层无限即重试)。
+            // 主库 strong read:本 consumer 线程为独立入口,RoutingHolder 默认 WRITE(主库),
+            // findById/save 均读主库无 follower lag 读后写风险。
+            retryOnConflict(3, () -> {
+                UserMastery m = masteryRepo.findById(
+                        new com.esp.learning.domain.UserMasteryId(ev.getUserId(), kpId)).orElse(null);
+                if (m == null) {
+                    m = new UserMastery(ev.getUserId(), kpId);
+                }
+                m.applyTeacherFinalized(score, Instant.now());
+                masteryRepo.save(m); // upsert(幂等:同主键覆盖;@Version 并发冲突由外层重试)
+                return null;
+            });
             log.info("teacher.finalized handled: userId={}, kpId={}, score={}",
                     ev.getUserId(), kpId, score);
+        } catch (ObjectOptimisticLockingFailureException ex) {
+            // 重试耗尽仍冲突:交 Pulsar negativeAcknowledge(broker 退避重投,非应用层即重试)
+            log.warn("teacher.finalized OCC conflict exhausted, nack for broker retry: userId={}, kpId={}",
+                    ev.getUserId(), ev.getKpId(), ex);
+            throw ex;
         } catch (Exception ex) {
             log.warn("teacher.finalized handle failed err={}", ex.toString());
         }
+    }
+
+    /**
+     * P1-D2 OCC(2026-08-21):乐观锁冲突重试包装。
+     * 指数退避 20ms→40ms→80ms + jitter(防惊群),上限 maxAttempts 次;耗尽抛
+     * {@link ObjectOptimisticLockingFailureException} 交调用方。禁无限循环(OCC 铁律)。
+     */
+    private void retryOnConflict(int maxAttempts, java.util.function.Supplier<Void> action) {
+        ObjectOptimisticLockingFailureException last = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                action.get();
+                return;
+            } catch (ObjectOptimisticLockingFailureException e) {
+                last = e;
+                if (attempt >= maxAttempts) {
+                    break;
+                }
+                long backoff = (20L * (1L << (attempt - 1)))
+                        + java.util.concurrent.ThreadLocalRandom.current().nextLong(0, 20);
+                log.warn("teacher.finalized OCC conflict, retry {}/{} after {}ms: {}",
+                        attempt, maxAttempts, backoff, e.toString());
+                try {
+                    Thread.sleep(backoff);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("OCC backoff interrupted", ie);
+                }
+            }
+        }
+        throw last;
     }
 
     /** session.ended:口语会话结束 → 经 Disruptor 记 session_ended 学情事件(驱动复习调度)。 */

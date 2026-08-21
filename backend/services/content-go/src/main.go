@@ -41,10 +41,11 @@ const serviceName = "content-go"
 type Server struct {
 	readDB  *sql.DB
 	writeDB *sql.DB
+	jwt     *middleware.JWTValidator
 }
 
-func NewServer(w, r *sql.DB) *Server {
-	return &Server{readDB: r, writeDB: w}
+func NewServer(w, r *sql.DB, jwt *middleware.JWTValidator) *Server {
+	return &Server{readDB: r, writeDB: w, jwt: jwt}
 }
 
 func main() {
@@ -56,7 +57,9 @@ func main() {
 	rDB := db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_content")), serviceName)
 	wDB := db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_content")), serviceName)
 	log.Printf("[%s] CRDB pools ready (read+write)", serviceName)
-	contentSrv := NewServer(wDB, rDB)
+	// P1-30 零信任:服务自身校验 BFF 签发的 JWT(RS256 公钥),不轻信 X-User-Id/X-Role 头。
+	jwtValidator := middleware.MustInitJWTFromEnv(serviceName)
+	contentSrv := NewServer(wDB, rDB, jwtValidator)
 	contentSrv.startOutboxRelay()
 
 	nacosCli := registry.RegisterNacos(serviceName, 8096)
@@ -111,23 +114,25 @@ func (s *Server) readyz(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "UP", "db_read": true})
 }
 
-// ---- 身份/鉴权:BFF 注入可信头 ----
+// ---- 身份/鉴权:零信任 JWT 自校验(P1-30)----
+// 此前纯信任 BFF 注入的 X-User-Id/X-Role 头(集群内直连即可冒充);现改为服务自身用
+// BFF 签发 JWT 的 RS256 公钥校验取 userID + role,不读 X-User-Id/X-Role 头。
 
-func userID(c *gin.Context) int64 {
-	v, _ := strconv.ParseInt(c.GetHeader("X-User-Id"), 10, 64)
-	return v
+func (s *Server) userID(c *gin.Context) int64 {
+	return middleware.UserIDFromRequest(s.jwt, c.Request)
 }
 
-func roleOf(c *gin.Context) string {
-	if r := c.GetHeader("X-Role"); r != "" {
-		return r
+func (s *Server) roleOf(c *gin.Context) string {
+	uc := middleware.UserClaimsFromRequest(s.jwt, c.Request)
+	if uc.Role != "" {
+		return uc.Role
 	}
 	return "learner"
 }
 
 func (s *Server) requireAdmin(fn gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if roleOf(c) != "admin" {
+		if s.roleOf(c) != "admin" {
 			c.JSON(403, gin.H{"error": "admin required"})
 			c.Abort()
 			return
@@ -253,7 +258,7 @@ type answerBody struct {
 }
 
 func (s *Server) submitAnswer(c *gin.Context) {
-	uid := userID(c)
+	uid := s.userID(c)
 	if uid <= 0 {
 		c.JSON(401, gin.H{"error": "unauthorized"})
 		return

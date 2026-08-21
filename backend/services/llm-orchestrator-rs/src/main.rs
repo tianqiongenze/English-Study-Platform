@@ -285,13 +285,63 @@ struct LlmChatResp {
     trace_id: String,
 }
 
+// ---------------- 零信任身份(P1-D16 / SCS) ----------------
+// 服务在 BFF 下游,纯信任 BFF 注入的 X-User-Id 头;body/query 的 user_id 不可信,
+// 与权威头不一致即越权,拒绝(401 头缺失/非法,403 不一致)。
+
+/// 从 BFF 注入的 X-User-Id 头取权威 user_id。头缺失或非法 → 401。
+pub fn require_user_id(headers: &HeaderMap) -> Result<i64, Response> {
+    let raw = headers
+        .get("x-user-id")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| {
+            (
+                axum::http::StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "missing X-User-Id header"})),
+            )
+                .into_response()
+        })?;
+    raw.trim().parse::<i64>().map_err(|_| {
+        (
+            axum::http::StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "invalid X-User-Id header"})),
+        )
+            .into_response()
+    })
+}
+
+/// body/query 中的 user_id 与权威头比对:不一致 → 403;一致或无 body user_id → 返回权威头值。
+pub fn authorize_user_id(header_uid: i64, body_uid: Option<i64>) -> Result<i64, Response> {
+    match body_uid {
+        Some(b) if b != header_uid => Err(
+            (
+                axum::http::StatusCode::FORBIDDEN,
+                Json(json!({"error": "user_id mismatch (forbidden)"})),
+            )
+                .into_response(),
+        ),
+        _ => Ok(header_uid),
+    }
+}
+
 /// POST /api/llm/chat —— 统一 LLM 入口
-/// 流程:traceId 透传 → 幂等(X-Request-Id)→ 语义缓存查 Redis → 命中直返(标 cache_hit) → 否则调 provider → 回写缓存 + 幂等回写 + 记 llm_call_logs
+/// 流程:零信任身份校验(X-User-Id 权威,body user_id 比对)→ traceId 透传 → 幂等(X-Request-Id)→ 语义缓存查 Redis → 命中直返(标 cache_hit) → 否则调 provider → 回写缓存 + 幂等回写 + 记 llm_call_logs
 async fn llm_chat(
     State(h): State<AppHandle>,
     headers: HeaderMap,
-    Json(req): Json<LlmChatReq>,
+    Json(mut req): Json<LlmChatReq>,
 ) -> Response {
+    // P1-D16 零信任身份:body user_id 不可信,以 X-User-Id 头为权威;缺失→401,不一致→403
+    let header_uid = match require_user_id(&headers) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let uid = match authorize_user_id(header_uid, req.user_id) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    req.user_id = Some(uid); // 覆盖为权威头值,后续 cost::record 据此记账
+
     let trace_id = headers
         .get("x-trace-id")
         .and_then(|v| v.to_str().ok())

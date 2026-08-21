@@ -30,6 +30,10 @@ spec:
         - {name: OTEL_SERVICE_NAME, value: "community-go"}
         - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector.esp-prod.svc.cluster.local:4317"}
         - {name: NACOS_ADDR, value: "nacos:8848"}
+        # P1-30 零信任:JWT 公钥(esp-rsa-jwt-verify)注入,供 middleware.MustInitJWTFromEnv
+        # 校验 BFF 签发的 RS256 JWT;缺失则 MustInitJWTFromEnv os.Exit(1)(对齐 gateway-go)。
+        envFrom:
+        - secretRef: {name: esp-rsa-jwt-verify}
         startupProbe:   {httpGet: {path: /livez, port: 8097}, periodSeconds: 10, failureThreshold: 30, timeoutSeconds: 5}
         readinessProbe: {httpGet: {path: /readyz, port: 8097}, periodSeconds: 15, failureThreshold: 5, timeoutSeconds: 5}
         livenessProbe:  {httpGet: {path: /livez, port: 8097}, periodSeconds: 20, failureThreshold: 3, timeoutSeconds: 5}

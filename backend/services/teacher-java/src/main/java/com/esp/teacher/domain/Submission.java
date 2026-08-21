@@ -26,6 +26,22 @@ public class Submission {
     private String status;
     private Instant createdAt;
 
+    /**
+     * P1-D3(2026-08-21 OCC 铁律):乐观锁版本号。
+     *
+     * <p>saga tryFinalize / compensate / TeacherService.finalize / autoGradeAssignment 均为
+     * read-modify-write(findById → confirm/rollbackStatus/grade → save),并发终审同一 submission
+     * 会 lost update。加 {@code @Version} 后 Hibernate 在 UPDATE 追加 {@code WHERE version=?} 并自增,
+     * 并发冲突抛 {@link org.springframework.orm.ObjectOptimisticLockingFailureException},
+     * 调用方按 OCC 铁律重读主库→重算→重试(指数退避,上限 3 次转 409/补偿),禁无条件覆盖写。
+     *
+     * <p>表列 {@code version BIGINT NOT NULL DEFAULT 0};新实体(version==null)被 Spring Data 判为
+     * new 走 persist(INSERT),Hibernate 在 INSERT 时自动写 version=0——构造时勿显式置 0,
+     * 否则被判"已分离"走 merge 致 StaleObjectStateException(同 UserMastery 注释,坑 22-40)。
+     */
+    @Version
+    private Long version;
+
     /** 提交状态机常量(与现有数据/调用方对齐:auto_graded 为自动评阅完成态)。 */
     public static final String STATUS_PENDING = "pending";
     public static final String STATUS_GRADED = "auto_graded";
@@ -77,4 +93,6 @@ public class Submission {
     public void setStatus(String status) { this.status = status; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
 }

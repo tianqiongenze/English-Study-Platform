@@ -41,10 +41,11 @@ const (
 type Server struct {
 	readDB  *sql.DB
 	writeDB *sql.DB
+	jwt     *middleware.JWTValidator
 }
 
-func NewServer(w, r *sql.DB) *Server {
-	return &Server{readDB: r, writeDB: w}
+func NewServer(w, r *sql.DB, jwt *middleware.JWTValidator) *Server {
+	return &Server{readDB: r, writeDB: w, jwt: jwt}
 }
 
 // blockedWords:写时关键词过滤(基础版,可扩展)。命中则拒绝发布。
@@ -60,7 +61,9 @@ func main() {
 	rDB := db.MustConnectDB(config.Getenv("READ_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_community")), serviceName)
 	wDB := db.MustConnectDB(config.Getenv("WRITE_DB_URL", db.DefaultDSN("crdb-public:26257", "esp_community")), serviceName)
 	log.Printf("[%s] CRDB pools ready (read+write)", serviceName)
-	communitySrv := NewServer(wDB, rDB)
+	// P1-30 零信任:服务自身校验 BFF 签发的 JWT(RS256 公钥),不轻信 X-User-Id 头。
+	jwtValidator := middleware.MustInitJWTFromEnv(serviceName)
+	communitySrv := NewServer(wDB, rDB, jwtValidator)
 
 	nacosCli := registry.RegisterNacos(serviceName, 8097)
 
@@ -115,15 +118,17 @@ func (s *Server) readyz(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "UP", "db_read": true})
 }
 
-// ---- 身份/鉴权:BFF 注入可信头 ----
+// ---- 身份/鉴权:零信任 JWT 自校验(P1-30)----
+// 此前纯信任 BFF 注入的 X-User-Id 头(集群内直连即可冒充);现改为服务自身用
+// BFF 签发 JWT 的 RS256 公钥校验取 userID,不读 X-User-Id 头。
 
-func userID(c *gin.Context) int64 {
-	v, _ := strconv.ParseInt(c.GetHeader("X-User-Id"), 10, 64)
-	return v
+// userID 从请求 JWT(RS256 公钥验签)取 userID;token 缺失/非法返 0。
+func (s *Server) userID(c *gin.Context) int64 {
+	return middleware.UserIDFromRequest(s.jwt, c.Request)
 }
 
 func (s *Server) requireAuth(c *gin.Context) (int64, bool) {
-	uid := userID(c)
+	uid := s.userID(c)
 	if uid <= 0 {
 		c.JSON(401, gin.H{"error": "unauthorized"})
 		return 0, false
@@ -198,7 +203,7 @@ func (s *Server) getInviteCode(c *gin.Context, circleID int64) string {
 }
 
 func (s *Server) listCircles(c *gin.Context) {
-	uid, _ := userID(c), true
+	uid := s.userID(c)
 	q := c.DefaultQuery("q", "")
 	status := c.DefaultQuery("status", "active")
 	var rows *sql.Rows
@@ -270,7 +275,7 @@ func (s *Server) myCircles(c *gin.Context) {
 }
 
 func (s *Server) getCircle(c *gin.Context) {
-	uid, _ := userID(c), true
+	uid := s.userID(c)
 	id := c.Param("id")
 	cid, _ := strconv.ParseInt(id, 10, 64)
 	var name, desc, code, st string
@@ -320,6 +325,12 @@ func (s *Server) listMembers(c *gin.Context) {
 	c.JSON(200, out)
 }
 
+// joinCircle 原子化(消除 TOCTOU):
+//   - 旧实现 isMember(member 从 follower 读)+ memberCount(follower 读)+ INSERT(写主库)三步非原子,
+//     follower lag 下"查通过但写时状态已变"+ 并发超 member_limit。CLC/RWT 铁律修法。
+//   - 新实现:单事务 BeginTx 主库,SELECT ... FOR UPDATE 锁 circles 行(序列化同圈子入圈操作),
+//     事务内 COUNT 成员 + INSERT ... ON CONFLICT DO NOTHING;受影响行 0=已加入返幂等提示;
+//     member_limit 满事务内判定拒绝。check+act 同事务同主库,无 follower lag 漂移。
 func (s *Server) joinCircle(c *gin.Context) {
 	uid, ok := s.requireAuth(c)
 	if !ok {
@@ -332,11 +343,20 @@ func (s *Server) joinCircle(c *gin.Context) {
 	}
 	_ = c.BindJSON(&b)
 
+	ctx := c.Request.Context()
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // 失败/已 Commit 后回滚为 no-op
+
 	var circleName, code string
 	var ownerID, limit int64
-	err := s.readDB.QueryRowContext(c.Request.Context(),
-		"SELECT name, invite_code, owner_id, member_limit FROM circles WHERE id=$1 AND status='active'", id).
-		Scan(&circleName, &code, &ownerID, &limit)
+	// FOR UPDATE 锁圈子行:并发入圈请求在此排队,避免同时通过容量检查后各自插入超限。
+	err = tx.QueryRowContext(ctx,
+		"SELECT name, invite_code, owner_id, member_limit FROM circles WHERE id=$1 AND status='active' FOR UPDATE",
+		cid).Scan(&circleName, &code, &ownerID, &limit)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "circle not found"})
 		return
@@ -345,16 +365,36 @@ func (s *Server) joinCircle(c *gin.Context) {
 		c.JSON(403, gin.H{"error": "invalid invite code"})
 		return
 	}
-	if s.isMember(c, cid, uid) {
-		c.JSON(200, gin.H{"id": id, "already_member": true})
+	// 事务内从主库 COUNT(非 follower),与 INSERT 同事务消除 check-then-act 漂移。
+	var cnt int64
+	if err := tx.QueryRowContext(ctx,
+		"SELECT count(*) FROM circle_memberships WHERE circle_id=$1", cid).Scan(&cnt); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	if s.memberCount(c, cid) >= limit {
+	if cnt >= limit {
 		c.JSON(403, gin.H{"error": "circle member limit reached"})
 		return
 	}
-	if _, err := s.writeDB.ExecContext(c.Request.Context(),
-		"INSERT INTO circle_memberships (circle_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", id, uid); err != nil {
+	// INSERT ... ON CONFLICT DO NOTHING:PK(circle_id,user_id) 提供原子幂等;受影响行判定是否首次加入。
+	res, err := tx.ExecContext(ctx,
+		"INSERT INTO circle_memberships (circle_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+		cid, uid)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		// 已加入(幂等):不报错,返友好标识。事务提交保持不变。
+		if err := tx.Commit(); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"id": id, "already_member": true})
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}

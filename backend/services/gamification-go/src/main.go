@@ -36,10 +36,11 @@ type Server struct {
 	readDB  *sql.DB
 	writeDB *sql.DB
 	rdb     *redis.ClusterClient
+	jwt     *middleware.JWTValidator
 }
 
-func NewServer(readDB, writeDB *sql.DB, rdb *redis.ClusterClient) *Server {
-	return &Server{readDB: readDB, writeDB: writeDB, rdb: rdb}
+func NewServer(readDB, writeDB *sql.DB, rdb *redis.ClusterClient, jwt *middleware.JWTValidator) *Server {
+	return &Server{readDB: readDB, writeDB: writeDB, rdb: rdb, jwt: jwt}
 }
 
 func main() {
@@ -56,7 +57,9 @@ func main() {
 	// Redis Cluster:排行榜 ZSET 主存(esp:gamif:leaderboard:{period})
 	rdb := redisx.MustNewCluster(config.Getenv("REDIS_CLUSTER", ""), serviceName)
 
-	srv := NewServer(readDB, writeDB, rdb)
+	// P1-30 零信任:服务自身校验 BFF 签发的 JWT(RS256 公钥),不轻信 X-User-Id 头。
+	jwtValidator := middleware.MustInitJWTFromEnv(serviceName)
+	srv := NewServer(readDB, writeDB, rdb, jwtValidator)
 
 	// Nacos 服务注册(优雅退出时注销)
 	nacosCli := registry.RegisterNacos(serviceName, portInt)

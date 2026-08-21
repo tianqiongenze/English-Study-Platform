@@ -15,12 +15,15 @@ import com.esp.teacher.domain.TeacherEventOutbox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 
 /**
  * 教师学情汇总 Saga(应用层补偿事务)。
@@ -76,8 +79,13 @@ public class TeacherSummarySaga {
         log.info("saga begin: userId={}, submissionId={}, finalScore={}, classId={}",
                 userId, submissionId, finalScore, classId);
 
-        // 步骤1:本地写 finalize(本地事务内),记录前置状态供补偿
-        Snapshot snapshot = tryFinalize(submissionId, finalScore, classId);
+        // 步骤1:本地写 finalize(本地事务内),记录前置状态供补偿。
+        // P1-D3 OCC(2026-08-21):tryFinalize 是 Submission(@Version)的 read-modify-write,
+        // 并发终审同一 submission 时 Hibernate 抛 ObjectOptimisticLockingFailureException。
+        // 按 OCC 铁律:重读主库(@DataSource WRITE)→重算 confirm→重 save,指数退避 + jitter,
+        // 上限 3 次;耗尽仍冲突则放弃 finalize,转抛 ConflictException(由调用方映射 409),
+        // 不无限循环(原 Pulsar nack 重投会无限重试撞锁)。幂等命中(snapshot==null)直接重试无副作用。
+        Snapshot snapshot = retryOnConflict("tryFinalize", 3, () -> tryFinalize(submissionId, finalScore, classId));
         // snapshot == null 表示幂等命中(已终审),直接返回 0
         if (snapshot == null) {
             log.info("saga idempotent skip: submissionId={} already finalized", submissionId);
@@ -92,7 +100,11 @@ public class TeacherSummarySaga {
         } catch (RuntimeException e) {
             log.error("saga step2 learningRpc failed, compensating step1: userId={}, submissionId={}",
                     userId, submissionId, e);
-            compensate(submissionId, snapshot, userId);
+            // P1-D3 OCC:补偿同样是 read-modify-write(findById→rollbackStatus→save),并发冲突同样重试。
+            retryOnConflict("compensate", 3, () -> {
+                compensate(submissionId, snapshot, userId);
+                return null;
+            });
             throw e;
         }
         log.info("saga commit: userId={}, weakKp={}, finalized={}", userId, stats.size(), submissionId);
@@ -176,6 +188,53 @@ public class TeacherSummarySaga {
                 new TeacherFinalizedEvent(userId, snapshot.assignmentId, 0));
         log.warn("compensate done: submissionId={}, restored status={}, finalScore={}",
                 submissionId, snapshot.prevStatus, snapshot.prevFinalScore);
+    }
+
+    /**
+     * P1-D3 OCC(2026-08-21):乐观锁冲突重试包装。
+     *
+     * <p>Submission(@Version) read-modify-write 在并发终审/补偿时,Hibernate flush 的 UPDATE
+     * 追加 WHERE version=?,并发冲突返 0 行抛 {@link ObjectOptimisticLockingFailureException}。
+     * 按 OCC 铁律:捕获后重读主库(被包装方法内部 {@code findById} 已是最新主库读,
+     * 因 @DataSource WRITE 走主库 strong read)→重算→重 save;指数退避 + jitter(20ms→40ms→80ms
+     * 上下浮动)防惊群,上限 maxAttempts 次;耗尽仍冲突抛 {@link ConflictException} 由上层映射 409,
+     * 不无限循环(违反 BRR/CLC 铁律的"裸重试无上限")。
+     *
+     * @param step         步骤名(日志用)
+     * @param maxAttempts  最大尝试次数(含首次,建议 3)
+     * @param action        返回非空快照或 null(幂等命中);返回值被首次成功的值采用
+     * @param <T>           返回类型
+     * @return 首次成功执行的返回值
+     * @throws ConflictException 重试耗尽仍冲突
+     */
+    private <T> T retryOnConflict(String step, int maxAttempts, Supplier<T> action) {
+        ObjectOptimisticLockingFailureException last = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return action.get();
+            } catch (ObjectOptimisticLockingFailureException e) {
+                last = e;
+                if (attempt >= maxAttempts) {
+                    break;
+                }
+                long backoff = (20L * (1L << (attempt - 1))) + ThreadLocalRandom.current().nextLong(0, 20);
+                log.warn("saga {} optimistic lock conflict, retry {}/{} after {}ms: {}",
+                        step, attempt, maxAttempts, backoff, e.toString());
+                try {
+                    Thread.sleep(backoff);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new ConflictException("saga " + step + " interrupted during OCC backoff", ie);
+                }
+            }
+        }
+        log.error("saga {} optimistic lock conflict exhausted after {} attempts, giving up", step, maxAttempts, last);
+        throw new ConflictException("saga " + step + " optimistic lock conflict after " + maxAttempts + " attempts", last);
+    }
+
+    /** P1-D3 OCC:乐观锁重试耗尽,转 409 语义(交上层映射)。 */
+    public static class ConflictException extends RuntimeException {
+        public ConflictException(String message, Throwable cause) { super(message, cause); }
     }
 
     /** Saga 前置快照(供补偿回滚)。独立静态内部类避免污染 Submission 实体。 */

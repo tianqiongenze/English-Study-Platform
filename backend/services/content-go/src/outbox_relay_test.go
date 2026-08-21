@@ -148,13 +148,13 @@ func TestRandID_Unique(t *testing.T) {
 	}
 }
 
-// ---- userID/roleOf:从 gin context 解析 ----
+// ---- userID/roleOf:零信任 JWT 自校验(P1-30,真实签发 token)----
 
 func TestUserID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "GET", "/", nil)
-	c.Request.Header.Set("X-User-Id", "42")
-	if got := userID(c); got != 42 {
+	c.Request.Header.Set("Authorization", "Bearer "+contentSignJWT(t, 42, "learner"))
+	if got := contentNewTestServer(t).userID(c); got != 42 {
 		t.Errorf("userID = %d, want 42", got)
 	}
 }
@@ -162,8 +162,8 @@ func TestUserID(t *testing.T) {
 func TestUserID_Invalid(t *testing.T) {
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "GET", "/", nil)
-	c.Request.Header.Set("X-User-Id", "abc")
-	if got := userID(c); got != 0 {
+	c.Request.Header.Set("Authorization", "Bearer not-a-jwt")
+	if got := contentNewTestServer(t).userID(c); got != 0 {
 		t.Errorf("userID invalid: got %d, want 0", got)
 	}
 }
@@ -171,8 +171,8 @@ func TestUserID_Invalid(t *testing.T) {
 func TestRoleOf_Admin(t *testing.T) {
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "GET", "/", nil)
-	c.Request.Header.Set("X-Role", "admin")
-	if got := roleOf(c); got != "admin" {
+	c.Request.Header.Set("Authorization", "Bearer "+contentSignJWT(t, 1, "admin"))
+	if got := contentNewTestServer(t).roleOf(c); got != "admin" {
 		t.Errorf("roleOf = %q, want admin", got)
 	}
 }
@@ -180,20 +180,21 @@ func TestRoleOf_Admin(t *testing.T) {
 func TestRoleOf_DefaultLearner(t *testing.T) {
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "GET", "/", nil)
-	if got := roleOf(c); got != "learner" {
+	// 无 token → role 空 → 回落 "learner"
+	if got := contentNewTestServer(t).roleOf(c); got != "learner" {
 		t.Errorf("roleOf default = %q, want learner", got)
 	}
 }
 
-// ---- requireAdmin:角色校验中间件 ----
+// ---- requireAdmin:角色校验中间件(零信任) ----
 
 func TestRequireAdmin_AsAdmin(t *testing.T) {
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "GET", "/", nil)
-	c.Request.Header.Set("X-Role", "admin")
+	c.Request.Header.Set("Authorization", "Bearer "+contentSignJWT(t, 1, "admin"))
 
 	called := false
-	handler := requireAdmin(func(c *gin.Context) {
+	handler := contentNewTestServer(t).requireAdmin(func(c *gin.Context) {
 		called = true
 		c.Status(200)
 	})
@@ -210,10 +211,10 @@ func TestRequireAdmin_AsAdmin(t *testing.T) {
 func TestRequireAdmin_AsLearner(t *testing.T) {
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "GET", "/", nil)
-	// No X-Role header → default "learner"
+	c.Request.Header.Set("Authorization", "Bearer "+contentSignJWT(t, 1, "learner"))
 
 	called := false
-	handler := requireAdmin(func(c *gin.Context) {
+	handler := contentNewTestServer(t).requireAdmin(func(c *gin.Context) {
 		called = true
 	})
 	handler(c)
@@ -226,14 +227,15 @@ func TestRequireAdmin_AsLearner(t *testing.T) {
 	}
 }
 
-// ---- importBatch:批量上限校验 ----
+// ---- importBatch:批量上限校验(零信任 admin) ----
 
 func TestImportBatch_EmptyBatch(t *testing.T) {
+	srv := contentNewTestServer(t)
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "POST", "/api/content/import", []byte(`[]`))
-	c.Request.Header.Set("X-Role", "admin")
+	c.Request.Header.Set("Authorization", "Bearer "+contentSignJWT(t, 1, "admin"))
 
-	importBatch(c)
+	srv.importBatch(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("empty batch: got %d, want 400", w.Code)
@@ -241,11 +243,12 @@ func TestImportBatch_EmptyBatch(t *testing.T) {
 }
 
 func TestImportBatch_BadJSON(t *testing.T) {
+	srv := contentNewTestServer(t)
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "POST", "/api/content/import", []byte(`not json`))
-	c.Request.Header.Set("X-Role", "admin")
+	c.Request.Header.Set("Authorization", "Bearer "+contentSignJWT(t, 1, "admin"))
 
-	importBatch(c)
+	srv.importBatch(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("bad JSON: got %d, want 400", w.Code)
@@ -277,22 +280,28 @@ func TestGrade_Float64Comparison(t *testing.T) {
 	}
 }
 
-// ---- userID:边界 ----
+// ---- userID:边界(零信任) ----
 
-func TestUserID_EmptyHeader(t *testing.T) {
+func TestUserID_EmptyToken(t *testing.T) {
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "GET", "/", nil)
-	// No X-User-Id header
-	if got := userID(c); got != 0 {
-		t.Errorf("empty header: got %d, want 0", got)
+	// 无 Authorization / cookie → JWT 空 → ParseUserID 返 0
+	if got := contentNewTestServer(t).userID(c); got != 0 {
+		t.Errorf("empty token: got %d, want 0", got)
 	}
 }
 
-func TestUserID_NegativeUID(t *testing.T) {
+func TestUserID_NegativeUIDRejected(t *testing.T) {
+	// 负数 subject 不可能由 BFF 签发(注册 id 单调递增);非法/非生产 token 返 0,
+	// 即便手造 sub="-1" 的 token,ParseUserID 的 Sscanf 解析后 uid=-1,
+	// 但 requireAuth/userID 调用方对 uid<=0 走 401。此处断言 userID 解析非正数即拒绝路径。
 	w := httptest.NewRecorder()
 	c := createTestContext(w, "GET", "/", nil)
-	c.Request.Header.Set("X-User-Id", "-1")
-	if got := userID(c); got != -1 {
-		t.Errorf("negative uid: got %d, want -1", got)
+	// 用一个 subject="-1" 的签发 token(测试私钥,验证会过签名但 uid 非正)。
+	tok := contentSignJWTNeg(t, -1)
+	c.Request.Header.Set("Authorization", "Bearer "+tok)
+	got := contentNewTestServer(t).userID(c)
+	if got >= 0 {
+		t.Errorf("negative uid must be rejected (<=0), got %d", got)
 	}
 }

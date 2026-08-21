@@ -6,6 +6,7 @@ require (
 	github.com/alibaba/sentinel-golang v1.0.4
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-sql-driver/mysql v1.10.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/nacos-group/nacos-sdk-go/v2 v2.2.5
 	github.com/prometheus/client_golang v1.24.1

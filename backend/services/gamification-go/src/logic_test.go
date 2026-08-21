@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -410,7 +411,7 @@ func TestMetaEvict_L1(t *testing.T) {
 	if v, ok := l1.get("metaEvict:42"); !ok || v != "hello" {
 		t.Fatal("L1 should have value")
 	}
-	metaEvict(nil, "metaEvict", int64(42))
+	(&Server{}).metaEvict(context.Background(), "metaEvict", int64(42))
 	if _, ok := l1.get("metaEvict:42"); ok {
 		t.Error("should be evicted from L1")
 	}
@@ -422,7 +423,7 @@ func TestMetaEvict_Disabled(t *testing.T) {
 	defer func() { cacheEnabled = origEnabled }()
 
 	// 不应 panic
-	metaEvict(nil, "test", int64(1))
+	(&Server{}).metaEvict(context.Background(), "test", int64(1))
 }
 
 // ---- rankings.go:compositeScore ts<0 分支 ----
@@ -511,15 +512,15 @@ func TestPeriodBucket_AllPeriods(t *testing.T) {
 	}
 }
 
-// ---- digital_human.go:requireUID ----
+// ---- digital_human.go:requireUID(零信任 JWT,P1-30)----
 
 func TestRequireUID_Missing(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Request = httptest.NewRequest("GET", "/", nil) // 无 token
 
-	uid, ok := requireUID(c)
+	uid, ok := gamifNewTestServer(t).requireUID(c)
 	if ok {
 		t.Error("should not be ok")
 	}
@@ -536,17 +537,18 @@ func TestRequireUID_Invalid(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Request.Header.Set("X-User-Id", "abc")
+	c.Request.Header.Set("Authorization", "Bearer not-a-valid-jwt")
 
-	uid, ok := requireUID(c)
+	uid, ok := gamifNewTestServer(t).requireUID(c)
 	if ok {
-		t.Error("should not be ok with invalid uid")
+		t.Error("should not be ok with invalid token")
 	}
 	if uid != 0 {
 		t.Errorf("uid: got %d, want 0", uid)
 	}
-	if w.Code != 400 {
-		t.Errorf("status: got %d, want 400", w.Code)
+	// 零信任路径:非法 token 与缺失 token 同样 401(非 400)。
+	if w.Code != 401 {
+		t.Errorf("status: got %d, want 401", w.Code)
 	}
 }
 
@@ -555,9 +557,9 @@ func TestRequireUID_Valid(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Request.Header.Set("X-User-Id", "42")
+	c.Request.Header.Set("Authorization", "Bearer "+gamifSignJWT(t, 42))
 
-	uid, ok := requireUID(c)
+	uid, ok := gamifNewTestServer(t).requireUID(c)
 	if !ok {
 		t.Error("should be ok")
 	}
@@ -571,9 +573,10 @@ func TestRequireUID_Zero(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Request.Header.Set("X-User-Id", "0")
+	// gamifSignJWT 对 uid<=0 返回空串 → 无 token → 401
+	c.Request.Header.Set("Authorization", "Bearer "+gamifSignJWT(t, 0))
 
-	uid, ok := requireUID(c)
+	uid, ok := gamifNewTestServer(t).requireUID(c)
 	if ok {
 		t.Error("uid=0 should not be ok")
 	}

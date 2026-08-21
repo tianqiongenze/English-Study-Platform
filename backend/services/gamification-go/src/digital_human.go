@@ -9,29 +9,27 @@ import (
 	"database/sql"
 	"net/http"
 	"regexp"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"esp/common-go/middleware"
 )
 
 var personaIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
-func requireUID(c *gin.Context) (int64, bool) {
-	meStr := c.GetHeader("X-User-Id")
-	if meStr == "" {
+// requireUID 零信任校验:从 JWT(RS256 公钥验签)取 userID,不读 X-User-Id 头(P1-30)。
+// 失败返 401(token 缺失/非法/签名不符)。validator 为 nil(降级模式)同样返 401。
+func (s *Server) requireUID(c *gin.Context) (int64, bool) {
+	uid := middleware.UserIDFromRequest(s.jwt, c.Request)
+	if uid <= 0 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		return 0, false
-	}
-	uid, err := strconv.ParseInt(meStr, 10, 64)
-	if err != nil || uid <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "bad user"})
 		return 0, false
 	}
 	return uid, true
 }
 
 func (s *Server) getDigitalHuman(c *gin.Context) {
-	uid, ok := requireUID(c)
+	uid, ok := s.requireUID(c)
 	if !ok {
 		return
 	}
@@ -46,7 +44,7 @@ func (s *Server) getDigitalHuman(c *gin.Context) {
 }
 
 func (s *Server) setDigitalHuman(c *gin.Context) {
-	uid, ok := requireUID(c)
+	uid, ok := s.requireUID(c)
 	if !ok {
 		return
 	}

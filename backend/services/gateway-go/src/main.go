@@ -126,9 +126,20 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	// 探针三分离:readyz=依赖就绪(当前无强依赖,直接 UP)、livez=进程存活。
-	// 后续接 Redis ping 后 readyz 再挂真实依赖检查。
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	// 探针三分离(OSW/RWT,2026-08-21 P1-D12):
+	// readyz=依赖就绪(Redis PING 失败返 503 让流量不打进来,避免 Redis 抖动时假 500 雪崩);
+	// livez=进程存活(只查进程不查依赖,失败才重启,readyz 失败不致 liveness 重启)。
+	// Redis 是 gateway 强依赖(会话幂等 SETNX + WS Hub Pub/Sub),脑裂/未起时 readyz 必失败。
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := rdb.Ping(ctx).Err(); err != nil {
+			slog.Warn("readyz redis ping failed", "err", err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	mux.HandleFunc("/api/scenarios", srv.handleScenarios)
 	mux.HandleFunc("/api/sessions", srv.handleCreateSession)

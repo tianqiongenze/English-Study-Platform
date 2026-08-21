@@ -593,3 +593,23 @@ gateway-go 1.15.1→1.15.2(Sentinel 接入+RWP)/esp-admin 1.3.4→1.3.7(SetRateL
 - [ ] git commit 全部 P0 改动 + 6 铁律 + lco-proxy 重命名(代码+yaml+文档+测试+memory+CLAUDE.md)。
 - [ ] Redis 锚点 esp:ctx:session:23-29 更新(铁律沉淀+P0 测试修复完成状态)。
 - [ ] 之后进入 P1 出方案 + k6/Locust 压测。
+
+
+## 会话23-29续:P1路线图出案 + llm-orchestrator-rs RWP漏修补齐(2026-08-21)
+
+### P1 修复路线图出案(Workflow 6维度并行)
+- 编排:workflow-first 铁律(P1 出案是多维度独立方案,典型 Workflow 场景)。6 agent 并行,371k tokens,0 错误,schema 强制结构化输出。
+- 出案 27 条:高优 12(压测前必做)/中 11(重构阶段)/低 3(加固)。
+- 报告:report/audit/p1-fix-roadmap-2026-08-21.md。
+- 关键纠正(Workflow P1-D9 发现):llm-orchestrator-rs readOnly 仍无 volumeMounts——P0-K4 审计列 5 服务时漏了这个,P1-D9 纠正。
+
+### llm-orchestrator-rs RWP 漏修补齐(P1-D9,P0-K4 漏列纠正)
+- 33-orchestrator-vocab.yaml llm-orchestrator-rs readOnlyRootFilesystem:true 补 app-log+/tmp emptyDir 挂载(对标 reading-go 模板)。vocab-srs-go 无 readOnly(本就没漏)。
+- rollout ready=1/1。
+- commit f34e7ce 本地落地(push 待网络恢复:github.com 75s 超时连不上,非授权问题用户已授权 push master)。
+
+### 待办(本会话后续)
+- [ ] 网络恢复后 git push origin master(f34e7ce)。
+- [ ] P1 S级快速修(半天):P1-D5 message_id 入主 DDL / P1-D8 Redis ExternalName / P1-D11 WebClient 超时 / P1-D12 readyz 依赖检查 / P1-D18 邀请码模偏差。
+- [ ] P1 M级(1-2天):P1-D1 pollLoop hwm / P1-D2 乐观锁退避 / P1-30 纯信任头。
+- [ ] 之后:k6+Locust 压测对比 GraphQL vs pre-GraphQL。

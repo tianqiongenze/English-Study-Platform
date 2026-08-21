@@ -66,8 +66,10 @@ CREATE TABLE IF NOT EXISTS learning_events (
   id BIGINT NOT NULL PRIMARY KEY AUTO_RANDOM,
   user_id BIGINT NOT NULL,
   event_type VARCHAR(32) NOT NULL,
+  message_id STRING NULL,  -- P1-8/P1-D5 幂等键(唯一,outbox 重投时 ON CONFLICT DO NOTHING 去重;旧行 NULL 不冲突)
   payload JSON NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE INDEX learning_events_message_id_key (message_id),
   KEY idx_user_time (user_id, created_at)
 );
 
@@ -368,12 +370,14 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
 CREATE TABLE IF NOT EXISTS learning_event_outbox (
   id BIGINT NOT NULL AUTO_RANDOM PRIMARY KEY,
   user_id BIGINT NOT NULL,
+  message_id STRING NULL,  -- P1-8/P1-D5 幂等键(唯一,OutboxRelay 重投时 ON CONFLICT 去重)
   event_type VARCHAR(32) NOT NULL,
   payload JSON NULL,
   status VARCHAR(16) NOT NULL DEFAULT 'pending',  -- pending/done/failed
   retry_count INT NOT NULL DEFAULT 0,
   next_retry_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE INDEX learning_event_outbox_message_id_key (message_id),
   KEY idx_status_retry (status, next_retry_at),
   KEY idx_user_time (user_id, created_at)
 );

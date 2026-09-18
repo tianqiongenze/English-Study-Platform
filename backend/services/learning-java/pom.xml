@@ -38,7 +38,7 @@
 
     <dependencies>
         <!-- 安全升级:BouncyCastle 1.78.1/1.81 → 1.84(由传递依赖带入,显式声明锁定;修复 CRIT CVE-2025-14813;对齐 teacher-java) -->
-        <dependency><groupId>org.bouncycastle</groupId><artifactId>bcprov-jdk18on</artifactId><version>1.84</version></dependency>
+        <dependency><groupId>org.bouncycastle</groupId><artifactId>bcprov-jdk18on</artifactId><version>1.85</version></dependency>
         <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>1.84</version></dependency>
         <!-- Web MVC + Jetty(Spring Boot 4.0 已移除 Undertow,按用户要求用 Jetty 替代 Tomcat) -->
         <dependency>

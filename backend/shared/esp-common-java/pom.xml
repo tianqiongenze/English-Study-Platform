@@ -24,7 +24,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jjwt.version>0.13.0</jjwt.version>
         <spring-boot.version>4.0.7</spring-boot.version>
-        <jackson.version>2.21.4</jackson.version>
+        <jackson.version>2.21.6</jackson.version>
     </properties>
 
     <dependencies>

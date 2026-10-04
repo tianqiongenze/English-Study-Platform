@@ -23,7 +23,7 @@
         <caffeine.version>3.2.4</caffeine.version>
         <pulsar.version>3.3.9</pulsar.version>
         <slf4j.version>2.0.18</slf4j.version>
-        <jackson.version>2.19.4</jackson.version>
+        <jackson.version>2.21.7</jackson.version>
         <junit.version>5.14.4</junit.version>
         <mockito.version>5.18.0</mockito.version>
     </properties>

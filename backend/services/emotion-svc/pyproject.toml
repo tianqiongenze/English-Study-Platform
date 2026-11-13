@@ -14,7 +14,7 @@ dependencies = [
     "esp-db-py>=1.0.0",
     "psycopg[binary]>=3.1",
     # OpenTelemetry (tracing → OTel Collector via OTLP gRPC)
-    "opentelemetry-api==1.30.0",
+    "opentelemetry-api==1.45.2",
     "opentelemetry-sdk==1.30.0",
     "opentelemetry-exporter-otlp==1.30.0",
     # OTel 自动埋点:Litestar 2.x 内置 OpenTelemetryPlugin(litestar.contrib.opentelemetry),

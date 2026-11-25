@@ -1,7 +1,7 @@
 # 许可协议 · License
 
-版权所有 © 2026 宫宇伟 <javanetgognzheng@aliyun.com>
-Copyright © 2026 Gong Yuwei <javanetgognzheng@aliyun.com>
+版权所有 © 2026 宫宇伟 <javanetgongzheng@aliyun.com>
+Copyright © 2026 Gong Yuwei <javanetgongzheng@aliyun.com>
 
 本仓库包含两类内容，分别适用不同许可，请按内容类型对号：
 
@@ -11,7 +11,8 @@ Copyright © 2026 Gong Yuwei <javanetgognzheng@aliyun.com>
 | **代码与脚本** | .py / .js / .java / .go / .rs / .sql / .yaml / .json 及可执行脚本 | **PolyForm Noncommercial 1.0.0**（非商业软件许可） |
 
 两类许可的共同底线：**允许非商业的教学、教研、学习、修改与分发；禁止商业使用。**
-商业授权（含对外收费培训、出版、SaaS、商业 AI 训练）：javanetgognzheng@aliyun.com
+商业授权（含对外收费培训、出版、SaaS、商业 AI 训练）：javanetgongzheng@aliyun.com
+  国际 International：javanetgongzheng@gmail.com
 办学使用（学历教育、校本化改编、课堂演示）：文档署名即可；代码可在非商业教学场景自由修改与分发。
 
 以下依次为两份许可的正式文本。
@@ -542,5 +543,5 @@ PolyForm Noncommercial License 1.0.0
 ## 商业授权 · Commercial Licensing
 
 以上两类内容的商业使用，均须事先取得著作权人书面授权。
-联系方式：javanetgognzheng@aliyun.com
+联系方式：javanetgongzheng@aliyun.com
 ================================================================================
